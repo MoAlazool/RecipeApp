@@ -8,10 +8,11 @@ import {
   Animated,
   useColorScheme,
   Dimensions,
+  Modal,
 } from 'react-native';
-import { Text } from '@rneui/themed';
+import { Text, Slider } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RecipeLoadingAnimation } from '@/components/RecipeLoadingAnimation';
 import { aiService } from '@/services/ai.service';
@@ -99,45 +100,26 @@ function IngredientChip({
   onToggle: () => void;
   isDark: boolean;
 }) {
-  const isSelected = ingredient.selected;
-
   return (
-    <Pressable
+    <View
       style={[
         styles.chip,
-        isSelected
-          ? styles.chipSelected
-          : {
-              backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6',
-              borderColor: 'transparent',
-            },
+        {
+          backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB',
+        },
       ]}
-      onPress={onToggle}
     >
-      <Text
-        style={[
-          styles.chipEmoji,
-          !isSelected && { opacity: 0.6 },
-        ]}
-      >
-        {ingredient.emoji}
-      </Text>
+      <Text style={styles.chipEmoji}>{ingredient.emoji}</Text>
       <Text
         style={[
           styles.chipText,
-          isSelected
-            ? styles.chipTextSelected
-            : { color: isDark ? '#9CA3AF' : '#6B7280' },
+          { color: isDark ? '#E2E8F0' : '#334155' },
         ]}
       >
         {ingredient.name}
       </Text>
-      <Ionicons
-        name={isSelected ? 'checkmark' : 'add'}
-        size={16}
-        color={isSelected ? '#FFFFFF' : isDark ? 'rgba(255,255,255,0.5)' : 'rgba(96,108,56,0.5)'}
-      />
-    </Pressable>
+    </View>
   );
 }
 
@@ -152,6 +134,10 @@ function FeaturedRecipeCard({
 }) {
   const slideAnim = useRef(new Animated.Value(20)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
+
+  // Mock data for ingredients split (in a real app, this would come from the recipe object)
+  const inStock = recipe.matchedIngredients ? recipe.matchedIngredients.split(', ') : [];
+  const needed = recipe.missingIngredients ? recipe.missingIngredients.split(', ') : [];
 
   useEffect(() => {
     Animated.parallel([
@@ -187,58 +173,66 @@ function FeaturedRecipeCard({
           <Image source={{ uri: recipe.image }} style={styles.featuredImage} />
           <View style={styles.featuredImageOverlay} />
 
+          {/* Chef's Choice Badge */}
+          <View style={[styles.chefsChoiceBadge, { backgroundColor: isDark ? 'rgba(17,24,39,0.9)' : 'rgba(255,255,255,0.95)' }]}>
+            <Ionicons name="shield-checkmark" size={16} color={COLORS.olive} />
+            <Text style={[styles.chefsChoiceText, { color: isDark ? '#FFF' : '#0F172A' }]}>CHEF'S CHOICE</Text>
+          </View>
+
           {/* Match Badge */}
           <View
             style={[
               styles.matchBadge,
-              { backgroundColor: isDark ? 'rgba(17,24,39,0.9)' : 'rgba(255,255,255,0.95)' },
+              { backgroundColor: COLORS.primary },
             ]}
           >
-            <View style={styles.matchDot} />
             <Text style={styles.matchText}>{recipe.matchPercentage}% MATCH</Text>
           </View>
 
-          {/* Meta Badges */}
-          <View style={styles.metaBadges}>
-            <View style={styles.metaBadge}>
-              <Ionicons name="time-outline" size={14} color="#FFFFFF" />
-              <Text style={styles.metaBadgeText}>{recipe.time}</Text>
-            </View>
-            <View style={styles.metaBadge}>
-              <Ionicons name="flame-outline" size={14} color="#FFFFFF" />
-              <Text style={styles.metaBadgeText}>{recipe.difficulty}</Text>
+          {/* Bottom Overlay Info */}
+          <View style={styles.featuredBottomOverlay}>
+            <Text style={styles.featuredTitleOverride} numberOfLines={2}>{recipe.title}</Text>
+            <View style={styles.featuredMetaRow}>
+              <View style={styles.glassBadge}>
+                <Ionicons name="time-outline" size={14} color="#FFF" />
+                <Text style={styles.glassBadgeText}>{recipe.time}</Text>
+              </View>
+              <View style={styles.glassBadge}>
+                <Ionicons name="flame-outline" size={14} color="#FFF" />
+                <Text style={styles.glassBadgeText}>{recipe.difficulty}</Text>
+              </View>
             </View>
           </View>
         </View>
 
         <View style={styles.featuredContent}>
-          <Text
-            style={[
-              styles.featuredTitle,
-              { color: isDark ? '#FFFFFF' : '#0F172A' },
-            ]}
-          >
-            {recipe.title}
-          </Text>
+          <View style={styles.ingredientsGrid}>
+            <View style={styles.ingredientCol}>
+              <View style={styles.ingredientHeader}>
+                <View style={[styles.dot, { backgroundColor: COLORS.olive }]} />
+                <Text style={styles.ingredientLabel}>IN STOCK</Text>
+              </View>
+              <Text style={[styles.ingredientListText, { color: isDark ? '#D1D5DB' : '#334155' }]}>
+                {inStock.length > 0 ? inStock.join(', ') : 'All ingredients'}
+              </Text>
+            </View>
 
-          <View style={styles.matchInfo}>
-            <Ionicons name="checkmark-circle" size={18} color={COLORS.olive} />
-            <Text style={[styles.matchInfoText, { color: isDark ? COLORS.oliveLight : COLORS.olive }]}>
-              You have almost everything!
-            </Text>
+            {needed.length > 0 && (
+              <View style={[styles.ingredientCol, styles.ingredientColBorder, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#F1F5F9' }]}>
+                <View style={styles.ingredientHeader}>
+                  <View style={[styles.dot, { backgroundColor: COLORS.primary }]} />
+                  <Text style={styles.ingredientLabel}>NEEDED</Text>
+                </View>
+                <Text style={[styles.ingredientListText, { color: isDark ? '#D1D5DB' : '#334155' }]}>
+                  {needed.join(', ')}
+                </Text>
+              </View>
+            )}
           </View>
 
-          <Text style={[styles.featuredDescription, { color: isDark ? '#9CA3AF' : '#64748B' }]}>
-            A classic Middle Eastern dish that matches perfectly with your{' '}
-            <Text style={{ color: isDark ? '#FFFFFF' : '#0F172A', fontFamily: 'PlusJakartaSans_600SemiBold' }}>
-              {recipe.matchedIngredients}
-            </Text>
-            .
-          </Text>
-
-          <Pressable style={styles.viewRecipeButton} onPress={onPress}>
-            <Text style={styles.viewRecipeButtonText}>View Recipe</Text>
-            <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+          <Pressable style={[styles.viewRecipeButton, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} onPress={onPress}>
+            <Text style={[styles.viewRecipeButtonText, { color: isDark ? '#0F172A' : '#FFFFFF' }]}>View Step-by-Step Guide</Text>
+            <Ionicons name="arrow-forward" size={18} color={isDark ? '#0F172A' : '#FFFFFF'} />
           </Pressable>
         </View>
       </Pressable>
@@ -277,7 +271,8 @@ function CompactRecipeCard({
     ]).start();
   }, [delay]);
 
-  const isHighMatch = recipe.matchPercentage >= 90;
+  const isReady = !recipe.missingIngredients;
+  const missingCount = recipe.missingIngredients ? recipe.missingIngredients.split(',').length : 0;
 
   return (
     <Animated.View
@@ -294,58 +289,37 @@ function CompactRecipeCard({
       <Pressable style={styles.compactCardInner} onPress={onPress}>
         <View style={styles.compactImageContainer}>
           <Image source={{ uri: recipe.image }} style={styles.compactImage} />
-          <View
-            style={[
-              styles.compactMatchBadge,
-              {
-                backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
-                borderColor: isHighMatch ? 'rgba(96,108,56,0.2)' : 'rgba(234,179,8,0.2)',
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.compactMatchText,
-                { color: isHighMatch ? (isDark ? COLORS.oliveLight : COLORS.oliveDark) : '#D97706' },
-              ]}
-            >
-              {recipe.matchPercentage}% Match
-            </Text>
+          <View style={styles.compactImageOverlay} />
+
+          <View style={[styles.compactStatusBadge, { backgroundColor: isReady ? COLORS.olive : '#FB923C' }]}>
+            <Text style={styles.compactStatusText}>{isReady ? 'READY' : `MISSING ${missingCount}`}</Text>
+          </View>
+
+          <View style={styles.compactTimeBadge}>
+            <Ionicons name="time-outline" size={12} color="#FFF" />
+            <Text style={styles.compactTimeText}>{recipe.time}</Text>
           </View>
         </View>
 
         <View style={styles.compactContent}>
-          <View>
-            <Text
-              style={[
-                styles.compactTitle,
-                { color: isDark ? '#FFFFFF' : '#0F172A' },
-              ]}
-              numberOfLines={2}
-            >
-              {recipe.title}
+          <Text
+            style={[
+              styles.compactTitle,
+              { color: isDark ? '#FFFFFF' : '#0F172A' },
+            ]}
+            numberOfLines={2}
+          >
+            {recipe.title}
+          </Text>
+          <View style={styles.compactMeta}>
+            <Ionicons
+              name={isReady ? "checkmark-circle" : "bag-handle"}
+              size={14}
+              color={isReady ? COLORS.olive : COLORS.primary}
+            />
+            <Text style={styles.compactMetaText}>
+              {isReady ? 'All ingredients' : recipe.missingIngredients && recipe.missingIngredients.split(',')[0] + ' needed'}
             </Text>
-            {recipe.missingIngredients && (
-              <Text style={styles.missingText}>
-                Missing: {recipe.missingIngredients}
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.compactFooter}>
-            <View style={styles.compactTime}>
-              <Ionicons name="time-outline" size={14} color="#6B7280" />
-              <Text style={styles.compactTimeText}>{recipe.time}</Text>
-            </View>
-            <Pressable
-              style={[
-                styles.compactArrowButton,
-                { backgroundColor: isDark ? 'rgba(96,108,56,0.2)' : 'rgba(96,108,56,0.1)' },
-              ]}
-              onPress={onPress}
-            >
-              <Ionicons name="arrow-forward" size={18} color={COLORS.olive} />
-            </Pressable>
           </View>
         </View>
       </Pressable>
@@ -353,36 +327,7 @@ function CompactRecipeCard({
   );
 }
 
-function TabBarItem({
-  icon,
-  label,
-  isActive,
-  onPress,
-}: {
-  icon: string;
-  label: string;
-  isActive: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable style={styles.tabItem} onPress={onPress}>
-      {isActive && <View style={styles.tabIndicator} />}
-      <Ionicons
-        name={icon as any}
-        size={24}
-        color={isActive ? COLORS.primary : 'rgba(100,116,139,0.5)'}
-      />
-      <Text
-        style={[
-          styles.tabLabel,
-          isActive ? styles.tabLabelActive : styles.tabLabelInactive,
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
+
 
 export default function RecipeResultsScreen() {
   const router = useRouter();
@@ -396,7 +341,40 @@ export default function RecipeResultsScreen() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [isLoadingRecipes, setIsLoadingRecipes] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState('fridge');
+
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+
+  // Filter State
+  const [filters, setFilters] = useState({
+    sortBy: 'relevance',
+    dietary: [] as string[],
+    time: 45,
+    difficulty: null as string | null,
+    tools: [] as string[],
+  });
+
+  const toggleFilter = (type: 'dietary' | 'tools', value: string) => {
+    setFilters(prev => {
+      const current = prev[type];
+      const exists = current.includes(value);
+      return {
+        ...prev,
+        [type]: exists ? current.filter(d => d !== value) : [...current, value]
+      };
+    });
+  };
+
+  const setSingleFilter = (type: 'sortBy' | 'time' | 'difficulty', value: any) => {
+    setFilters(prev => ({ ...prev, [type]: value }));
+  };
+
+  const applyFilters = () => {
+    setFilterModalVisible(false);
+    const selectedIngredients = ingredients.filter((i) => i.selected);
+    if (selectedIngredients.length > 0) {
+      fetchRecipeSuggestions(selectedIngredients);
+    }
+  };
 
   // Parse ingredients from params
   useEffect(() => {
@@ -432,12 +410,21 @@ export default function RecipeResultsScreen() {
       setError(null);
 
       const ingredientNames = ingredientList.map((i) => i.name);
+
       const userPreferences = user
         ? {
-            dietary_restrictions: user.dietary_restrictions,
-            cooking_style: user.cooking_style,
-          }
-        : undefined;
+          dietary_restrictions: [...(user.dietary_restrictions || []), ...filters.dietary],
+          cooking_style: user.cooking_style,
+          max_time_minutes: filters.time,
+          difficulty_level: filters.difficulty,
+          kitchen_tools: filters.tools,
+        }
+        : {
+          dietary_restrictions: filters.dietary,
+          max_time_minutes: filters.time,
+          difficulty_level: filters.difficulty,
+          kitchen_tools: filters.tools,
+        };
 
       const suggestions = await aiService.suggestRecipesFromIngredients(
         ingredientNames,
@@ -508,8 +495,8 @@ export default function RecipeResultsScreen() {
           {
             paddingTop: insets.top + 12,
             backgroundColor: isDark
-              ? 'rgba(26,18,16,0.9)'
-              : 'rgba(252,250,249,0.9)',
+              ? 'rgba(26,18,16,0.95)'
+              : 'rgba(252,250,249,0.95)',
             borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6',
           },
         ]}
@@ -529,7 +516,7 @@ export default function RecipeResultsScreen() {
                 { color: isDark ? '#FFFFFF' : '#0F172A' },
               ]}
             >
-              Recipes for your ingredients
+              Chef's Recommendations
             </Text>
           </View>
           <Pressable style={styles.notificationButton}>
@@ -547,26 +534,23 @@ export default function RecipeResultsScreen() {
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 140 }}
+        contentContainerStyle={{ paddingBottom: 160 }}
       >
         {/* Ingredients Section */}
         <View style={styles.ingredientsSection}>
           <View style={styles.ingredientsHeader}>
-            <Text style={styles.sectionLabel}>Detected Ingredients</Text>
-            <Pressable>
-              <Text style={styles.editLink}>Edit List</Text>
-            </Pressable>
+            <Text style={styles.sectionLabel}>Base Ingredients</Text>
           </View>
-          <View style={styles.chipsContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsContainer}>
             {ingredients.map((ingredient, index) => (
               <IngredientChip
-                key={ingredient.name}
+                key={`${index}-${ingredient.name}`}
                 ingredient={ingredient}
                 onToggle={() => toggleIngredient(index)}
                 isDark={isDark}
               />
             ))}
-          </View>
+          </ScrollView>
         </View>
 
         {/* Recipes Section */}
@@ -596,15 +580,22 @@ export default function RecipeResultsScreen() {
                 />
               )}
 
-              {otherRecipes.map((recipe, index) => (
-                <CompactRecipeCard
-                  key={recipe.id}
-                  recipe={recipe}
-                  isDark={isDark}
-                  onPress={() => handleRecipePress(recipe.id)}
-                  delay={(index + 1) * 100 + 200}
-                />
-              ))}
+              <View style={styles.alternativesHeader}>
+                <Text style={[styles.alternativesTitle, { color: isDark ? '#FFF' : '#0F172A' }]}>Alternatives</Text>
+                <Text style={styles.viewAllText}>View All</Text>
+              </View>
+
+              <View style={styles.alternativesGrid}>
+                {otherRecipes.map((recipe, index) => (
+                  <CompactRecipeCard
+                    key={recipe.id}
+                    recipe={recipe}
+                    isDark={isDark}
+                    onPress={() => handleRecipePress(recipe.id)}
+                    delay={(index + 1) * 100 + 200}
+                  />
+                ))}
+              </View>
 
               {recipes.length === 0 && (
                 <View style={styles.emptyContainer}>
@@ -619,56 +610,222 @@ export default function RecipeResultsScreen() {
         </View>
       </ScrollView>
 
-      {/* FAB */}
-      <Pressable
-        style={[
-          styles.fab,
-          { backgroundColor: isDark ? '#FFFFFF' : '#0F172A', bottom: insets.bottom + 100 },
-        ]}
-      >
-        <Ionicons
-          name="add"
-          size={28}
-          color={isDark ? '#0F172A' : '#FFFFFF'}
-        />
-      </Pressable>
-
-      {/* Bottom Tab Bar */}
-      <View
-        style={[
-          styles.tabBar,
-          {
-            backgroundColor: isDark ? 'rgba(26,18,16,0.95)' : 'rgba(255,255,255,0.9)',
-            borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6',
-            paddingBottom: insets.bottom || 16,
-          },
-        ]}
-      >
-        <TabBarItem
-          icon="home-outline"
-          label="Home"
-          isActive={activeTab === 'home'}
-          onPress={() => setActiveTab('home')}
-        />
-        <TabBarItem
-          icon="restaurant-outline"
-          label="Fridge"
-          isActive={activeTab === 'fridge'}
-          onPress={() => setActiveTab('fridge')}
-        />
-        <TabBarItem
-          icon="book-outline"
-          label="Saved"
-          isActive={activeTab === 'saved'}
-          onPress={() => setActiveTab('saved')}
-        />
-        <TabBarItem
-          icon="person-outline"
-          label="Profile"
-          isActive={activeTab === 'profile'}
-          onPress={() => setActiveTab('profile')}
-        />
+      {/* Floating Filter Button */}
+      <View style={[styles.filterButtonContainer, { bottom: insets.bottom + 32 }]}>
+        <Pressable
+          style={[styles.filterButton, { backgroundColor: isDark ? '#FFF' : '#0F172A' }]}
+          onPress={() => setFilterModalVisible(true)}
+        >
+          <Ionicons name="options-outline" size={20} color={isDark ? '#0F172A' : '#FFF'} />
+          <Text style={[styles.filterButtonText, { color: isDark ? '#0F172A' : '#FFF' }]}>FILTER</Text>
+        </Pressable>
       </View>
+
+      {/* Filter Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={filterModalVisible}
+        onRequestClose={() => setFilterModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: isDark ? '#1A1210' : '#FFFFFF', padding: 0 }]}>
+            {/* Header */}
+            <View style={styles.modalHeaderNew}>
+              <Text style={[styles.modalTitleNew, { color: isDark ? '#FFF' : '#1A1210' }]}>Filter Settings</Text>
+              <Pressable
+                style={styles.closeButtonNew}
+                onPress={() => setFilterModalVisible(false)}
+              >
+                <Ionicons name="close" size={20} color={'#1A1210'} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.modalBodyNew} showsVerticalScrollIndicator={false}>
+              {/* Sort By */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterSectionTitle}>SORT BY</Text>
+                <View style={styles.filterOptions}>
+                  {['relevance', 'time', 'match %'].map(sort => {
+                    const isSelected = filters.sortBy === sort;
+                    return (
+                      <Pressable
+                        key={sort}
+                        onPress={() => setSingleFilter('sortBy', sort)}
+                        style={[
+                          styles.filterPill,
+                          isSelected && styles.filterPillSelected,
+                          { borderColor: isDark ? '#333' : '#E5E7EB', backgroundColor: isSelected ? 'rgba(242, 51, 13, 0.05)' : (isDark ? '#1A1210' : '#FFF') }
+                        ]}
+                      >
+                        <Text style={[
+                          styles.filterPillText,
+                          isSelected && styles.filterPillTextSelected,
+                          { color: isSelected ? COLORS.primary : (isDark ? '#9CA3AF' : '#4B5563') }
+                        ]}>{sort === 'match %' ? 'Match %' : sort.charAt(0).toUpperCase() + sort.slice(1)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Dietary */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterSectionTitle}>DIETARY PREFERENCES</Text>
+                <View style={styles.filterOptions}>
+                  {['vegan', 'keto', 'gluten-free', 'paleo', 'vegetarian'].map(diet => {
+                    const isSelected = filters.dietary.includes(diet);
+                    return (
+                      <Pressable
+                        key={diet}
+                        onPress={() => toggleFilter('dietary', diet)}
+                        style={[
+                          styles.filterPill,
+                          isSelected && styles.filterPillSelected,
+                          { borderColor: isDark ? '#333' : '#E5E7EB', backgroundColor: isSelected ? 'rgba(242, 51, 13, 0.05)' : (isDark ? '#1A1210' : '#FFF') }
+                        ]}
+                      >
+                        <Text style={[
+                          styles.filterPillText,
+                          isSelected && styles.filterPillTextSelected,
+                          { color: isSelected ? COLORS.primary : (isDark ? '#9CA3AF' : '#4B5563') }
+                        ]}>{diet === 'gluten-free' ? 'Gluten-Free' : diet.charAt(0).toUpperCase() + diet.slice(1)}</Text>
+                        {isSelected && <MaterialIcons name="check" size={16} color={COLORS.primary} style={{ marginLeft: 4 }} />}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Prep Time */}
+              <View style={styles.filterSection}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <Text style={styles.filterSectionTitle}>PREP TIME</Text>
+                  <View style={styles.timeBadge}>
+                    <Text style={styles.timeBadgeText}>Up to {filters.time || 60} mins</Text>
+                  </View>
+                </View>
+                <View style={{ paddingHorizontal: 8 }}>
+                  <Slider
+                    value={filters.time || 60}
+                    onValueChange={(val) => setSingleFilter('time', Math.round(val))}
+                    maximumValue={60}
+                    minimumValue={0}
+                    step={5}
+                    allowTouchTrack
+                    trackStyle={{ height: 4, borderRadius: 2 }}
+                    thumbStyle={{ height: 24, width: 24, backgroundColor: COLORS.primary, borderColor: '#FFF', borderWidth: 4 }}
+                    minimumTrackTintColor={COLORS.primary}
+                    maximumTrackTintColor={isDark ? '#333' : '#E2E8F0'}
+                  />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                    <Text style={styles.sliderLabel}>0 mins</Text>
+                    <Text style={styles.sliderLabel}>60+ mins</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Difficulty */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterSectionTitle}>DIFFICULTY</Text>
+                <View style={styles.difficultyGrid}>
+                  {[
+                    { id: 'beginner', label: 'Easy', icon: 'signal-cellular-1' },
+                    { id: 'intermediate', label: 'Intermediate', icon: 'signal-cellular-2' },
+                    { id: 'advanced', label: 'Expert', icon: 'signal-cellular-3' }
+                  ].map((level) => {
+                    const isSelected = filters.difficulty === level.id;
+                    return (
+                      <Pressable
+                        key={level.id}
+                        onPress={() => setSingleFilter('difficulty', level.id)}
+                        style={[
+                          styles.difficultyCard,
+                          isSelected && styles.difficultyCardSelected,
+                          {
+                            backgroundColor: isSelected ? COLORS.primary : (isDark ? '#FFFFFF' : '#FFFFFF'),
+                            borderColor: isSelected ? COLORS.primary : (isDark ? '#333' : '#E5E7EB')
+                          }
+                        ]}
+                      >
+                        <View style={{ marginBottom: 8 }}>
+                          <MaterialCommunityIcons
+                            name={level.icon as any}
+                            size={24}
+                            color={isSelected ? '#FFF' : '#D1D5DB'}
+                          />
+                        </View>
+                        <Text style={[
+                          styles.difficultyLabel,
+                          isSelected && styles.difficultyLabelSelected,
+                          { color: isSelected ? '#FFF' : '#4B5563' }
+                        ]}>{level.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Kitchen Tools */}
+              <View style={[styles.filterSection, { marginBottom: 100 }]}>
+                <Text style={styles.filterSectionTitle}>KITCHEN TOOLS</Text>
+                <View style={styles.filterOptions}>
+                  {[
+                    { id: 'air_fryer', label: 'Air Fryer', icon: 'fan' },
+                    { id: 'oven', label: 'Oven', icon: 'stove' },
+                    { id: 'stovetop', label: 'Stovetop', icon: 'fire' },
+                    { id: 'slow_cooker', label: 'Slow Cooker', icon: 'timer-outline' },
+                    { id: 'blender', label: 'Blender', icon: 'blender' }
+                  ].map(tool => {
+                    const isSelected = filters.tools.includes(tool.id);
+                    return (
+                      <Pressable
+                        key={tool.id}
+                        onPress={() => toggleFilter('tools', tool.id)}
+                        style={[
+                          styles.filterPill,
+                          isSelected && styles.filterPillSelected,
+                          { borderColor: isDark ? '#333' : '#E5E7EB', backgroundColor: isSelected ? 'rgba(242, 51, 13, 0.05)' : (isDark ? '#1A1210' : '#FFF') }
+                        ]}
+                      >
+                        <MaterialCommunityIcons name={tool.icon as any} size={18} color={isSelected ? COLORS.primary : '#9CA3AF'} style={{ marginRight: 6 }} />
+                        <Text style={[
+                          styles.filterPillText,
+                          isSelected && styles.filterPillTextSelected,
+                          { color: isSelected ? COLORS.primary : (isDark ? '#9CA3AF' : '#4B5563') }
+                        ]}>{tool.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={[styles.modalFooter, { borderTopColor: isDark ? '#333' : '#F3F4F6' }]}>
+              <Pressable
+                style={styles.resetButton}
+                onPress={() => setFilters({
+                  sortBy: 'relevance',
+                  dietary: [],
+                  time: 45,
+                  difficulty: null,
+                  tools: []
+                })}
+              >
+                <Text style={styles.resetButtonText}>Reset</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.applyButton, { backgroundColor: COLORS.primary }]}
+                onPress={applyFilters}
+              >
+                <Text style={styles.applyButtonText}>Apply Filters</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+
     </View>
   );
 }
@@ -724,20 +881,22 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: COLORS.primary,
+    borderWidth: 2,
+    borderColor: '#FCFAF9',
   },
   scrollView: {
     flex: 1,
-    paddingTop: 120,
+    paddingTop: 100,
   },
   ingredientsSection: {
-    paddingHorizontal: 24,
-    paddingVertical: 24,
+    paddingVertical: 16,
   },
   ingredientsHeader: {
+    paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   sectionLabel: {
     fontSize: 12,
@@ -746,28 +905,24 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.5,
   },
-  editLink: {
-    fontSize: 12,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: COLORS.primary,
-  },
   chipsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    paddingHorizontal: 24,
     gap: 10,
+    paddingBottom: 8,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderRadius: 50,
-    borderWidth: 2,
+    borderWidth: 1,
     gap: 8,
-  },
-  chipSelected: {
-    backgroundColor: COLORS.olive,
-    borderColor: COLORS.olive,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
   chipEmoji: {
     fontSize: 18,
@@ -776,12 +931,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
-  chipTextSelected: {
-    color: '#FFFFFF',
-  },
   recipesSection: {
     paddingHorizontal: 24,
-    gap: 32,
+    gap: 24,
   },
   featuredCard: {
     borderRadius: 24,
@@ -789,13 +941,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.06,
     shadowRadius: 30,
     elevation: 4,
   },
   featuredImageContainer: {
     height: 256,
     overflow: 'hidden',
+    position: 'relative',
   },
   featuredImage: {
     width: '100%',
@@ -808,231 +961,332 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.1)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  chefsChoiceBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 6,
+  },
+  chefsChoiceText: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   matchBadge: {
     position: 'absolute',
     top: 16,
     right: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 12,
-    paddingRight: 16,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 50,
-    borderWidth: 1,
-    borderColor: 'rgba(242,51,13,0.2)',
-    gap: 8,
-  },
-  matchDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.primary,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
   matchText: {
     fontSize: 12,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: COLORS.primary,
+    color: '#FFF',
     letterSpacing: 0.5,
   },
-  metaBadges: {
+  featuredBottomOverlay: {
     position: 'absolute',
-    bottom: 16,
-    left: 16,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    paddingTop: 40,
+  },
+  featuredTitleOverride: {
+    fontSize: 24,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#FFF',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  featuredMetaRow: {
     flexDirection: 'row',
     gap: 8,
   },
-  metaBadge: {
+  glassBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     gap: 4,
   },
-  metaBadgeText: {
+  glassBadgeText: {
     fontSize: 12,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    color: '#FFF',
   },
   featuredContent: {
-    padding: 24,
+    padding: 20,
   },
-  featuredTitle: {
-    fontSize: 24,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    lineHeight: 28,
-    marginBottom: 8,
+  ingredientsGrid: {
+    flexDirection: 'row',
+    marginBottom: 24,
   },
-  matchInfo: {
+  ingredientCol: {
+    flex: 1,
+    gap: 8,
+  },
+  ingredientColBorder: {
+    paddingLeft: 16,
+    borderLeftWidth: 1,
+  },
+  ingredientHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 16,
   },
-  matchInfoText: {
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  ingredientLabel: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#9CA3AF',
+    letterSpacing: 1,
+  },
+  ingredientListText: {
     fontSize: 14,
     fontFamily: 'NotoSans_500Medium',
-  },
-  featuredDescription: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_400Regular',
-    lineHeight: 22,
-    marginBottom: 24,
+    lineHeight: 20,
   },
   viewRecipeButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.primary,
     paddingVertical: 16,
-    borderRadius: 16,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
+    borderRadius: 12,
     gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 2,
   },
   viewRecipeButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+  },
+  alternativesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  alternativesTitle: {
+    fontSize: 18,
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  viewAllText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: COLORS.primary,
+  },
+  alternativesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
   },
   compactCard: {
-    borderRadius: 24,
+    width: (SCREEN_WIDTH - 64) / 2, // 2 columns with padding and gap
+    borderRadius: 16,
     borderWidth: 1,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.04,
-    shadowRadius: 30,
-    elevation: 4,
+    backgroundColor: '#FFF',
   },
   compactCardInner: {
-    flexDirection: 'row',
-    height: 160,
+    flexDirection: 'column', // Stack vertically
+    height: 'auto',
   },
   compactImageContainer: {
-    width: '40%',
-    overflow: 'hidden',
+    width: '100%',
+    height: 128,
+    position: 'relative',
   },
   compactImage: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
   },
-  compactMatchBadge: {
+  compactImageOverlay: {
     position: 'absolute',
-    top: 12,
-    left: 12,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+  },
+  compactStatusBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 4,
   },
-  compactMatchText: {
+  compactStatusText: {
     fontSize: 10,
     fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#FFF',
+    textTransform: 'uppercase',
   },
-  compactContent: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'space-between',
-  },
-  compactTitle: {
-    fontSize: 18,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    lineHeight: 22,
-    marginBottom: 4,
-  },
-  missingText: {
-    fontSize: 12,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9CA3AF',
-  },
-  compactFooter: {
+  compactTimeBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-  compactTime: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+    gap: 2,
   },
   compactTimeText: {
     fontSize: 12,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#6B7280',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#FFF',
   },
-  compactArrowButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
+  compactContent: {
+    padding: 12,
+    gap: 8,
   },
-  fab: {
-    position: 'absolute',
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
-    zIndex: 40,
+  compactTitle: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    lineHeight: 18,
   },
-  tabBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  compactMeta: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    zIndex: 50,
-  },
-  tabItem: {
     alignItems: 'center',
     gap: 4,
-    position: 'relative',
   },
-  tabIndicator: {
-    position: 'absolute',
-    top: -16,
-    width: 48,
-    height: 2,
-    backgroundColor: COLORS.primary,
-    borderBottomLeftRadius: 2,
-    borderBottomRightRadius: 2,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-  },
-  tabLabel: {
+  compactMetaText: {
     fontSize: 10,
-  },
-  tabLabelActive: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: COLORS.primary,
-  },
-  tabLabelInactive: {
+    color: '#6B7280',
     fontFamily: 'NotoSans_500Medium',
-    color: 'rgba(100,116,139,0.5)',
   },
+  filterButtonContainer: {
+    position: 'absolute',
+    right: 24,
+    zIndex: 40,
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 24,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  filterButtonText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    letterSpacing: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    height: '70%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  modalBody: {
+    flex: 1,
+  },
+  filterSection: {
+    marginBottom: 24,
+  },
+  filterLabel: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    marginBottom: 12,
+  },
+  filterOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 50,
+    borderWidth: 1,
+  },
+  filterOptionSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  filterOptionText: {
+    fontSize: 14,
+    fontFamily: 'NotoSans_500Medium',
+  },
+  filterOptionTextSelected: {
+    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  modalFooter: {
+    paddingTop: 16,
+    borderTopWidth: 1,
+  },
+  applyButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  applyButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
+  },
+
   errorContainer: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -1071,5 +1325,126 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'NotoSans_500Medium',
     textAlign: 'center',
+  },
+  modalHeaderNew: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modalTitleNew: {
+    fontSize: 20,
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    letterSpacing: -0.5,
+  },
+  closeButtonNew: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBodyNew: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  filterSectionTitle: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 2,
+    marginBottom: 16,
+  },
+  filterPill: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 50,
+    borderWidth: 1, // Default border width
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterPillSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: 'rgba(242, 51, 13, 0.05)',
+    borderWidth: 1.5,
+  },
+  filterPillText: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  filterPillTextSelected: {
+    color: COLORS.primary,
+  },
+  timeBadge: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  timeBadgeText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#1A1210',
+  },
+  sliderLabel: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#9CA3AF',
+  },
+  difficultyGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  difficultyCard: {
+    flex: 1,
+    aspectRatio: 1, // Square
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 8,
+  },
+  difficultyCardSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  difficultyLabel: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    textAlign: 'center',
+  },
+  difficultyLabelSelected: {
+    color: '#FFFFFF',
+  },
+  resetButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  resetButtonText: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  modalFooter: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    backgroundColor: '#FFF',
   },
 });

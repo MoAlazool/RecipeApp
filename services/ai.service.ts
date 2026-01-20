@@ -137,7 +137,7 @@ const salvageTruncatedFridgeResponse = (rawText: string): FridgeScanResult | nul
 };
 
 class AIService {
-  
+
   // ============================================
   // EXTRACT RECIPE FROM VIDEO TRANSCRIPT
   // ============================================
@@ -147,7 +147,7 @@ class AIService {
   ): Promise<ExtractedRecipe> {
     try {
       const prompt = AI_PROMPTS.extractRecipe(transcript, userPreferences);
-      
+
       const responseText = await generateText(prompt, {
         temperature: 0.5,
         maxOutputTokens: 6000,
@@ -155,12 +155,12 @@ class AIService {
       });
 
       const extractedRecipe = await parseWithRepair(responseText);
-      
+
       // Validate required fields
       if (!extractedRecipe.title || !extractedRecipe.ingredients || !extractedRecipe.steps) {
         throw new Error('Incomplete recipe data received from AI');
       }
-      
+
       return extractedRecipe;
     } catch (error) {
       console.error('Failed to extract recipe:', error);
@@ -234,7 +234,7 @@ class AIService {
 
       const responseText = await generateText(prompt, {
         temperature: 0.8,
-        maxOutputTokens: 3000,
+        maxOutputTokens: 8192,
         responseMimeType: 'application/json'
       });
 
@@ -266,7 +266,7 @@ class AIService {
   ): Promise<IngredientSubstitution[]> {
     try {
       const prompt = AI_PROMPTS.suggestSubstitution(ingredient, recipeContext);
-      
+
       const responseText = await generateText(prompt, {
         temperature: 0.6,
         maxOutputTokens: 1000,
@@ -274,7 +274,7 @@ class AIService {
       });
 
       const result = await parseWithRepair(responseText);
-      
+
       return result.substitutes || [];
     } catch (error) {
       console.error('Failed to suggest substitution:', error);
@@ -292,7 +292,7 @@ class AIService {
   ): Promise<{ ingredients: Ingredient[]; notes?: string }> {
     try {
       const prompt = AI_PROMPTS.scaleRecipe(originalServings, newServings, ingredients);
-      
+
       const responseText = await generateText(prompt, {
         temperature: 0.3,
         maxOutputTokens: 2000,
@@ -300,7 +300,7 @@ class AIService {
       });
 
       const result = await parseWithRepair(responseText);
-      
+
       return {
         ingredients: result.ingredients,
         notes: result.notes
@@ -320,7 +320,7 @@ class AIService {
   ): Promise<VoiceCommand> {
     try {
       const prompt = AI_PROMPTS.parseVoiceCommand(command, context);
-      
+
       const responseText = await generateText(prompt, {
         temperature: 0.3,
         maxOutputTokens: 500,
@@ -328,7 +328,7 @@ class AIService {
       });
 
       const result = await parseWithRepair(responseText);
-      
+
       return result;
     } catch (error) {
       console.error('Failed to parse voice command:', error);
@@ -349,7 +349,7 @@ class AIService {
   ): Promise<any> {
     try {
       const prompt = AI_PROMPTS.estimateNutrition(ingredients, servings);
-      
+
       const responseText = await generateText(prompt, {
         temperature: 0.4,
         maxOutputTokens: 1000,
@@ -357,7 +357,7 @@ class AIService {
       });
 
       const result = await parseWithRepair(responseText);
-      
+
       return result;
     } catch (error) {
       console.error('Failed to estimate nutrition:', error);
@@ -374,7 +374,7 @@ class AIService {
   ): Promise<any> {
     try {
       const prompt = AI_PROMPTS.processUserNotes(notes, originalRecipe);
-      
+
       const responseText = await generateText(prompt, {
         temperature: 0.5,
         maxOutputTokens: 1500,
@@ -382,7 +382,7 @@ class AIService {
       });
 
       const result = await parseWithRepair(responseText);
-      
+
       return result;
     } catch (error) {
       console.error('Failed to process user notes:', error);
@@ -492,7 +492,7 @@ class AIService {
     userPreferences?: any
   ): Promise<{ id: string; recipe?: ExtractedRecipe; error?: string }[]> {
     const results = [];
-    
+
     for (const item of transcripts) {
       try {
         const recipe = await this.extractRecipeFromTranscript(
@@ -501,13 +501,13 @@ class AIService {
         );
         results.push({ id: item.id, recipe });
       } catch (error) {
-        results.push({ 
-          id: item.id, 
+        results.push({
+          id: item.id,
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
     }
-    
+
     return results;
   }
 }

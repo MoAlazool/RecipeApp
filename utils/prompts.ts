@@ -3,15 +3,15 @@
 // ============================================
 
 export const AI_PROMPTS = {
-  
+
   // ============================================
   // EXTRACT RECIPE FROM TRANSCRIPT
   // ============================================
   extractRecipe: (transcript: string, userPreferences?: any) => {
-    const preferencesText = userPreferences 
+    const preferencesText = userPreferences
       ? `\nUser preferences: ${JSON.stringify(userPreferences)}`
       : '';
-    
+
     return `You are a professional recipe analyzer. Extract a structured recipe from the following video transcript.
 
 ${preferencesText}
@@ -76,12 +76,16 @@ Be accurate and thorough. This data will be used for cooking guidance.`;
   // FRIDGE SCAN - SUGGEST RECIPES
   // ============================================
   suggestRecipesFromFridge: (ingredients: string[], userPreferences?: any) => {
-    const preferencesText = userPreferences 
+    const preferencesText = userPreferences
       ? `\nUser dietary restrictions: ${userPreferences.dietary_restrictions?.join(', ') || 'none'}
 User cooking style: ${userPreferences.cooking_style || 'any'}
-Servings needed: ${userPreferences.default_servings || 2}`
+Servings needed: ${userPreferences.default_servings || 2}
+Maximum time: ${userPreferences.max_time_minutes ? userPreferences.max_time_minutes + ' minutes' : 'any'}
+Difficulty limit: ${userPreferences.difficulty_level || 'any'}
+Kitchen Tools Available: ${userPreferences.kitchen_tools?.join(', ') || 'Any standard tools'}
+Meal type: ${userPreferences.meal_type || 'any'}`
       : '';
-    
+
     return `You are a creative chef helping someone cook with what they have.
 
 AVAILABLE INGREDIENTS:
@@ -111,10 +115,12 @@ Return ONLY valid JSON (no markdown, no backticks) with this structure:
 RULES:
 1. Prioritize recipes with 80%+ match (few missing ingredients)
 2. Variety: suggest different types (quick meal, hearty dish, healthy option)
-3. Respect dietary restrictions strictly
+3. Respect dietary restrictions STRICTLY
 4. Match cooking style preference when possible
-5. Be creative but practical
-6. Missing ingredients should be common and easy to get
+5. STRICTLY respect the maximum time limit if specified
+6. STRICTLY respect the difficulty limit if specified
+7. Be creative but practical
+8. Missing ingredients should be common and easy to get
 
 Sort recipes by match_score (highest first).`;
   },

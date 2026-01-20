@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert, Vibration } from 'react-native';
 import { Text, Button } from '@rneui/themed';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -8,6 +8,7 @@ import { useCookingStore } from '@/stores/cookingStore';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { CookingTimer } from '@/components/cooking/CookingTimer';
 import { CookingProgress } from '@/components/cooking/CookingProgress';
+import { LiveActivity } from '@/services/liveActivity';
 
 export default function CookingModeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -28,6 +29,16 @@ export default function CookingModeScreen() {
   } = useCookingStore();
 
   const [isLoading, setIsLoading] = useState(true);
+  const primaryTimer = useMemo(() => {
+    const activeTimers = timers.filter((timer) => timer.is_active);
+    if (activeTimers.length === 0) return null;
+
+    return activeTimers.reduce((soonest, timer) => {
+      const timerEnd = new Date(timer.started_at).getTime() + timer.duration_seconds * 1000;
+      const soonestEnd = new Date(soonest.started_at).getTime() + soonest.duration_seconds * 1000;
+      return timerEnd < soonestEnd ? timer : soonest;
+    });
+  }, [timers]);
 
   useEffect(() => {
     loadRecipe();
@@ -41,6 +52,31 @@ export default function CookingModeScreen() {
       speakCurrentStep();
     }
   }, [currentStep, recipe]);
+
+  useEffect(() => {
+    if (!recipe) return;
+
+    if (!primaryTimer) {
+      LiveActivity.endTimer();
+      return;
+    }
+
+    const startTimeMs = new Date(primaryTimer.started_at).getTime();
+    const endTimeMs = startTimeMs + primaryTimer.duration_seconds * 1000;
+
+    LiveActivity.startTimer({
+      label: primaryTimer.label,
+      recipeName: recipe.title,
+      startTimeMs,
+      endTimeMs,
+      key: `${primaryTimer.timer_id}:${primaryTimer.started_at}`,
+    });
+  }, [
+    primaryTimer?.timer_id,
+    primaryTimer?.started_at,
+    primaryTimer?.duration_seconds,
+    recipe?.title,
+  ]);
 
   const loadRecipe = async () => {
     if (!id) return;
@@ -107,6 +143,7 @@ export default function CookingModeScreen() {
         last_cooked_at: new Date().toISOString(),
       });
     }
+    LiveActivity.endTimer();
     endSession();
     router.back();
   };
@@ -121,6 +158,7 @@ export default function CookingModeScreen() {
           text: 'Exit',
           style: 'destructive',
           onPress: () => {
+            LiveActivity.endTimer();
             endSession();
             router.back();
           },

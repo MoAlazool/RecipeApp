@@ -12,12 +12,16 @@
       "resizeMode": "contain",
       "backgroundColor": "#FF6B35"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.recipeapp",
+      "bundleIdentifier": "com.moalazool.recipeapp",
       "buildNumber": "1",
+      "usesNonExemptEncryption": false,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "We need camera access to scan your fridge and pantry",
         "NSPhotoLibraryUsageDescription": "We need photo access to select images of your ingredients",
         "NSMicrophoneUsageDescription": "We need microphone access for voice-controlled cooking mode",
@@ -29,12 +33,14 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FF6B35"
       },
-      "package": "com.yourcompany.recipeapp",
+      "package": "com.moalazool.recipeapp",
       "versionCode": 1,
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "RECORD_AUDIO"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
@@ -60,8 +66,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "839bbb36-f5b1-4fed-9012-1196ee7e3a68"
       }
-    }
+    },
+    "owner": "moalazool"
   }
 }
