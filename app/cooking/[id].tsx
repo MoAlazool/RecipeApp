@@ -9,6 +9,10 @@ import { useRecipeStore } from '@/stores/recipeStore';
 import { CookingTimer } from '@/components/cooking/CookingTimer';
 import { CookingProgress } from '@/components/cooking/CookingProgress';
 import { LiveActivity } from '@/services/liveActivity';
+import {
+  cancelNotification,
+  scheduleTimerNotification,
+} from '@/services/notifications.service';
 
 export default function CookingModeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -24,6 +28,7 @@ export default function CookingModeScreen() {
     nextStep,
     previousStep,
     addTimer,
+    setTimerNotification,
     removeTimer,
     toggleVoice,
   } = useCookingStore();
@@ -143,6 +148,7 @@ export default function CookingModeScreen() {
         last_cooked_at: new Date().toISOString(),
       });
     }
+    await cancelAllTimerNotifications();
     LiveActivity.endTimer();
     endSession();
     router.back();
@@ -158,6 +164,7 @@ export default function CookingModeScreen() {
           text: 'Exit',
           style: 'destructive',
           onPress: () => {
+            cancelAllTimerNotifications();
             LiveActivity.endTimer();
             endSession();
             router.back();
@@ -167,12 +174,23 @@ export default function CookingModeScreen() {
     );
   };
 
-  const handleAddTimer = () => {
+  const handleAddTimer = async () => {
     const step = recipe?.steps[currentStep];
     if (step?.duration_minutes) {
-      addTimer(`Step ${currentStep + 1}`, step.duration_minutes * 60);
+      const durationSeconds = step.duration_minutes * 60;
+      const timerId = addTimer(`Step ${currentStep + 1}`, durationSeconds);
+      const notificationId = await scheduleTimerNotification({
+        label: `Step ${currentStep + 1}`,
+        recipeName: recipe?.title,
+        seconds: durationSeconds,
+      });
+      setTimerNotification(timerId, notificationId);
       Vibration.vibrate(100);
     }
+  };
+
+  const cancelAllTimerNotifications = async () => {
+    await Promise.all(timers.map((timer) => cancelNotification(timer.notification_id)));
   };
 
   if (isLoading || !recipe) {
@@ -261,9 +279,13 @@ export default function CookingModeScreen() {
               onComplete={() => {
                 Vibration.vibrate([0, 500, 200, 500]);
                 Alert.alert('Timer Done!', timer.label);
+                cancelNotification(timer.notification_id);
                 removeTimer(timer.timer_id);
               }}
-              onRemove={() => removeTimer(timer.timer_id)}
+              onRemove={() => {
+                cancelNotification(timer.notification_id);
+                removeTimer(timer.timer_id);
+              }}
             />
           ))}
         </View>

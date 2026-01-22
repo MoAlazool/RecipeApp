@@ -206,6 +206,7 @@ export interface CookingTimer {
   duration_seconds: number;
   started_at: string;
   is_active: boolean;
+  notification_id?: string;
 }
 
 // ============================================

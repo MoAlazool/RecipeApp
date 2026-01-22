@@ -56,7 +56,9 @@
         {
           "photosPermission": "Allow RecipeApp to access your photos"
         }
-      ]
+      ],
+      "expo-live-activity",
+      "./plugins/withNoPushEntitlements"
     ],
     "experiments": {
       "typedRoutes": true

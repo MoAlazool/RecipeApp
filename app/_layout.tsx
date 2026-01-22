@@ -25,6 +25,7 @@ import {
   RecipeHeaderRight,
   TranslucentHeaderBackground,
 } from '@/components/navigation/RecipeHeader';
+import { configureNotifications } from '@/services/notifications.service';
 
 const theme = {
   lightColors: {
@@ -96,6 +97,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     SplashScreen.preventAutoHideAsync();
+  }, []);
+
+  useEffect(() => {
+    configureNotifications();
   }, []);
 
   useEffect(() => {

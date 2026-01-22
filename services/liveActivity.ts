@@ -1,16 +1,16 @@
-import { NativeModules, Platform } from 'react-native';
+import * as LiveActivityModule from 'expo-live-activity';
+import type { LiveActivityConfig, LiveActivityState } from 'expo-live-activity';
+import { Platform } from 'react-native';
 
-type LiveActivityModule = {
-  startTimer: (
-    label: string,
-    recipeName: string | null,
-    startTimeMs: number,
-    endTimeMs: number
-  ) => Promise<string>;
-  endTimer: () => Promise<boolean>;
+const MIN_IOS_VERSION = 16.2;
+const TIMER_CONFIG: LiveActivityConfig = {
+  backgroundColor: '#FFFFFF',
+  titleColor: '#1C100D',
+  subtitleColor: '#9C5749',
+  progressViewTint: '#F2330D',
+  progressViewLabelColor: '#F2330D',
+  timerType: 'digital',
 };
-
-const nativeModule = NativeModules.LiveActivityManager as LiveActivityModule | undefined;
 
 const getIOSVersion = (): number => {
   const version = Platform.Version;
@@ -22,10 +22,22 @@ const getIOSVersion = (): number => {
 };
 
 const isSupported = (): boolean => {
-  return Platform.OS === 'ios' && getIOSVersion() >= 16.1 && !!nativeModule;
+  return Platform.OS === 'ios' && getIOSVersion() >= MIN_IOS_VERSION;
 };
 
+const buildTimerState = (params: {
+  label: string;
+  recipeName?: string;
+  endTimeMs: number;
+}): LiveActivityState => ({
+  title: params.label,
+  subtitle: params.recipeName ?? undefined,
+  progressBar: { date: params.endTimeMs },
+});
+
+let activeActivityId: string | null = null;
 let activeKey: string | null = null;
+let lastState: LiveActivityState | null = null;
 
 export const LiveActivity = {
   async startTimer(params: {
@@ -39,24 +51,48 @@ export const LiveActivity = {
       return false;
     }
 
-    if (activeKey === params.key) {
-      return true;
+    const state = buildTimerState({
+      label: params.label,
+      recipeName: params.recipeName,
+      endTimeMs: params.endTimeMs,
+    });
+    lastState = state;
+
+    if (activeKey === params.key && activeActivityId) {
+      try {
+        await LiveActivityModule.updateActivity(activeActivityId, state);
+        return true;
+      } catch {
+        return false;
+      }
     }
 
-    activeKey = params.key;
+    if (activeActivityId) {
+      try {
+        await LiveActivityModule.stopActivity(activeActivityId, state);
+      } catch {
+        // Ignore stop failures to avoid blocking new activity start.
+      }
+    }
 
+    let activityId: string | void;
     try {
-      await nativeModule?.startTimer(
-        params.label,
-        params.recipeName ?? null,
-        params.startTimeMs,
-        params.endTimeMs
-      );
-      return true;
+      activityId = LiveActivityModule.startActivity(state, TIMER_CONFIG);
     } catch {
+      activeActivityId = null;
       activeKey = null;
       return false;
     }
+
+    if (!activityId) {
+      activeActivityId = null;
+      activeKey = null;
+      return false;
+    }
+
+    activeActivityId = activityId;
+    activeKey = params.key;
+    return true;
   },
 
   async endTimer(): Promise<boolean> {
@@ -64,13 +100,27 @@ export const LiveActivity = {
       return false;
     }
 
-    activeKey = null;
+    if (!activeActivityId) {
+      activeKey = null;
+      lastState = null;
+      return true;
+    }
 
     try {
-      await nativeModule?.endTimer();
+      await LiveActivityModule.stopActivity(
+        activeActivityId,
+        lastState ?? {
+          title: 'Timer done',
+          progressBar: { date: Date.now() },
+        }
+      );
       return true;
     } catch {
       return false;
+    } finally {
+      activeActivityId = null;
+      activeKey = null;
+      lastState = null;
     }
   },
 };

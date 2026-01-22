@@ -16,6 +16,7 @@ interface CookingState {
   goToStep: (step: number) => void;
 
   addTimer: (label: string, durationSeconds: number) => string;
+  setTimerNotification: (timerId: string, notificationId: string | null) => void;
   removeTimer: (timerId: string) => void;
   pauseTimer: (timerId: string) => void;
   resumeTimer: (timerId: string) => void;
@@ -100,6 +101,16 @@ export const useCookingStore = create<CookingState>((set, get) => ({
     }));
 
     return timer.timer_id;
+  },
+
+  setTimerNotification: (timerId: string, notificationId: string | null) => {
+    set((state) => ({
+      timers: state.timers.map((timer) =>
+        timer.timer_id === timerId
+          ? { ...timer, notification_id: notificationId ?? undefined }
+          : timer
+      ),
+    }));
   },
 
   removeTimer: (timerId: string) => {
