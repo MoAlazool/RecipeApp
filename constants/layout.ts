@@ -10,8 +10,8 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
  */
 export const FLOATING_NAV = {
   // Bar dimensions
-  BAR_HEIGHT: 56,
-  BAR_BORDER_RADIUS: 28,
+  BAR_HEIGHT: 74,
+  BAR_BORDER_RADIUS: 37,
   BAR_HORIZONTAL_MARGIN: 16,
 
   // Spacing from bottom of screen

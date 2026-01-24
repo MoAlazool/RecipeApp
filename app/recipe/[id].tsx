@@ -4,14 +4,12 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
-  ImageBackground,
   Linking,
   TouchableOpacity,
-  Dimensions,
   StatusBar,
   Share,
 } from 'react-native';
-import { Text, Button } from '@rneui/themed';
+import { Text } from '@rneui/themed';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,8 +20,7 @@ import Animated, {
   useAnimatedStyle,
   useAnimatedScrollHandler,
   interpolate,
-  Extrapolation,
-  withTiming
+  Extrapolation
 } from 'react-native-reanimated';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { useShoppingStore } from '@/stores/shoppingStore';
@@ -33,7 +30,6 @@ import { StepList } from '@/components/recipe/StepList';
 import type { Recipe } from '@/utils/types';
 
 const FALLBACK_IMAGE = 'https://via.placeholder.com/800x600';
-const { width } = Dimensions.get('window');
 
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -178,93 +174,6 @@ export default function RecipeDetailScreen() {
     }
   };
 
-  const getToolIcon = (tool: string): string => {
-    const toolLower = tool.toLowerCase();
-    const iconMap: Record<string, string> = {
-      'pan': 'restaurant',
-      'pot': 'restaurant',
-      'skillet': 'restaurant',
-      'wok': 'restaurant',
-      'saucepan': 'restaurant',
-      'frying pan': 'restaurant',
-      'knife': 'cut',
-      'chef knife': 'cut',
-      'cutting board': 'square-outline',
-      'chopping board': 'square-outline',
-      'bowl': 'nutrition',
-      'mixing bowl': 'nutrition',
-      'large bowl': 'nutrition',
-      'small bowl': 'nutrition',
-      'spoon': 'restaurant-outline',
-      'wooden spoon': 'restaurant-outline',
-      'spatula': 'restaurant-outline',
-      'whisk': 'ice-cream-outline',
-      'tongs': 'hand-right-outline',
-      'oven': 'flame',
-      'stove': 'flame',
-      'stovetop': 'flame',
-      'microwave': 'radio-outline',
-      'blender': 'nutrition-outline',
-      'food processor': 'nutrition-outline',
-      'mixer': 'nutrition-outline',
-      'stand mixer': 'nutrition-outline',
-      'measuring cup': 'beaker',
-      'measuring cups': 'beaker',
-      'measuring spoon': 'beaker',
-      'measuring spoons': 'beaker',
-      'colander': 'filter',
-      'strainer': 'filter',
-      'grater': 'grid',
-      'peeler': 'remove',
-      'rolling pin': 'ellipse-outline',
-      'baking sheet': 'square-outline',
-      'baking pan': 'square-outline',
-      'cake pan': 'square-outline',
-      'muffin tin': 'grid',
-      'loaf pan': 'square-outline',
-      'dutch oven': 'restaurant',
-      'casserole dish': 'square-outline',
-      'roasting pan': 'square-outline',
-      'steamer': 'cloud-outline',
-      'pressure cooker': 'time',
-      'slow cooker': 'hourglass-outline',
-      'air fryer': 'thermometer-outline',
-      'toaster': 'square',
-      'grill': 'flame',
-      'bbq': 'flame',
-      'thermometer': 'thermometer',
-      'meat thermometer': 'thermometer',
-      'timer': 'timer',
-      'scale': 'speedometer',
-      'kitchen scale': 'speedometer',
-      'ladle': 'water-outline',
-      'can opener': 'open-outline',
-      'bottle opener': 'beer-outline',
-      'corkscrew': 'wine-outline',
-      'zester': 'flash',
-      'mortar and pestle': 'nutrition',
-      'sieve': 'filter',
-      'funnel': 'triangle-outline',
-      'tray': 'square-outline',
-      'cutting mat': 'square-outline',
-      'foil': 'layers-outline',
-      'aluminum foil': 'layers-outline',
-      'parchment paper': 'document-outline',
-      'plastic wrap': 'layers-outline',
-      'oven mitt': 'hand-left-outline',
-      'oven mitts': 'hand-left-outline',
-      'pot holder': 'hand-left-outline',
-      'apron': 'shirt-outline',
-      'kitchen towel': 'square-outline',
-    };
-
-    return iconMap[toolLower] || 'construct';
-  };
-
-  const capitalizeFirstLetter = (str: string): string => {
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-  };
-
   if (isLoading || !recipe) {
     return (
       <View style={styles.loadingContainer}>
@@ -311,57 +220,42 @@ export default function RecipeDetailScreen() {
 
           {/* Bottom Gradient for Text Readability */}
           <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
+            colors={['transparent', 'rgba(0,0,0,0.5)', styles.container.backgroundColor]} 
             style={styles.heroGradientBottom}
             pointerEvents="none"
           />
 
           {/* Glass Effect Buttons */}
           <View style={[styles.glassButtonsContainer, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
-            {/* Back Button */}
+            {/* Back Button (Pill Style) */}
             <TouchableOpacity
               onPress={() => router.back()}
               activeOpacity={0.8}
-              style={styles.glassButton}
+              style={styles.backButtonPill}
             >
-              <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-              <Ionicons name="arrow-back" size={20} color="#FFF" />
+              <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />
+              <Ionicons name="chevron-back" size={22} color="#FFF" />
+              <Text style={styles.backButtonText}>Back</Text>
             </TouchableOpacity>
 
-            {/* Right Actions */}
+            {/* Right Actions (Circular Style) */}
             <View style={styles.glassButtonsRight} pointerEvents="box-none">
               <TouchableOpacity
                 onPress={handleShare}
                 activeOpacity={0.8}
-                style={styles.glassButton}
+                style={styles.glassButtonCircular}
               >
-                <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+                <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />
                 <Ionicons name="share-outline" size={20} color="#FFF" />
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleDelete}
                 activeOpacity={0.8}
-                style={styles.glassButton}
+                style={styles.glassButtonCircular}
               >
-                <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+                <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />
                 <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={handleFavorite}
-                activeOpacity={0.8}
-                style={[
-                  styles.glassButton,
-                  recipe.is_favorite && styles.glassButtonFavorite
-                ]}
-              >
-                <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-                <Ionicons
-                  name={recipe.is_favorite ? "heart" : "heart-outline"}
-                  size={20}
-                  color="#FFF"
-                />
               </TouchableOpacity>
             </View>
           </View>
@@ -397,7 +291,7 @@ export default function RecipeDetailScreen() {
           </View>
         </View>
 
-        {recipe.source_url && (
+        {/* {recipe.source_url && (
           <TouchableOpacity
             style={styles.videoCard}
             onPress={handleWatchVideo}
@@ -412,17 +306,13 @@ export default function RecipeDetailScreen() {
             </View>
             <Ionicons name="chevron-forward" size={20} color="#C4C4C4" />
           </TouchableOpacity>
-        )}
+        )} */}
+
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recipe Details</Text>
             <Animated.View style={styles.sectionBadge}>
-              <Ionicons
-                name={activeTab === 'ingredients' ? 'list' : 'footsteps'}
-                size={12}
-                color="#F2330D"
-              />
               <Text style={styles.sectionBadgeText}>
                 {activeTab === 'ingredients'
                   ? `${recipe.ingredients.length} items`
@@ -441,11 +331,6 @@ export default function RecipeDetailScreen() {
                 onPress={() => setActiveTab('ingredients')}
                 activeOpacity={0.7}
               >
-                <Ionicons
-                  name="list"
-                  size={18}
-                  color={activeTab === 'ingredients' ? '#FFFFFF' : '#9C5749'}
-                />
                 <Text style={[
                   styles.segmentText,
                   activeTab === 'ingredients' && styles.segmentTextActive,
@@ -461,11 +346,6 @@ export default function RecipeDetailScreen() {
                 onPress={() => setActiveTab('steps')}
                 activeOpacity={0.7}
               >
-                <Ionicons
-                  name="footsteps"
-                  size={18}
-                  color={activeTab === 'steps' ? '#FFFFFF' : '#9C5749'}
-                />
                 <Text style={[
                   styles.segmentText,
                   activeTab === 'steps' && styles.segmentTextActive,
@@ -489,7 +369,6 @@ export default function RecipeDetailScreen() {
               <IngredientList
                 ingredients={recipe.ingredients}
                 scaleFactor={scaleFactor}
-                onAddToShoppingList={handleAddToShoppingList}
               />
             ) : (
               <StepList steps={recipe.steps} />
@@ -501,15 +380,23 @@ export default function RecipeDetailScreen() {
       {/* Floating Footer */}
       <View style={styles.footerContainer}>
         <TouchableOpacity
-          style={styles.footerButton}
+          style={styles.startCookingButton}
           onPress={() => router.push(`/cooking/${recipe.id}`)}
           activeOpacity={0.9}
         >
-          <View style={styles.footerButtonIcon}>
-            <Ionicons name="restaurant" size={22} color="#FFFFFF" />
+          <View style={styles.startCookingIcon}>
+            <Ionicons name="restaurant" size={20} color="#FFFFFF" />
           </View>
-          <Text style={styles.footerButtonText}>Start Cooking</Text>
+          <Text style={styles.startCookingText}>Start Cooking</Text>
           <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.addToListButton}
+          onPress={handleAddToShoppingList}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="cart-outline" size={22} color="#F2330D" />
         </TouchableOpacity>
       </View>
     </View>
@@ -573,6 +460,7 @@ const styles = StyleSheet.create({
     height: 400,
     position: 'relative',
     backgroundColor: '#1C100D',
+  // REMOVE rounded corners
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
     overflow: 'hidden',
@@ -594,7 +482,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 250,
+    height: 250, // Adjusted height
   },
   heroContent: {
     position: 'absolute',
@@ -649,13 +537,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E8E8E8',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 3,
   },
   videoPlayIcon: {
     width: 44,
@@ -682,46 +568,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1C100D',
   },
-  toolsSection: {
-    marginTop: 24,
-    paddingHorizontal: 20,
-  },
-  toolsTitle: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 20,
-    color: '#1C100D',
-    marginBottom: 16,
-  },
-  toolsScroll: {
-    gap: 16,
-    paddingBottom: 8,
-  },
-  toolItem: {
-    alignItems: 'center',
-    gap: 10,
-  },
-  toolIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  toolName: {
-    fontFamily: 'NotoSans_600SemiBold',
-    fontSize: 12,
-    color: '#9C5749',
-  },
   section: {
-    marginTop: 24,
+    marginTop: 24, // أو -12 حسب الذوق
     paddingHorizontal: 20,
   },
   sectionHeader: {
@@ -803,37 +651,55 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: 20,
     right: 20,
-    borderRadius: 24,
-    overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 6,
+    borderRadius: 32,
+    backgroundColor: 'rgba(248, 246, 245, 0.9)',
+  },
+  startCookingButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F2330D',
+    borderRadius: 28,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     shadowColor: '#F2330D',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
     shadowRadius: 16,
     elevation: 8,
   },
-  footerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    backgroundColor: '#F2330D',
-    borderRadius: 24,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-  },
-  footerButtonIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  startCookingIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  footerButtonText: {
+  startCookingText: {
+    flex: 1,
     fontFamily: 'PlusJakartaSans_700Bold',
     fontSize: 18,
     color: '#FFFFFF',
-    marginRight: 4,
+    textAlign: 'center',
+  },
+  addToListButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF1EF',
+    shadowColor: '#F2330D',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
   },
   glassButtonsContainer: {
     position: 'absolute',
@@ -850,7 +716,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
-  glassButton: {
+  glassButtonCircular: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -858,8 +724,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
   },
-  glassButtonFavorite: {
-    borderWidth: 2,
-    borderColor: 'rgba(242, 51, 13, 0.8)',
+  backButtonPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  backButtonText: {
+    color: '#FFF',
+    fontFamily: 'NotoSans_600SemiBold',
+    fontSize: 15,
+    marginLeft: 4,
   },
 });

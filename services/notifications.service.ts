@@ -9,7 +9,8 @@ export const configureNotifications = async (): Promise<void> => {
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: false,
+      shouldShowBanner: false,
+      shouldShowList: false,
       shouldPlaySound: true,
       shouldSetBadge: false,
     }),
@@ -59,11 +60,11 @@ export const scheduleTimerNotification = async (params: {
       title,
       body,
       sound: 'default',
-      channelId: TIMER_CHANNEL_ID,
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
       seconds: Math.max(1, Math.round(params.seconds)),
+      channelId: TIMER_CHANNEL_ID,
     },
   });
 };

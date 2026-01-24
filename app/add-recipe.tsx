@@ -75,13 +75,15 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
 export default function AddRecipeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ platform?: string; mode?: string }>();
+  const params = useLocalSearchParams<{ platform?: string; mode?: string; url?: string; autoExtract?: string }>();
   const { addRecipe } = useRecipeStore();
 
   // Determine initial platform from URL params
   const initialPlatform = (params.platform as SocialPlatform) || 'unknown';
 
-  const [url, setUrl] = useState('');
+  const initialUrlParam = Array.isArray(params.url) ? params.url[0] : params.url;
+  const shouldAutoExtract = params.autoExtract === '1' || params.autoExtract === 'true';
+  const [url, setUrl] = useState(initialUrlParam ?? '');
   const [detectedPlatform, setDetectedPlatform] = useState<SocialPlatform>(initialPlatform);
   const [stage, setStage] = useState<ExtractionStage>('idle');
   const [extractingProgress, setExtractingProgress] = useState(0);
@@ -96,6 +98,7 @@ export default function AddRecipeScreen() {
 
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const hasAutoExtracted = useRef(false);
 
   // Get platform config based on detected platform
   const platformConfig = PLATFORM_CONFIGS[detectedPlatform] || PLATFORM_CONFIGS.unknown;
@@ -147,25 +150,29 @@ export default function AddRecipeScreen() {
     }
   }, [stage]);
 
-  const handleExtract = async () => {
-    if (!url.trim()) {
+  const handleExtract = async (inputUrl?: string) => {
+    const urlToProcess = (inputUrl ?? url).trim();
+    if (!urlToProcess) {
       Alert.alert('Error', 'Please enter a video URL');
       return;
     }
 
-    const platform = socialService.detectPlatform(url.trim());
+    const platform = socialService.detectPlatform(urlToProcess);
     if (platform === 'unknown') {
       Alert.alert('Error', 'Please enter a valid YouTube, TikTok, or Instagram URL');
       return;
     }
 
     try {
+      if (inputUrl) {
+        setUrl(urlToProcess);
+      }
       setStage('extracting');
       setExtractingProgress(0);
       setErrorMessage('');
       setDetectedPlatform(platform);
 
-      const result = await socialService.extractRecipe(url.trim(), (progress) => {
+      const result = await socialService.extractRecipe(urlToProcess, (progress) => {
         setExtractingProgress(progress.progress);
         setExtractingStage(progress.stage);
       });
@@ -181,7 +188,7 @@ export default function AddRecipeScreen() {
       if (result.success && result.recipe) {
         setExtractingProgress(100);
         setExtractedRecipe(result.recipe);
-        setSourceUrl(url.trim());
+        setSourceUrl(urlToProcess);
         setStage('extracted');
       } else if (result.needsManualInput) {
         // Need to fall back to manual input
@@ -196,6 +203,12 @@ export default function AddRecipeScreen() {
       Alert.alert('Error', error.message || 'Failed to extract recipe');
     }
   };
+
+  useEffect(() => {
+    if (!initialUrlParam || !shouldAutoExtract || hasAutoExtracted.current) return;
+    hasAutoExtracted.current = true;
+    handleExtract(initialUrlParam);
+  }, [initialUrlParam, shouldAutoExtract, handleExtract]);
 
   const handleManualExtract = async () => {
     if (!manualDescription.trim()) {

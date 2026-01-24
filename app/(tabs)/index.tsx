@@ -7,16 +7,19 @@ import {
   TouchableOpacity,
   TextInput,
   ImageBackground,
+  Alert,
 } from 'react-native';
 import { Text, Button } from '@rneui/themed';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { RecipeCard } from '@/components/recipe/RecipeCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
+import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 
 export default function RecipesScreen() {
   const router = useRouter();
@@ -46,6 +49,26 @@ export default function RecipesScreen() {
       listRef.current.scrollToOffset({ offset: allRecipesOffset, animated: true });
     }
   };
+
+  const handlePasteLink = useCallback(async () => {
+    try {
+      const clipboardText = (await Clipboard.getStringAsync()).trim();
+      if (!clipboardText) {
+        Alert.alert('Clipboard Empty', 'Copy a video link first and try again.');
+        return;
+      }
+
+      router.push({
+        pathname: '/add-recipe',
+        params: {
+          url: clipboardText,
+          autoExtract: '1',
+        },
+      });
+    } catch {
+      Alert.alert('Paste Failed', 'Could not access your clipboard.');
+    }
+  }, [router]);
 
   const renderRecipe = ({ item }: { item: any }) => (
     <RecipeCard
@@ -126,12 +149,12 @@ export default function RecipesScreen() {
           <View style={styles.heroButtons}>
             <TouchableOpacity
               style={styles.heroPrimary}
-              onPress={() => router.push('/add-recipe')}
+              onPress={handlePasteLink}
             >
               <Ionicons name="link" size={16} color="#FFFFFF" />
               <Text style={styles.heroPrimaryText}>Paste Link</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.heroSecondary}>
+            <TouchableOpacity style={styles.heroSecondary} onPress={handlePasteLink}>
               <Ionicons name="clipboard-outline" size={18} color="#1C100D" />
             </TouchableOpacity>
           </View>
@@ -239,7 +262,7 @@ export default function RecipesScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <TabScreenTransition style={styles.container}>
       <FlatList
         ref={listRef}
         data={filteredRecipes}
@@ -269,7 +292,7 @@ export default function RecipesScreen() {
           ) : null
         }
       />
-    </View>
+    </TabScreenTransition>
   );
 }
 
@@ -357,14 +380,12 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderRadius: 32,
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#EFE6E2',
     overflow: 'hidden',
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 4,
+    shadowRadius: 18,
+    elevation: 3,
   },
   heroAccent: {
     position: 'absolute',
@@ -466,9 +487,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
     padding: 16,
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 2,
   },
   quickIconSecondary: {
     width: 46,
@@ -552,14 +576,12 @@ const styles = StyleSheet.create({
     width: 280,
     borderRadius: 24,
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
   },
   recentImage: {
     height: 176,
@@ -622,10 +644,13 @@ const styles = StyleSheet.create({
   recentEmpty: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
     padding: 16,
     marginTop: 12,
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 2,
   },
   recentEmptyText: {
     color: '#9C5749',

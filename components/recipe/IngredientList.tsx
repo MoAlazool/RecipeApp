@@ -1,19 +1,17 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
-import { Text, Button } from '@rneui/themed';
+import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import type { Ingredient } from '@/utils/types';
 
 interface IngredientListProps {
   ingredients: Ingredient[];
   scaleFactor: number;
-  onAddToShoppingList: () => void;
 }
 
 export function IngredientList({
   ingredients,
   scaleFactor,
-  onAddToShoppingList,
 }: IngredientListProps) {
   const [checkedItems, setCheckedItems] = useState<Set<number>>(new Set());
 
@@ -43,15 +41,6 @@ export function IngredientList({
 
   return (
     <View style={styles.container}>
-      <Button
-        title="Add All to Shopping List"
-        type="outline"
-        onPress={onAddToShoppingList}
-        buttonStyle={styles.addButton}
-        titleStyle={styles.addButtonText}
-        icon={<Ionicons name="cart-outline" size={18} color="#F2330D" style={{ marginRight: 8 }} />}
-      />
-
       {ingredients.map((ingredient, index) => {
         const isChecked = checkedItems.has(index);
         return (
@@ -90,17 +79,6 @@ const styles = StyleSheet.create({
   container: {
     marginTop: 8,
     gap: 12,
-  },
-  addButton: {
-    borderColor: '#F2330D',
-    borderRadius: 14,
-    marginBottom: 8,
-    backgroundColor: 'rgba(242, 51, 13, 0.05)',
-  },
-  addButtonText: {
-    color: '#F2330D',
-    fontSize: 14,
-    fontFamily: 'NotoSans_600SemiBold',
   },
   item: {
     flexDirection: 'row',

@@ -71,6 +71,9 @@ class PantryService {
           last_scan_at: now,
           updated_at: now,
         });
+        if (!pantry) {
+          throw new Error('Failed to create pantry');
+        }
       }
 
       // Also save the scan record for history

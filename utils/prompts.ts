@@ -43,17 +43,16 @@ Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
     {
       "step_number": number,
       "instruction": "clear, concise instruction",
-      "duration_minutes": number or null (if step has waiting/cooking time),
+      "duration_minutes": number or null,
       "temperature": "350F/180C/etc or null"
     }
   ],
   "nutrition_estimate": {
-    "calories": number or null,
-    "protein_g": number or null,
-    "carbs_g": number or null,
-    "fat_g": number or null
+    "calories": number (REQUIRED - always estimate),
+    "protein_g": number (REQUIRED - always estimate),
+    "carbs_g": number (REQUIRED - always estimate),
+    "fat_g": number (REQUIRED - always estimate)
   },
-  "tools": ["pan", "knife", "bowl", "spoon", "oven"] or [],
   "tips": ["helpful tip 1", "helpful tip 2"] or []
 }
 
@@ -65,9 +64,26 @@ RULES:
 5. Active time = time actually doing something (not waiting for oven)
 6. Difficulty: beginner (5 steps or less, basic techniques), intermediate (6-10 steps or special equipment), advanced (11+ steps or complex techniques)
 7. Category ingredients correctly for shopping list grouping
-8. If nutrition isn't mentioned, make reasonable estimates based on ingredients
+8. NUTRITION IS REQUIRED: Always estimate calories, protein, carbs, and fat based on ingredients - never leave null
 9. Steps should be action-oriented and clear
 10. Extract any temperature settings mentioned
+
+CRITICAL - STEP TIMING RULES:
+- duration_minutes should ONLY be set for steps that require WAITING or PASSIVE COOKING time:
+  ✓ "Bake for 25 minutes" → duration_minutes: 25
+  ✓ "Simmer for 15 minutes" → duration_minutes: 15
+  ✓ "Let rest for 10 minutes" → duration_minutes: 10
+  ✓ "Marinate for 30 minutes" → duration_minutes: 30
+  ✓ "Boil until tender, about 12 minutes" → duration_minutes: 12
+
+- duration_minutes should be NULL for active cooking steps:
+  ✗ "Chop the onions" → duration_minutes: null (no waiting)
+  ✗ "Mix all ingredients together" → duration_minutes: null (active work)
+  ✗ "Season with salt and pepper" → duration_minutes: null (instant)
+  ✗ "Add the garlic and sauté until fragrant" → duration_minutes: null (quick active cooking)
+  ✗ "Preheat oven to 350F" → duration_minutes: null (background task)
+
+- Only include times that are SPECIFICALLY mentioned or clearly implied by the cooking method
 
 Be accurate and thorough. This data will be used for cooking guidance.`;
   },
@@ -87,7 +103,6 @@ ${userPreferences.meal_type ? `(${userPreferences.meal_type} recipes should prio
   '30-60 minute fuller cooking'
 })` : ''}
 Difficulty limit: ${userPreferences.difficulty_level || 'any'}
-Kitchen Tools Available: ${userPreferences.kitchen_tools?.join(', ') || 'Any standard tools'}
 Meal type: ${userPreferences.meal_type || 'any'}`
       : '';
 
@@ -109,6 +124,7 @@ Return ONLY valid JSON (no markdown, no backticks) with this structure:
       "difficulty": "beginner/intermediate/advanced",
       "total_time_minutes": number,
       "servings": number,
+      "calories_per_serving": number (REQUIRED - always estimate),
       "match_score": number (0-100, how well it matches available ingredients),
       "ingredients_you_have": ["ingredient1", "ingredient2"],
       "ingredients_you_need": ["ingredient3"] or [],
@@ -410,12 +426,11 @@ Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
     }
   ],
   "nutrition_estimate": {
-    "calories": number or null,
-    "protein_g": number or null,
-    "carbs_g": number or null,
-    "fat_g": number or null
+    "calories": number (REQUIRED - always estimate),
+    "protein_g": number (REQUIRED - always estimate),
+    "carbs_g": number (REQUIRED - always estimate),
+    "fat_g": number (REQUIRED - always estimate)
   },
-  "tools": ["pan", "knife", etc] or [],
   "tips": ["helpful tip"] or []
 }
 
@@ -427,7 +442,12 @@ RULES:
 5. If the description is too vague, return partial data with what you can extract
 6. Ingredient amounts must be numbers (use decimals like 0.5 for "half")
 7. Category ingredients correctly for shopping list grouping
-8. If nutrition isn't mentioned, make reasonable estimates based on ingredients`;
+8. NUTRITION IS REQUIRED: Always estimate calories, protein, carbs, and fat - never leave null
+
+STEP TIMING RULES:
+- duration_minutes ONLY for steps requiring WAITING (baking, simmering, resting, marinating)
+- duration_minutes = null for active steps (chopping, mixing, seasoning, sautéing)
+- Only include times specifically mentioned or implied by cooking method`;
   },
 
   // ============================================
@@ -478,12 +498,11 @@ Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
     }
   ],
   "nutrition_estimate": {
-    "calories": number or null,
-    "protein_g": number or null,
-    "carbs_g": number or null,
-    "fat_g": number or null
+    "calories": number (REQUIRED - always estimate based on visible ingredients),
+    "protein_g": number (REQUIRED),
+    "carbs_g": number (REQUIRED),
+    "fat_g": number (REQUIRED)
   },
-  "tools": ["pan", "knife", etc] or [],
   "tips": ["helpful tip"] or [],
   "confidence": "high/medium/low"
 }
@@ -493,7 +512,13 @@ RULES:
 2. Provide standard recipe steps for the identified dish
 3. Be honest about confidence level
 4. If image is unclear or not food-related, return minimal data with low confidence
-5. Use visible equipment as hints for cooking method`;
+5. Use visible equipment as hints for cooking method
+6. NUTRITION IS REQUIRED: Always estimate calories and macros based on the dish type
+
+STEP TIMING RULES:
+- duration_minutes ONLY for steps requiring WAITING (baking, simmering, resting, marinating)
+- duration_minutes = null for active steps (chopping, mixing, seasoning, sautéing)
+- Only include times for cooking methods that clearly require them`;
   },
 
   // ============================================

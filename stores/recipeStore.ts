@@ -114,7 +114,6 @@ export const useRecipeStore = create<RecipeState>()(
             current_servings: extractedRecipe.servings,
             ingredients: extractedRecipe.ingredients,
             steps: extractedRecipe.steps,
-            tools: extractedRecipe.tools,
             ...(sourceUrl && { source_url: sourceUrl }),
             source_type: sourceType,
             ...(thumbnailUrl && { thumbnail_url: thumbnailUrl }),

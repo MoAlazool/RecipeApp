@@ -3,7 +3,7 @@ import {
   getAuth,
   Auth,
   initializeAuth,
-  getReactNativePersistence,
+  inMemoryPersistence,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -11,6 +11,7 @@ import {
   onAuthStateChanged,
   User as FirebaseUser
 } from 'firebase/auth';
+import type { Persistence } from 'firebase/auth';
 import {
   getFirestore,
   Firestore,
@@ -57,9 +58,13 @@ class FirebaseService {
     this.app = initializeApp(firebaseConfig);
 
     // Initialize Auth with React Native persistence
-    this.auth = initializeAuth(this.app, {
-      persistence: getReactNativePersistence(AsyncStorage)
-    });
+    const { getReactNativePersistence } = require('firebase/auth') as {
+      getReactNativePersistence?: (storage: typeof AsyncStorage) => Persistence;
+    };
+    const persistence = getReactNativePersistence
+      ? getReactNativePersistence(AsyncStorage)
+      : inMemoryPersistence;
+    this.auth = initializeAuth(this.app, { persistence });
 
     // Initialize Firestore
     this.db = getFirestore(this.app);

@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import { firebaseService } from '@/services/firebase.service';
-import type { Ingredient, IngredientCategory } from '@/utils/types';
+import type { Ingredient, IngredientCategory, IngredientUnit } from '@/utils/types';
 
 // ============================================
 // TYPES
@@ -16,7 +16,7 @@ export interface ShoppingItem {
   recipe_name?: string;
   name: string;
   amount?: number;
-  unit?: string;
+  unit?: IngredientUnit;
   category: IngredientCategory;
   is_checked: boolean;
   is_urgent: boolean;

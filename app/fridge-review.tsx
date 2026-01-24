@@ -14,12 +14,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  type DimensionValue,
 } from 'react-native';
 import { Text, Button } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { aiService } from '@/services/ai.service';
 import { firebaseService } from '@/services/firebase.service';
 import { pantryService } from '@/services/pantry.service';
@@ -38,7 +39,9 @@ interface DetectedItem {
   name: string;
   emoji: string;
   confidence: number;
-  position: { top: string; left: string };
+  quantity: string; // e.g., "3", "half carton", "about 500ml"
+  category: string;
+  position: { top: DimensionValue; left: DimensionValue };
   bgColor: string;
   darkBgColor: string;
 }
@@ -55,6 +58,8 @@ function mapDetectedIngredientsToItems(
       name: ingredient.name,
       emoji: getIngredientEmoji(ingredient.name),
       confidence,
+      quantity: ingredient.quantity_estimate || 'some', // Preserve quantity from AI
+      category: ingredient.category || 'other',
       position: generateMarkerPosition(index, ingredients.length),
       bgColor: colors.bgColor,
       darkBgColor: colors.darkBgColor,
@@ -170,14 +175,22 @@ function DetectedItemRow({
           >
             {item.name}
           </Text>
-          <Text
-            style={[
-              styles.itemConfidence,
-              { color: isDark ? '#94A3B8' : '#64748B' },
-            ]}
-          >
-            {item.confidence}% confidence
-          </Text>
+          <View style={styles.itemMetaRow}>
+            {/* Quantity badge */}
+            <View style={[styles.quantityBadge, { backgroundColor: isDark ? 'rgba(96, 108, 56, 0.2)' : 'rgba(96, 108, 56, 0.1)' }]}>
+              <Ionicons name="cube-outline" size={12} color="#606C38" />
+              <Text style={styles.quantityText}>{item.quantity}</Text>
+            </View>
+            {/* Confidence */}
+            <Text
+              style={[
+                styles.itemConfidence,
+                { color: isDark ? '#94A3B8' : '#64748B' },
+              ]}
+            >
+              {item.confidence}%
+            </Text>
+          </View>
         </View>
       </View>
       {!isViewOnly && (
@@ -267,24 +280,26 @@ export default function FridgeReviewScreen() {
           reader.onerror = reject;
           reader.readAsDataURL(blob);
         });
-      } else if (FileSystem?.EncodingType?.Base64) {
-        // For local file URIs, use FileSystem
-        base64 = await FileSystem.readAsStringAsync(imageUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
       } else {
-        // Fallback: try fetch for file:// URIs
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const result = reader.result as string;
-            resolve(result.split(',')[1]);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
+        try {
+          // For local file URIs, use FileSystem
+          base64 = await FileSystem.readAsStringAsync(imageUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        } catch {
+          // Fallback: try fetch for file:// URIs
+          const response = await fetch(imageUri);
+          const blob = await response.blob();
+          base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const result = reader.result as string;
+              resolve(result.split(',')[1]);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
       }
 
       // Call AI service to analyze the image
@@ -321,6 +336,8 @@ export default function FridgeReviewScreen() {
       name: manualItemName.trim(),
       emoji: getIngredientEmoji(manualItemName.trim()),
       confidence: 100, // Manual items have 100% confidence
+      quantity: 'some', // Default quantity for manually added items
+      category: 'other',
       position: generateMarkerPosition(items.length, items.length + 1),
       bgColor: getIngredientColors('other').bgColor,
       darkBgColor: getIngredientColors('other').darkBgColor,
@@ -359,8 +376,8 @@ export default function FridgeReviewScreen() {
     try {
       const detectedIngredients: DetectedIngredient[] = items.map((item) => ({
         name: item.name,
-        category: 'other' as any,
-        quantity_estimate: '1',
+        category: (item.category || 'other') as any,
+        quantity_estimate: item.quantity || 'some', // Use actual quantity from detection
         confidence: item.confidence > 80 ? 'high' : item.confidence > 50 ? 'medium' : 'low',
         confidence_percent: item.confidence,
       }));
@@ -848,15 +865,33 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   itemTextContainer: {
-    gap: 2,
+    gap: 4,
   },
   itemName: {
     fontSize: 16,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
-  itemConfidence: {
+  itemMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  quantityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  quantityText: {
     fontSize: 12,
-    fontFamily: 'NotoSans_400Regular',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: '#606C38',
+  },
+  itemConfidence: {
+    fontSize: 11,
+    fontFamily: 'NotoSans_500Medium',
   },
   deleteButton: {
     padding: 8,

@@ -7,17 +7,19 @@ import {
   Pressable,
   ScrollView,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ActivityIndicator,
   useColorScheme,
-  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { aiService } from '@/services/ai.service';
 import { pantryService } from '@/services/pantry.service';
 import { getRecipeImage } from '@/utils/recipePlaceholders';
+import { FLOATING_NAV } from '@/constants/layout';
+import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 
 const COLORS = {
   primary: '#FF4B2B',
@@ -41,6 +43,10 @@ export default function AiChefScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const scrollViewRef = useRef<ScrollView>(null);
+  const navBottomPadding = Math.max(insets.bottom - 8, FLOATING_NAV.BASE_BOTTOM_PADDING);
+  const inputLift = FLOATING_NAV.BAR_HEIGHT + navBottomPadding + 8;
+  const inputAreaSpacing = 12;
+  const safeKeyboardOffset = 0;
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -53,9 +59,22 @@ export default function AiChefScreen() {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [pantryItems, setPantryItems] = useState<string[]>([]);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   useEffect(() => {
     loadPantryItems();
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
 
   const loadPantryItems = async () => {
@@ -220,12 +239,14 @@ export default function AiChefScreen() {
   ];
 
   return (
-    <SafeAreaView
-      style={[
-        styles.container,
-        { backgroundColor: isDark ? COLORS.backgroundDark : COLORS.backgroundLight },
-      ]}
-    >
+    <TabScreenTransition style={styles.container}>
+      <SafeAreaView
+        style={[
+          styles.container,
+          { backgroundColor: isDark ? COLORS.backgroundDark : COLORS.backgroundLight },
+        ]}
+        edges={['top', 'left', 'right']}
+      >
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -250,7 +271,10 @@ export default function AiChefScreen() {
       <ScrollView
         ref={scrollViewRef}
         style={styles.messagesContainer}
-        contentContainerStyle={styles.messagesContent}
+        contentContainerStyle={[
+          styles.messagesContent,
+          { paddingBottom: inputAreaSpacing },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {messages.map(renderMessage)}
@@ -287,12 +311,13 @@ export default function AiChefScreen() {
       {/* Input Area */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={insets.bottom}
+        keyboardVerticalOffset={safeKeyboardOffset}
       >
         <View
           style={[
             styles.inputContainer,
             {
+              marginBottom: isKeyboardVisible ? 0 : inputLift,
               backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
               borderTopColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB',
             },
@@ -325,6 +350,7 @@ export default function AiChefScreen() {
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </TabScreenTransition>
   );
 }
 

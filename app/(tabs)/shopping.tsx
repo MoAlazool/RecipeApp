@@ -30,6 +30,7 @@ import { AddItemModal } from '@/components/shopping/AddItemModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { INGREDIENT_CATEGORIES } from '@/utils/types';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
+import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 
 // Recipe badge colors for visual variety
 const RECIPE_COLORS = [
@@ -93,7 +94,7 @@ export default function ShoppingScreen() {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [deletedItem, setDeletedItem] = useState<ShoppingItem | null>(null);
   const [showUndo, setShowUndo] = useState(false);
-  const undoTimeoutRef = useRef<NodeJS.Timeout>();
+  const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoSlideAnim = useRef(new Animated.Value(100)).current;
 
   const toggleSection = (title: string) => {
@@ -236,6 +237,14 @@ export default function ShoppingScreen() {
     }));
   }, [uncheckedItems, sortBy]);
 
+  const sectionDataMap = useMemo(() => {
+    const map = new Map<string, ShoppingItem[]>();
+    sections.forEach((section) => {
+      map.set(section.title, section.data);
+    });
+    return map;
+  }, [sections]);
+
   // Filter items in collapsed sections for display
   const displaySections = useMemo(() => {
     if (sortBy !== 'recipe') return sections;
@@ -246,6 +255,26 @@ export default function ShoppingScreen() {
       itemCount: section.data.length, // Preserve original count for header display
     }));
   }, [sections, collapsedSections, sortBy]);
+
+  const handleDeleteSection = useCallback((section: SectionData) => {
+    const itemsToDelete = sectionDataMap.get(section.title) || section.data;
+    if (!itemsToDelete.length) return;
+    Alert.alert(
+      'Delete Recipe Items',
+      `Remove ${itemsToDelete.length} items from "${section.title}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            LayoutAnimation.configureNext(deleteLayoutAnimation);
+            itemsToDelete.forEach((item) => handleDeleteItem(item));
+          },
+        },
+      ]
+    );
+  }, [handleDeleteItem, sectionDataMap]);
 
   const { checked, total, percentage } = getProgress();
 
@@ -405,14 +434,19 @@ export default function ShoppingScreen() {
           >
             {/* Circular Checkbox */}
             <View style={styles.checkboxContainer}>
-              <View style={[
-                styles.checkbox,
-                item.is_checked && styles.checkboxChecked,
-              ]}>
+              <TouchableOpacity
+                onPress={() => toggleItem(item.id)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={[
+                  styles.checkbox,
+                  item.is_checked && styles.checkboxChecked,
+                ]}
+              >
                 {item.is_checked && (
                   <Ionicons name="checkmark" size={14} color="#FFF" />
                 )}
-              </View>
+              </TouchableOpacity>
             </View>
 
             {/* Item Content */}
@@ -441,7 +475,7 @@ export default function ShoppingScreen() {
                 {sortBy !== 'recipe' && item.recipe_name && recipeColor && (
                   <View style={[
                     styles.recipeBadge,
-                    { backgroundColor: recipeColor.bg, borderColor: recipeColor.border }
+                    { backgroundColor: recipeColor.bg }
                   ]}>
                     <Text style={[styles.recipeBadgeText, { color: recipeColor.text }]} numberOfLines={1}>
                       {item.recipe_name}
@@ -470,40 +504,64 @@ export default function ShoppingScreen() {
       const isCollapsed = collapsedSections.has(section.title);
       const itemCount = section.itemCount ?? section.data.length;
 
-      const content = (
+      const leftContent = (
         <>
-          <View style={styles.sectionLeft}>
-            {isRecipeView && (
-              <Ionicons
-                name={isCollapsed ? 'chevron-forward' : 'chevron-down'}
-                size={18}
-                color="#9C5749"
-              />
-            )}
-            <Ionicons name={section.icon as any} size={20} color="#F2330D" />
-            <Text style={styles.sectionTitle} numberOfLines={1}>{section.title}</Text>
-          </View>
-          <View style={styles.sectionBadge}>
-            <Text style={styles.sectionCount}>{itemCount} items</Text>
-          </View>
+          {isRecipeView && (
+            <Ionicons
+              name={isCollapsed ? 'chevron-forward' : 'chevron-down'}
+              size={18}
+              color="#9C5749"
+            />
+          )}
+          <Ionicons name={section.icon as any} size={20} color="#F2330D" />
+          <Text style={styles.sectionTitle} numberOfLines={1}>{section.title}</Text>
         </>
       );
 
       if (isRecipeView) {
         return (
-          <TouchableOpacity
-            style={styles.sectionHeader}
-            onPress={() => toggleSection(section.title)}
-            activeOpacity={0.7}
-          >
-            {content}
-          </TouchableOpacity>
+          <View style={styles.sectionHeader}>
+            <TouchableOpacity
+              style={styles.sectionHeaderTap}
+              onPress={() => toggleSection(section.title)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.sectionLeft}>
+                {leftContent}
+              </View>
+            </TouchableOpacity>
+            <View style={styles.sectionRight}>
+              <TouchableOpacity
+                style={styles.sectionCheckButton}
+                onPress={() => handleDeleteSection(section)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.sectionCheckCircle}>
+                  <Ionicons name="trash-outline" size={12} color="#F2330D" />
+                </View>
+              </TouchableOpacity>
+              <View style={styles.sectionBadge}>
+                <Text style={styles.sectionCount}>{itemCount} items</Text>
+              </View>
+            </View>
+          </View>
         );
       }
 
-      return <View style={styles.sectionHeader}>{content}</View>;
+      return (
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionLeft}>
+            {leftContent}
+          </View>
+          <View style={styles.sectionRight}>
+            <View style={styles.sectionBadge}>
+              <Text style={styles.sectionCount}>{itemCount} items</Text>
+            </View>
+          </View>
+        </View>
+      );
     },
-    [sortBy, collapsedSections, toggleSection]
+    [sortBy, collapsedSections, toggleSection, handleDeleteSection]
   );
 
   // Sort options as pills
@@ -515,29 +573,32 @@ export default function ShoppingScreen() {
   if (items.length === 0) {
     return (
       <GestureHandlerRootView style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <View>
-            <Text style={styles.headerTitle}>Shopping List</Text>
-            <Text style={styles.headerSubtitle}>No items yet</Text>
+        <TabScreenTransition style={styles.container}>
+          <View style={[styles.header, { paddingTop: insets.top }]}>
+            <View>
+              <Text style={styles.headerTitle}>Shopping List</Text>
+              <Text style={styles.headerSubtitle}>No items yet</Text>
+            </View>
+            <TouchableOpacity style={styles.moreButton} onPress={() => setShowAddModal(true)}>
+              <Ionicons name="add-circle" size={28} color="#F2330D" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.moreButton} onPress={() => setShowAddModal(true)}>
-            <Ionicons name="add-circle" size={28} color="#F2330D" />
-          </TouchableOpacity>
-        </View>
 
-        <EmptyState
-          icon="cart-outline"
-          title="Your shopping list is empty"
-          subtitle="Add items manually or import ingredients from your recipes"
-        />
+          <EmptyState
+            icon="cart-outline"
+            title="Your shopping list is empty"
+            subtitle="Add items manually or import ingredients from your recipes"
+          />
 
-        <AddItemModal visible={showAddModal} onClose={() => setShowAddModal(false)} />
+          <AddItemModal visible={showAddModal} onClose={() => setShowAddModal(false)} />
+        </TabScreenTransition>
       </GestureHandlerRootView>
     );
   }
 
   return (
     <GestureHandlerRootView style={styles.container}>
+      <TabScreenTransition style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <View>
@@ -655,9 +716,14 @@ export default function ShoppingScreen() {
                             index !== checkedItems.length - 1 && styles.itemBorder,
                           ]}
                         >
-                          <View style={[styles.checkbox, styles.checkboxChecked]}>
+                          <TouchableOpacity
+                            onPress={() => toggleItem(item.id)}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={[styles.checkbox, styles.checkboxChecked]}
+                          >
                             <Ionicons name="checkmark" size={14} color="#FFF" />
-                          </View>
+                          </TouchableOpacity>
                           <Text style={styles.checkedItemName} numberOfLines={1}>
                             {item.name}
                           </Text>
@@ -718,6 +784,7 @@ export default function ShoppingScreen() {
 
       {/* Add Item Modal */}
       <AddItemModal visible={showAddModal} onClose={() => setShowAddModal(false)} />
+      </TabScreenTransition>
     </GestureHandlerRootView>
   );
 }
@@ -771,12 +838,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#E8D3CE',
+    borderColor: 'transparent',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
   quickAddIcon: {
     marginRight: 8,
@@ -804,11 +871,16 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E8D3CE',
+    borderColor: 'transparent',
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 1,
   },
   pillActive: {
     backgroundColor: '#F2330D',
-    borderColor: '#F2330D',
+    borderColor: 'transparent',
     shadowColor: '#F2330D',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -836,7 +908,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginTop: 8,
   },
+  sectionHeaderTap: {
+    flex: 1,
+  },
   sectionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -846,13 +926,40 @@ const styles = StyleSheet.create({
     fontFamily: 'PlusJakartaSans_700Bold',
     color: '#1C100D',
   },
+  sectionCheckButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  sectionCheckCircle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#F2330D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sectionBadge: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E8D3CE',
+    borderColor: 'transparent',
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
   sectionCount: {
     fontSize: 11,
@@ -862,14 +969,12 @@ const styles = StyleSheet.create({
   sectionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(232, 211, 206, 0.5)',
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   itemCardFirst: {
     borderTopLeftRadius: 16,
@@ -896,7 +1001,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
-    borderColor: 'rgba(232, 211, 206, 0.5)',
+    borderColor: 'transparent',
   },
   itemLast: {
     borderBottomLeftRadius: 16,
@@ -904,21 +1009,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
-    borderColor: 'rgba(232, 211, 206, 0.5)',
+    borderColor: 'transparent',
   },
   itemMiddle: {
     borderLeftWidth: 1,
     borderRightWidth: 1,
-    borderColor: 'rgba(232, 211, 206, 0.5)',
+    borderColor: 'transparent',
   },
   itemSingle: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(232, 211, 206, 0.5)',
+    borderColor: 'transparent',
   },
   itemBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(232, 211, 206, 0.5)',
+    borderBottomColor: 'rgba(0, 0, 0, 0.04)',
   },
   itemUrgent: {
     backgroundColor: 'rgba(242, 51, 13, 0.03)',
@@ -974,6 +1079,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
+    borderColor: 'transparent',
     maxWidth: 140,
   },
   recipeBadgeText: {
@@ -1028,9 +1134,12 @@ const styles = StyleSheet.create({
   checkedList: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(232, 211, 206, 0.5)',
     overflow: 'hidden',
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   checkedItem: {
     flexDirection: 'row',
@@ -1053,7 +1162,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 14,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(232, 211, 206, 0.5)',
+    borderTopColor: 'rgba(0, 0, 0, 0.04)',
   },
   clearCheckedText: {
     fontSize: 13,

@@ -13,7 +13,7 @@ import {
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useShoppingStore, COMMON_INGREDIENTS, CATEGORY_ICONS } from '@/stores/shoppingStore';
-import type { IngredientCategory } from '@/utils/types';
+import type { IngredientCategory, IngredientUnit } from '@/utils/types';
 
 interface AddItemModalProps {
   visible: boolean;
@@ -32,14 +32,26 @@ const CATEGORIES: { key: IngredientCategory; label: string }[] = [
   { key: 'other', label: 'Other' },
 ];
 
-const UNITS = ['', 'pcs', 'kg', 'g', 'lb', 'oz', 'L', 'ml', 'cup', 'tbsp', 'tsp'];
+const UNIT_OPTIONS: { label: string; value?: IngredientUnit }[] = [
+  { label: 'None' },
+  { label: 'pcs', value: 'piece' },
+  { label: 'kg', value: 'kg' },
+  { label: 'g', value: 'g' },
+  { label: 'lb', value: 'lb' },
+  { label: 'oz', value: 'oz' },
+  { label: 'L', value: 'l' },
+  { label: 'ml', value: 'ml' },
+  { label: 'cup', value: 'cup' },
+  { label: 'tbsp', value: 'tbsp' },
+  { label: 'tsp', value: 'tsp' },
+];
 
 export function AddItemModal({ visible, onClose }: AddItemModalProps) {
   const { addItem } = useShoppingStore();
 
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
-  const [unit, setUnit] = useState('');
+  const [unit, setUnit] = useState<IngredientUnit | undefined>(undefined);
   const [category, setCategory] = useState<IngredientCategory>('other');
   const [isUrgent, setIsUrgent] = useState(false);
   const [notes, setNotes] = useState('');
@@ -68,7 +80,7 @@ export function AddItemModal({ visible, onClose }: AddItemModalProps) {
     addItem({
       name: name.trim(),
       amount: amount ? parseFloat(amount) : undefined,
-      unit: unit || undefined,
+      unit,
       category,
       is_urgent: isUrgent,
       notes: notes.trim() || undefined,
@@ -77,7 +89,7 @@ export function AddItemModal({ visible, onClose }: AddItemModalProps) {
     // Reset form
     setName('');
     setAmount('');
-    setUnit('');
+    setUnit(undefined);
     setCategory('other');
     setIsUrgent(false);
     setNotes('');
@@ -202,16 +214,16 @@ export function AddItemModal({ visible, onClose }: AddItemModalProps) {
                   showsHorizontalScrollIndicator={false}
                   style={styles.unitScroll}
                 >
-                  {UNITS.map((u) => (
+                  {UNIT_OPTIONS.map((option) => (
                     <TouchableOpacity
-                      key={u || 'none'}
-                      style={[styles.unitChip, unit === u && styles.unitChipSelected]}
-                      onPress={() => setUnit(u)}
+                      key={option.label}
+                      style={[styles.unitChip, unit === option.value && styles.unitChipSelected]}
+                      onPress={() => setUnit(option.value)}
                     >
                       <Text
-                        style={[styles.unitText, unit === u && styles.unitTextSelected]}
+                        style={[styles.unitText, unit === option.value && styles.unitTextSelected]}
                       >
-                        {u || 'None'}
+                        {option.label}
                       </Text>
                     </TouchableOpacity>
                   ))}

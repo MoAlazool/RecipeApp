@@ -113,6 +113,23 @@ React Native (Expo) + TypeScript + Supabase + Google Gemini AI + RevenueCat + Zu
 
 ---
 
+## 📚 Documentation
+Project guides and migration notes live in `docs/`:
+- `docs/PROJECT_GUIDE.md`
+- `docs/README_FIREBASE_MIGRATION.md`
+- `docs/FIREBASE_QUICKSTART.md`
+- `docs/FIREBASE_SETUP.md`
+- `docs/MIGRATION_SUMMARY.md`
+- `docs/MIGRATION_CHECKLIST.md`
+- `docs/NEXT_STEPS.md`
+- `docs/DEVELOPER_GUIDE_FRIDGE_SCAN.md`
+- `docs/FRIDGE_SCAN_ENHANCEMENT_SUMMARY.md`
+- `docs/PANTRY_AI_CHEF_GUIDE.md`
+- `docs/FIRESTORE_SECURITY_RULES_UPDATED.md`
+- `docs/DELETE_RECIPE_GUIDE.md`
+
+---
+
 ## 🏗️ Architecture Overview
 
 ```

@@ -132,9 +132,6 @@ const styles = StyleSheet.create({
   cardIconInstagram: {
     backgroundColor: 'rgba(228, 64, 95, 0.12)',
   },
-  cardIconMint: {
-    backgroundColor: 'rgba(83, 216, 135, 0.2)',
-  },
   cardIconAmber: {
     backgroundColor: 'rgba(255, 193, 7, 0.2)',
   },

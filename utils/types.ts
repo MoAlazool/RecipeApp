@@ -68,7 +68,6 @@ export interface Recipe {
   // Content
   ingredients: Ingredient[];
   steps: RecipeStep[];
-  tools?: string[];
 
   // Nutrition
   calories?: number;
@@ -226,7 +225,6 @@ export interface ExtractedRecipe {
   servings: number;
   ingredients: Ingredient[];
   steps: RecipeStep[];
-  tools?: string[];
   nutrition_estimate?: {
     calories?: number;
     protein_g?: number;
@@ -244,6 +242,7 @@ export interface SuggestedRecipe {
   difficulty: RecipeDifficulty;
   total_time_minutes: number;
   servings: number;
+  calories_per_serving: number;
   match_score: number;
   ingredients_you_have: string[];
   ingredients_you_need: string[];

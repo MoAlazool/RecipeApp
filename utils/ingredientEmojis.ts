@@ -2,6 +2,8 @@
 // INGREDIENT EMOJI MAPPING
 // ============================================
 
+import type { DimensionValue } from 'react-native';
+
 export const INGREDIENT_EMOJIS: Record<string, string> = {
   // Produce - Vegetables
   tomato: '🍅',
@@ -238,7 +240,10 @@ export function getIngredientColors(category: string): {
 /**
  * Generate a random position for marker display on the image
  */
-export function generateMarkerPosition(index: number, total: number): { top: string; left: string } {
+export function generateMarkerPosition(
+  index: number,
+  total: number
+): { top: DimensionValue; left: DimensionValue } {
   const cols = Math.ceil(Math.sqrt(total));
   const row = Math.floor(index / cols);
   const col = index % cols;
@@ -253,7 +258,7 @@ export function generateMarkerPosition(index: number, total: number): { top: str
   const randomLeft = baseLeft + Math.random() * (cellWidth * 0.5);
 
   return {
-    top: `${Math.min(65, Math.max(25, randomTop))}%`,
-    left: `${Math.min(80, Math.max(15, randomLeft))}%`,
+    top: `${Math.min(65, Math.max(25, randomTop))}%` as DimensionValue,
+    left: `${Math.min(80, Math.max(15, randomLeft))}%` as DimensionValue,
   };
 }

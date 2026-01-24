@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/authStore';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
+import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -28,135 +29,139 @@ export default function ProfileScreen() {
 
   if (!isAuthenticated) {
     return (
-      <View style={[styles.authContainer, { paddingTop: insets.top }]}>
-        <Ionicons name="person-circle-outline" size={96} color="#C8B7B2" />
-        <Text h4 style={styles.authTitle}>Sign in to sync your recipes</Text>
-        <Text style={styles.authSubtitle}>
-          Create an account to save recipes across devices and unlock premium features
-        </Text>
-        <Button
-          title="Sign In"
-          onPress={() => router.push('/auth')}
-          buttonStyle={styles.authButton}
-          titleStyle={styles.authButtonText}
-        />
-        <Button
-          title="Create Account"
-          type="outline"
-          onPress={() => router.push('/auth?mode=signup')}
-          buttonStyle={styles.authButtonOutline}
-          titleStyle={styles.authButtonOutlineText}
-        />
-      </View>
+      <TabScreenTransition style={styles.authContainer}>
+        <View style={[styles.authContainer, { paddingTop: insets.top }]}>
+          <Ionicons name="person-circle-outline" size={96} color="#C8B7B2" />
+          <Text h4 style={styles.authTitle}>Sign in to sync your recipes</Text>
+          <Text style={styles.authSubtitle}>
+            Create an account to save recipes across devices and unlock premium features
+          </Text>
+          <Button
+            title="Sign In"
+            onPress={() => router.push('/auth')}
+            buttonStyle={styles.authButton}
+            titleStyle={styles.authButtonText}
+          />
+          <Button
+            title="Create Account"
+            type="outline"
+            onPress={() => router.push('/auth?mode=signup')}
+            buttonStyle={styles.authButtonOutline}
+            titleStyle={styles.authButtonOutlineText}
+          />
+        </View>
+      </TabScreenTransition>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingTop: insets.top, paddingBottom: bottomTabBarHeight }}>
-      <View style={styles.header}>
-        <Avatar
-          size={80}
-          rounded
-          title={user?.full_name?.[0] || user?.email?.[0] || '?'}
-          containerStyle={{ backgroundColor: '#F2330D' }}
+    <TabScreenTransition style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingTop: insets.top, paddingBottom: bottomTabBarHeight }}>
+        <View style={styles.header}>
+          <Avatar
+            size={80}
+            rounded
+            title={user?.full_name?.[0] || user?.email?.[0] || '?'}
+            containerStyle={{ backgroundColor: '#F2330D' }}
+          />
+          <Text h4 style={styles.name}>{user?.full_name || 'Recipe Lover'}</Text>
+          <Text style={styles.email}>{user?.email}</Text>
+          {user?.is_premium && (
+            <View style={styles.premiumBadge}>
+              <Ionicons name="star" size={14} color="#F59E0B" />
+              <Text style={styles.premiumText}>Pro Member</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <ListItem containerStyle={styles.listItem} onPress={() => {}}>
+            <View style={styles.listRow}>
+              <Ionicons name="person-outline" size={22} color="#9C5749" />
+              <Text style={styles.listTitle}>Edit Profile</Text>
+              <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
+            </View>
+          </ListItem>
+          <ListItem containerStyle={styles.listItem} onPress={() => {}}>
+            <View style={styles.listRow}>
+              <Ionicons name="restaurant-outline" size={22} color="#9C5749" />
+              <Text style={styles.listTitle}>Dietary Preferences</Text>
+              <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
+            </View>
+          </ListItem>
+          <ListItem containerStyle={styles.listItem} onPress={() => router.push('/paywall')}>
+            <View style={styles.listRow}>
+              <Ionicons name="diamond-outline" size={22} color="#F2330D" />
+              <Text style={[styles.listTitle, styles.upgradeText]}>
+                {user?.is_premium ? 'Manage Subscription' : 'Upgrade to Pro'}
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
+            </View>
+          </ListItem>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Preferences</Text>
+          <ListItem containerStyle={styles.listItem}>
+            <View style={styles.listRow}>
+              <Ionicons name="moon-outline" size={22} color="#9C5749" />
+              <Text style={styles.listTitle}>Dark Mode</Text>
+              <Switch value={false} onValueChange={() => {}} />
+            </View>
+          </ListItem>
+          <ListItem containerStyle={styles.listItem}>
+            <View style={styles.listRow}>
+              <Ionicons name="notifications-outline" size={22} color="#9C5749" />
+              <Text style={styles.listTitle}>Notifications</Text>
+              <Switch value={true} onValueChange={() => {}} />
+            </View>
+          </ListItem>
+          <ListItem containerStyle={styles.listItem}>
+            <View style={styles.listRow}>
+              <Ionicons name="volume-high-outline" size={22} color="#9C5749" />
+              <Text style={styles.listTitle}>Voice Feedback</Text>
+              <Switch value={true} onValueChange={() => {}} />
+            </View>
+          </ListItem>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Support</Text>
+          <ListItem containerStyle={styles.listItem} onPress={() => {}}>
+            <View style={styles.listRow}>
+              <Ionicons name="help-circle-outline" size={22} color="#9C5749" />
+              <Text style={styles.listTitle}>Help & FAQ</Text>
+              <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
+            </View>
+          </ListItem>
+          <ListItem containerStyle={styles.listItem} onPress={() => {}}>
+            <View style={styles.listRow}>
+              <Ionicons name="mail-outline" size={22} color="#9C5749" />
+              <Text style={styles.listTitle}>Contact Support</Text>
+              <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
+            </View>
+          </ListItem>
+          <ListItem containerStyle={styles.listItem} onPress={() => {}}>
+            <View style={styles.listRow}>
+              <Ionicons name="document-text-outline" size={22} color="#9C5749" />
+              <Text style={styles.listTitle}>Terms & Privacy</Text>
+              <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
+            </View>
+          </ListItem>
+        </View>
+
+        <Button
+          title="Sign Out"
+          type="clear"
+          titleStyle={styles.signOutText}
+          onPress={handleSignOut}
+          containerStyle={styles.signOutButton}
         />
-        <Text h4 style={styles.name}>{user?.full_name || 'Recipe Lover'}</Text>
-        <Text style={styles.email}>{user?.email}</Text>
-        {user?.is_premium && (
-          <View style={styles.premiumBadge}>
-            <Ionicons name="star" size={14} color="#F59E0B" />
-            <Text style={styles.premiumText}>Pro Member</Text>
-          </View>
-        )}
-      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account</Text>
-        <ListItem containerStyle={styles.listItem} onPress={() => {}}>
-          <View style={styles.listRow}>
-            <Ionicons name="person-outline" size={22} color="#9C5749" />
-            <Text style={styles.listTitle}>Edit Profile</Text>
-            <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
-          </View>
-        </ListItem>
-        <ListItem containerStyle={styles.listItem} onPress={() => {}}>
-          <View style={styles.listRow}>
-            <Ionicons name="restaurant-outline" size={22} color="#9C5749" />
-            <Text style={styles.listTitle}>Dietary Preferences</Text>
-            <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
-          </View>
-        </ListItem>
-        <ListItem containerStyle={styles.listItem} onPress={() => router.push('/paywall')}>
-          <View style={styles.listRow}>
-            <Ionicons name="diamond-outline" size={22} color="#F2330D" />
-            <Text style={[styles.listTitle, styles.upgradeText]}>
-              {user?.is_premium ? 'Manage Subscription' : 'Upgrade to Pro'}
-            </Text>
-            <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
-          </View>
-        </ListItem>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Preferences</Text>
-        <ListItem containerStyle={styles.listItem}>
-          <View style={styles.listRow}>
-            <Ionicons name="moon-outline" size={22} color="#9C5749" />
-            <Text style={styles.listTitle}>Dark Mode</Text>
-            <Switch value={false} onValueChange={() => {}} />
-          </View>
-        </ListItem>
-        <ListItem containerStyle={styles.listItem}>
-          <View style={styles.listRow}>
-            <Ionicons name="notifications-outline" size={22} color="#9C5749" />
-            <Text style={styles.listTitle}>Notifications</Text>
-            <Switch value={true} onValueChange={() => {}} />
-          </View>
-        </ListItem>
-        <ListItem containerStyle={styles.listItem}>
-          <View style={styles.listRow}>
-            <Ionicons name="volume-high-outline" size={22} color="#9C5749" />
-            <Text style={styles.listTitle}>Voice Feedback</Text>
-            <Switch value={true} onValueChange={() => {}} />
-          </View>
-        </ListItem>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Support</Text>
-        <ListItem containerStyle={styles.listItem} onPress={() => {}}>
-          <View style={styles.listRow}>
-            <Ionicons name="help-circle-outline" size={22} color="#9C5749" />
-            <Text style={styles.listTitle}>Help & FAQ</Text>
-            <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
-          </View>
-        </ListItem>
-        <ListItem containerStyle={styles.listItem} onPress={() => {}}>
-          <View style={styles.listRow}>
-            <Ionicons name="mail-outline" size={22} color="#9C5749" />
-            <Text style={styles.listTitle}>Contact Support</Text>
-            <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
-          </View>
-        </ListItem>
-        <ListItem containerStyle={styles.listItem} onPress={() => {}}>
-          <View style={styles.listRow}>
-            <Ionicons name="document-text-outline" size={22} color="#9C5749" />
-            <Text style={styles.listTitle}>Terms & Privacy</Text>
-            <Ionicons name="chevron-forward" size={18} color="#C8B7B2" />
-          </View>
-        </ListItem>
-      </View>
-
-      <Button
-        title="Sign Out"
-        type="clear"
-        titleStyle={styles.signOutText}
-        onPress={handleSignOut}
-        containerStyle={styles.signOutButton}
-      />
-
-      <Text style={styles.version}>Version 1.0.0</Text>
-    </ScrollView>
+        <Text style={styles.version}>Version 1.0.0</Text>
+      </ScrollView>
+    </TabScreenTransition>
   );
 }
 

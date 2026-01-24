@@ -16,6 +16,7 @@ import {
   getIngredientEmoji,
   getIngredientColors,
 } from '@/utils/ingredientEmojis';
+import { ScanSweep } from '@/components/ui/ScanSweep';
 
 export default function ScanDetailScreen() {
   const router = useRouter();
@@ -67,6 +68,7 @@ export default function ScanDetailScreen() {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.loadingContainer}>
+          <ScanSweep />
           <ActivityIndicator size="large" color="#F2330D" />
           <Text style={styles.loadingText}>Loading items...</Text>
         </View>
@@ -246,14 +248,12 @@ const styles = StyleSheet.create({
     gap: 14,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
     padding: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowColor: '#1C100D',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   itemEmoji: {
     width: 52,

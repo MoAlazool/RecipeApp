@@ -14,23 +14,25 @@ import Animated, {
   useSharedValue,
   withSpring,
   withTiming,
-  withDecay,
+  withSequence,
   runOnJS,
   interpolate,
   Extrapolate,
+  Easing,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import * as Haptics from 'expo-haptics';
+// ============================================================================
+// TYPES - Support both Recipe and FlashcardRecipe formats
+// ============================================================================
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
-const ROTATION_ANGLE = 30;
-
-interface Ingredient {
+// FlashcardRecipe format (from recipe-results screen)
+interface FlashcardIngredient {
   name: string;
   inStock: boolean;
 }
 
-interface Recipe {
+interface FlashcardRecipe {
   id: string;
   name: string;
   image: string;
@@ -38,19 +40,185 @@ interface Recipe {
   difficulty: 'Easy' | 'Medium' | 'Hard';
   matchPercentage: number;
   isChefChoice: boolean;
-  ingredients: Ingredient[];
+  ingredients: FlashcardIngredient[];
+  originalRecipe?: any;
 }
 
+// Standard Recipe format (from @/utils/types)
+interface StandardIngredient {
+  name: string;
+  amount?: number;
+  unit?: string;
+  category: string;
+  notes?: string;
+  checked?: boolean;
+  is_optional?: boolean;
+}
+
+interface StandardRecipe {
+  id: string;
+  title: string;
+  thumbnail_url?: string;
+  total_time_minutes: number;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  is_favorite: boolean;
+  ingredients: StandardIngredient[];
+}
+
+// Union type to accept either format
+type RecipeInput = FlashcardRecipe | StandardRecipe;
+
+// Type guard to check if recipe is FlashcardRecipe format
+const isFlashcardRecipe = (recipe: RecipeInput): recipe is FlashcardRecipe => {
+  return 'name' in recipe && 'image' in recipe && 'prepTime' in recipe;
+};
+
+// ============================================================================
+// CONSTANTS & CONFIG
+// ============================================================================
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SWIPE_THRESHOLD = 100;
+const ROTATION_ANGLE = 12;
+
+// Faster, snappier spring animations
+const SPRING_CONFIG = {
+  // Fast entrance - card pops in quickly
+  enter: {
+    stiffness: 500,
+    damping: 28,
+    mass: 0.6,
+  },
+  // Bouncy snap-back
+  snapBack: {
+    stiffness: 600,
+    damping: 22,
+    mass: 0.5,
+  },
+  // Quick exit with velocity
+  exit: {
+    stiffness: 300,
+    damping: 20,
+    mass: 0.8,
+  },
+  // Card press feedback
+  press: {
+    stiffness: 500,
+    damping: 20,
+    mass: 0.4,
+  },
+};
+
+const COLORS = {
+  primary: '#FF4B2B',
+  olive: '#606C38',
+  charcoal: '#121417',
+  blue: '#3B82F6',
+  blueLight: '#DBEAFE',
+  blueTint: 'rgba(59, 130, 246, 0.1)',
+  white: '#FFFFFF',
+  gray400: '#9CA3AF',
+  slate700: '#334155',
+};
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
 interface RecipeFlashcardProps {
-  recipe: Recipe;
-  nextRecipe?: Recipe;
+  recipe: RecipeInput;
+  nextRecipe?: RecipeInput;
   onSwipe: (direction: 'left' | 'right') => void;
   activeIndex: number;
   totalItems: number;
-  isDark?: boolean;
-  onCardPress?: (recipe: Recipe) => void;
-  onFavoritePress?: (recipe: Recipe) => void;
+  pantryItems?: string[]; // Items user has in pantry (only used for StandardRecipe)
+  onCardPress?: (recipe: RecipeInput) => void;
+  onFavoritePress?: (recipe: RecipeInput) => void;
 }
+
+// Normalize recipe data to a common format
+interface NormalizedRecipe {
+  id: string;
+  title: string;
+  image: string;
+  time: string;
+  difficulty: string;
+  matchPercent: number;
+  isChefChoice: boolean;
+  isFavorite: boolean;
+  inStock: { name: string }[];
+  needed: { name: string }[];
+}
+
+const normalizeRecipe = (
+  recipe: RecipeInput,
+  pantryItems: string[] = []
+): NormalizedRecipe => {
+  if (isFlashcardRecipe(recipe)) {
+    // FlashcardRecipe format - already has inStock/needed split
+    return {
+      id: recipe.id,
+      title: recipe.name,
+      image: recipe.image,
+      time: recipe.prepTime,
+      difficulty: recipe.difficulty,
+      matchPercent: recipe.matchPercentage,
+      isChefChoice: recipe.isChefChoice,
+      isFavorite: false,
+      inStock: recipe.ingredients.filter(i => i.inStock).map(i => ({ name: i.name })),
+      needed: recipe.ingredients.filter(i => !i.inStock).map(i => ({ name: i.name })),
+    };
+  } else {
+    // StandardRecipe format - need to calculate match from pantry
+    const pantryLower = pantryItems.map(p => p.toLowerCase().trim());
+    const inStock: { name: string }[] = [];
+    const needed: { name: string }[] = [];
+
+    (recipe.ingredients || []).forEach(ing => {
+      const ingName = ing.name.toLowerCase().trim();
+      const hasItem = pantryLower.some(p => p.includes(ingName) || ingName.includes(p));
+      if (hasItem) {
+        inStock.push({ name: ing.name });
+      } else {
+        needed.push({ name: ing.name });
+      }
+    });
+
+    const matchPercent = recipe.ingredients?.length > 0
+      ? Math.round((inStock.length / recipe.ingredients.length) * 100)
+      : 0;
+
+    const formatTime = (minutes: number): string => {
+      if (minutes < 60) return `${minutes} min`;
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    };
+
+    const difficultyMap: Record<string, string> = {
+      beginner: 'Easy',
+      intermediate: 'Medium',
+      advanced: 'Hard',
+    };
+
+    return {
+      id: recipe.id,
+      title: recipe.title,
+      image: recipe.thumbnail_url || '',
+      time: formatTime(recipe.total_time_minutes),
+      difficulty: difficultyMap[recipe.difficulty] || 'Medium',
+      matchPercent,
+      isChefChoice: recipe.is_favorite,
+      isFavorite: recipe.is_favorite,
+      inStock,
+      needed,
+    };
+  }
+};
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
 
 export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
   recipe,
@@ -58,366 +226,354 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
   onSwipe,
   activeIndex,
   totalItems,
-  isDark = false,
+  pantryItems = [],
   onCardPress,
   onFavoritePress,
 }) => {
-  const [isSaved, setIsSaved] = useState(false);
+  // Normalize recipe data to common format
+  const normalizedRecipe = normalizeRecipe(recipe, pantryItems);
+  const normalizedNextRecipe = nextRecipe ? normalizeRecipe(nextRecipe, pantryItems) : null;
+
+  const [isSaved, setIsSaved] = useState(normalizedRecipe.isFavorite);
+
+  // Use normalized data
+  const { inStock, needed, matchPercent } = {
+    inStock: normalizedRecipe.inStock,
+    needed: normalizedRecipe.needed,
+    matchPercent: normalizedRecipe.matchPercent,
+  };
+
+  // ---- SHARED VALUES ----
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(1);
+  const cardScale = useSharedValue(1);
+  const cardOpacity = useSharedValue(1);
 
-  // Reset position when recipe changes (smoother entrance)
+  // Stack card animations
+  const stackCard2Scale = useSharedValue(0.96);
+  const stackCard2TranslateY = useSharedValue(12);
+  const stackCard3Scale = useSharedValue(0.92);
+  const stackCard3TranslateY = useSharedValue(20);
+
+  const blueGlowIntensity = useSharedValue(0);
+  const favoriteScale = useSharedValue(1);
+
+  // ---- EFFECTS ----
   useEffect(() => {
-    // Start from further back with rotation
-    scale.value = 0.90;
-    opacity.value = 0;
+    // Quick reset - no delay
+    cardOpacity.value = 0;
+    cardScale.value = 0.92;
+    translateY.value = 15;
     translateX.value = 0;
-    translateY.value = 20;
 
-    // Bouncy spring entrance
-    scale.value = withSpring(1, {
-      damping: 18,          // Lower damping = more bounce
-      stiffness: 400,       // Higher stiffness = snappier
-      mass: 0.6,
-      overshootClamping: false  // Allow overshoot
+    // Fast entrance animation
+    cardOpacity.value = withTiming(1, {
+      duration: 150,
+      easing: Easing.out(Easing.cubic)
     });
+    cardScale.value = withSpring(1, SPRING_CONFIG.enter);
+    translateY.value = withSpring(0, SPRING_CONFIG.enter);
 
-    translateY.value = withSpring(0, {
-      damping: 20,
-      stiffness: 400,
-      mass: 0.6
-    });
+    // Reset stack cards
+    stackCard2Scale.value = withTiming(0.96, { duration: 150 });
+    stackCard2TranslateY.value = withTiming(12, { duration: 150 });
+    stackCard3Scale.value = withTiming(0.92, { duration: 150 });
+    stackCard3TranslateY.value = withTiming(20, { duration: 150 });
+    blueGlowIntensity.value = withTiming(0, { duration: 100 });
 
-    opacity.value = withTiming(1, { duration: 250 });
+    setIsSaved(normalizedRecipe.isFavorite);
+  }, [normalizedRecipe.id]);
 
-    setIsSaved(false);
-  }, [recipe.id]);
+  // ---- HAPTIC & SWIPE HANDLERS ----
+  const triggerHaptic = (style: Haptics.ImpactFeedbackStyle) => {
+    Haptics.impactAsync(style);
+  };
 
   const handleSwipeComplete = (direction: 'left' | 'right') => {
     onSwipe(direction);
   };
 
+  // ---- GESTURE HANDLER ----
   const panGesture = Gesture.Pan()
-    .minDistance(5)
-    .failOffsetY([-30, 30])
-    .activeOffsetX([-5, 5])
+    .minDistance(8)
+    .activeOffsetX([-8, 8])
+    .failOffsetY([-20, 20])
     .onStart(() => {
-      scale.value = withSpring(0.98, { damping: 25, stiffness: 400 });
+      'worklet';
+      runOnJS(triggerHaptic)(Haptics.ImpactFeedbackStyle.Light);
+      cardScale.value = withSpring(0.98, SPRING_CONFIG.press);
     })
     .onUpdate((event) => {
+      'worklet';
       translateX.value = event.translationX;
-      translateY.value = event.translationY * 0.05;
+
+      const dragProgress = Math.min(Math.abs(event.translationX) / (SCREEN_WIDTH * 0.4), 1);
+
+      // Animate stack cards
+      stackCard2Scale.value = interpolate(dragProgress, [0, 1], [0.96, 1]);
+      stackCard2TranslateY.value = interpolate(dragProgress, [0, 1], [12, 0]);
+      stackCard3Scale.value = interpolate(dragProgress, [0, 1], [0.92, 0.96]);
+      stackCard3TranslateY.value = interpolate(dragProgress, [0, 1], [20, 12]);
+      blueGlowIntensity.value = interpolate(dragProgress, [0, 0.5, 1], [0, 0.3, 0.6]);
     })
     .onEnd((event) => {
-      const shouldSwipe =
-        Math.abs(event.translationX) > SWIPE_THRESHOLD ||
-        Math.abs(event.velocityX) > 800;
-
-      if (shouldSwipe) {
-        // Swipe direction: positive translationX = swipe RIGHT, negative = swipe LEFT
+      'worklet';
+      if (Math.abs(event.translationX) > SWIPE_THRESHOLD) {
+        runOnJS(triggerHaptic)(Haptics.ImpactFeedbackStyle.Heavy);
         const direction = event.translationX > 0 ? 'right' : 'left';
+        const exitX = event.translationX > 0 ? SCREEN_WIDTH + 100 : -SCREEN_WIDTH - 100;
 
-        // Smooth exit with spring physics and rotation
-        const exitX = event.translationX > 0 ? SCREEN_WIDTH + 200 : -(SCREEN_WIDTH + 200);
-        const exitY = event.velocityY / 8;
-
-        // Use spring for smooth, natural exit
+        // Fast exit with velocity
         translateX.value = withSpring(exitX, {
-          damping: 20,
-          stiffness: 200,
-          mass: 0.8,
+          ...SPRING_CONFIG.exit,
           velocity: event.velocityX,
         }, (finished) => {
           if (finished) {
             runOnJS(handleSwipeComplete)(direction);
-            // Reset immediately after callback
-            translateX.value = 0;
-            translateY.value = 0;
-            scale.value = 1;
           }
         });
-
-        translateY.value = withSpring(exitY, {
-          damping: 20,
-          stiffness: 200,
-          mass: 0.8,
-        });
-
-        scale.value = withSpring(0.85, {
-          damping: 20,
-          stiffness: 200,
-          mass: 0.8,
-        });
+        cardOpacity.value = withTiming(0, { duration: 200 });
       } else {
-        // Smooth snap-back animation with spring physics
-        translateX.value = withSpring(0, {
-          damping: 22,
-          stiffness: 350,
-          mass: 0.6,
-        });
-        translateY.value = withSpring(0, {
-          damping: 22,
-          stiffness: 350,
-          mass: 0.6,
-        });
-        scale.value = withSpring(1, {
-          damping: 22,
-          stiffness: 350,
-          mass: 0.6,
-        });
+        // Snap back
+        runOnJS(triggerHaptic)(Haptics.ImpactFeedbackStyle.Light);
+        cardScale.value = withSpring(1, SPRING_CONFIG.snapBack);
+        translateX.value = withSpring(0, SPRING_CONFIG.snapBack);
+        stackCard2Scale.value = withSpring(0.96, SPRING_CONFIG.snapBack);
+        stackCard2TranslateY.value = withSpring(12, SPRING_CONFIG.snapBack);
+        stackCard3Scale.value = withSpring(0.92, SPRING_CONFIG.snapBack);
+        stackCard3TranslateY.value = withSpring(20, SPRING_CONFIG.snapBack);
+        blueGlowIntensity.value = withTiming(0, { duration: 150 });
       }
     });
 
-  const animatedCardStyle = useAnimatedStyle(() => {
-    const rotate = interpolate(
-      translateX.value,
-      [-SCREEN_WIDTH * 1.5, 0, SCREEN_WIDTH * 1.5],
-      [-ROTATION_ANGLE, 0, ROTATION_ANGLE],
-      Extrapolate.EXTEND
-    );
+  // ---- ANIMATED STYLES ----
+  const mainCardStyle = useAnimatedStyle(() => ({
+    opacity: cardOpacity.value,
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: cardScale.value },
+      { rotate: `${interpolate(translateX.value, [-200, 200], [-ROTATION_ANGLE, ROTATION_ANGLE], Extrapolate.CLAMP)}deg` },
+    ],
+  }));
 
-    const swipeOpacity = interpolate(
-      translateX.value,
-      [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
-      [0, 1, 0],
-      Extrapolate.CLAMP
-    );
+  const stackCard2Style = useAnimatedStyle(() => ({
+    transform: [
+      { scale: stackCard2Scale.value },
+      { translateY: stackCard2TranslateY.value },
+    ],
+  }));
 
-    return {
-      transform: [
-        { translateX: translateX.value },
-        { translateY: translateY.value },
-        { rotate: `${rotate}deg` },
-        { scale: scale.value },
-      ],
-      opacity: opacity.value * swipeOpacity,
-    };
-  });
+  const stackCard3Style = useAnimatedStyle(() => ({
+    transform: [
+      { scale: stackCard3Scale.value },
+      { translateY: stackCard3TranslateY.value },
+    ],
+  }));
 
-  // Next card animations (Scaling and moving up)
-  const nextCardStyle = useAnimatedStyle(() => {
-    // Enhanced scale with overshoot for bounce effect
-    const nextScale = interpolate(
-      Math.abs(translateX.value || 0),
-      [0, SCREEN_WIDTH / 3, SCREEN_WIDTH / 2],
-      [0.97, 1.02, 1],  // Start at 0.97, overshoot to 1.02, settle at 1
-      Extrapolate.CLAMP
-    );
+  const nextCardStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: stackCard2Scale.value },
+      { translateY: stackCard2TranslateY.value },
+    ],
+  }));
 
-    // Larger translateY range for more dramatic reveal
-    const nextTranslateY = interpolate(
-      Math.abs(translateX.value || 0),
-      [0, SCREEN_WIDTH / 2],
-      [8, 0],  // Move up 8px for smooth reveal
-      Extrapolate.CLAMP
-    );
+  const blueGlowStyle = useAnimatedStyle(() => ({
+    shadowOpacity: blueGlowIntensity.value,
+  }));
 
-    // Add subtle rotation during reveal
-    const nextRotate = interpolate(
-      translateX.value || 0,
-      [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
-      [2, 0, -2],  // Slight counter-rotation
-      Extrapolate.CLAMP
-    );
+  const favoriteButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: favoriteScale.value }],
+  }));
 
-    return {
-      transform: [
-        { translateY: nextTranslateY },
-        { scale: nextScale },
-        { rotateZ: `${nextRotate}deg` }
-      ],
-    };
-  });
-
-  // Dark overlay that appears when swiping (low opacity)
-  const nextCardOverlayOpacity = useAnimatedStyle(() => {
-    const darkOpacity = interpolate(
-      Math.abs(translateX.value),
-      [0, SCREEN_WIDTH / 2],
-      [0, 0.2],
-      Extrapolate.CLAMP
-    );
-
-    return {
-      opacity: darkOpacity,
-    };
-  });
-
-  // Animated pagination indicator position
   const paginationIndicatorStyle = useAnimatedStyle(() => {
-    'worklet';
     const dotWidth = 6;
-    const activeDotWidth = 40;
     const gap = 8;
-
-    // Calculate swipe progress (-1 for left swipe, 0 for center, 1 for right swipe)
     const swipeProgress = interpolate(
-      translateX.value || 0,
-      [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+      translateX.value,
+      [-SCREEN_WIDTH * 0.4, 0, SCREEN_WIDTH * 0.4],
       [1, 0, -1],
       Extrapolate.CLAMP
     );
-
-    // Calculate base position for current active index
-    // Position = sum of all previous dots + gaps
-    let basePosition = 0;
-    for (let i = 0; i < activeIndex; i++) {
-      basePosition += dotWidth + gap;
-    }
-
-    // Add swipe offset
+    let basePosition = activeIndex * (dotWidth + gap);
     const swipeOffset = swipeProgress * (dotWidth + gap);
-    const translationX = basePosition + swipeOffset;
 
     return {
-      transform: [{ translateX: translationX }],
+      transform: [{ translateX: basePosition + swipeOffset }],
     };
   });
 
-  const inStock = recipe.ingredients.filter((i) => i.inStock);
-  const needed = recipe.ingredients.filter((i) => !i.inStock);
+  // ---- EVENT HANDLERS ----
+  const handleFavoritePress = () => {
+    triggerHaptic(Haptics.ImpactFeedbackStyle.Medium);
+    const newSavedState = !isSaved;
+    setIsSaved(newSavedState);
+    favoriteScale.value = withSequence(
+      withSpring(0.75, { damping: 10, stiffness: 400 }),
+      withSpring(1.2, { damping: 8, stiffness: 300 }),
+      withSpring(1, { damping: 12, stiffness: 200 })
+    );
+    onFavoritePress?.(recipe);
+  };
+
+  const handleCardPress = () => {
+    onCardPress?.(recipe);
+  };
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
 
   return (
     <View style={styles.container}>
-      {/* Card Stack - Tinder Style (Back to Front) */}
+      {/* ========== CARD STACK (3-LAYER DEPTH) ========== */}
+      <Animated.View style={[styles.card, styles.stackCard3, stackCard3Style]}>
+        <LinearGradient
+          colors={['#F8FAFC', '#FFFFFF']}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
 
-      {/* Third card in stack - furthest back */}
-      <View style={[styles.card, styles.shadowCard3]} />
+      <Animated.View style={[styles.card, styles.stackCard2, stackCard2Style]}>
+        <LinearGradient
+          colors={['#FAFBFC', '#FFFFFF']}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
 
-      {/* Second card in stack - middle */}
-      <View style={[styles.card, styles.shadowCard2]} />
-
-      {/* First card in stack - shows next recipe preview */}
-      {nextRecipe && (
-        <Animated.View style={[styles.card, styles.backgroundCard, nextCardStyle]}>
-          {/* Next recipe preview image - more visible */}
-          <Image source={{ uri: nextRecipe.image }} style={styles.nextImage} />
-
-          {/* Low dark overlay (always visible) */}
-          <View style={styles.baseDarkOverlay} />
-
-          {/* Additional dark overlay on swipe */}
-          <Animated.View style={[styles.darkOverlay, nextCardOverlayOpacity]} />
-
-          {/* Next Up Label */}
+      {/* ========== NEXT CARD PREVIEW (BLUE GLOW) ========== */}
+      {normalizedNextRecipe && (
+        <Animated.View
+          style={[
+            styles.card,
+            styles.nextCard,
+            nextCardStyle,
+            blueGlowStyle
+          ]}
+        >
+          <Image
+            source={{ uri: normalizedNextRecipe.image }}
+            style={styles.nextCardImage}
+          />
+          <View style={styles.nextCardOverlay} />
           <View style={styles.nextUpLabel}>
             <Text style={styles.nextUpText}>NEXT UP</Text>
-            <Ionicons name="play-forward" size={12} color="#FFFFFF" />
+            <Ionicons name="play-forward" size={12} color={COLORS.blue} />
           </View>
         </Animated.View>
       )}
 
-      {/* Main active card - on top */}
+      {/* ========== MAIN ACTIVE CARD ========== */}
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={[styles.card, styles.mainCard, animatedCardStyle]}>
-          {/* Tap to View Details */}
+        <Animated.View style={[styles.card, styles.mainCard, mainCardStyle]}>
           <Pressable
             style={StyleSheet.absoluteFill}
-            onPress={() => {
-              if (onCardPress) {
-                onCardPress(recipe);
-              }
-            }}
-          >
-            {/* Empty pressable for card tap - children will be positioned absolutely */}
-          </Pressable>
+            onPress={handleCardPress}
+          />
 
-          {/* Hero Section with Image */}
-          <View style={styles.heroSection} pointerEvents="box-none">
-            <Image source={{ uri: recipe.image }} style={styles.heroImage} />
-
-            {/* Gradient Overlay */}
+          {/* ---------- HERO SECTION ---------- */}
+          <View style={styles.heroSection}>
+            <Image source={{ uri: normalizedRecipe.image }} style={styles.heroImage} />
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.9)']}
-              style={styles.gradient}
+              style={styles.heroGradient}
             />
 
-            {/* Top Badges */}
+            {/* Top badges */}
             <View style={styles.topBadgesContainer}>
-              {recipe.isChefChoice && (
+              <View style={styles.matchBadge}>
+                <Text style={styles.badgeText}>{normalizedRecipe.matchPercent}% Match</Text>
+              </View>
+              {normalizedRecipe.isChefChoice && (
                 <View style={styles.chefChoiceBadge}>
-                  <Ionicons name="shield-checkmark" size={16} color="#606C38" />
-                  <Text style={styles.chefChoiceText}>CHEF'S CHOICE</Text>
+                  <Ionicons name="shield-checkmark" size={12} color={COLORS.olive} />
+                  <Text style={styles.chefChoiceBadgeText}>Chef's Choice</Text>
                 </View>
               )}
-              <View style={styles.matchBadge}>
-                <Text style={styles.matchText}>{recipe.matchPercentage}% MATCH</Text>
-              </View>
             </View>
 
-            {/* Favorite Button */}
-            <Pressable
-              style={[
-                styles.favoriteButton,
-                isSaved && styles.favoriteButtonActive,
-              ]}
-              onPress={(e) => {
-                e.stopPropagation();
-                setIsSaved(!isSaved);
-                if (onFavoritePress) {
-                  onFavoritePress(recipe);
-                }
-              }}
-              pointerEvents="box-only"
-            >
-              <Ionicons
-                name={isSaved ? 'heart' : 'heart-outline'}
-                size={24}
-                color={isSaved ? '#FFFFFF' : '#FFFFFF'}
-              />
-            </Pressable>
+            {/* Favorite button */}
+            <Animated.View style={[styles.favoriteButtonWrapper, favoriteButtonStyle]}>
+              <Pressable
+                onPress={handleFavoritePress}
+                style={[styles.favoriteButton, isSaved && styles.favoriteButtonActive]}
+              >
+                <Ionicons
+                  name={isSaved ? 'heart' : 'heart-outline'}
+                  size={24}
+                  color={COLORS.white}
+                />
+              </Pressable>
+            </Animated.View>
 
-            {/* Recipe Info at Bottom */}
-            <View style={styles.heroBottomInfo} pointerEvents="none">
-              <Text style={styles.recipeName} numberOfLines={2} ellipsizeMode="tail">
-                {recipe.name}
+            {/* Recipe info */}
+            <View style={styles.heroBottomInfo}>
+              <Text style={styles.recipeName} numberOfLines={2}>
+                {normalizedRecipe.title}
               </Text>
               <View style={styles.metaRow}>
                 <View style={styles.metaItem}>
-                  <Ionicons name="time-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.metaText}>{recipe.prepTime}</Text>
+                  <Ionicons name="time-outline" size={16} color={COLORS.white} />
+                  <Text style={styles.metaText}>{normalizedRecipe.time}</Text>
                 </View>
                 <View style={styles.metaItem}>
-                  <MaterialCommunityIcons name="stairs" size={18} color="#FFFFFF" />
-                  <Text style={styles.metaText}>{recipe.difficulty}</Text>
+                  <MaterialCommunityIcons name="stairs" size={16} color={COLORS.white} />
+                  <Text style={styles.metaText}>{normalizedRecipe.difficulty}</Text>
                 </View>
               </View>
             </View>
           </View>
 
-          {/* Ingredients Section */}
-          <View style={styles.ingredientsSection} pointerEvents="none">
+          {/* ---------- INGREDIENTS SECTION ---------- */}
+          <View style={styles.ingredientsSection}>
             <View style={styles.ingredientsGrid}>
-              {/* Single Full-Width SHOPPING LIST Column */}
-              <View style={styles.ingredientColumnFull}>
+              {/* In Stock column */}
+              <View style={styles.ingredientColumn}>
                 <View style={styles.ingredientHeader}>
-                  <View style={[styles.dot, { backgroundColor: '#FF4B2B' }]} />
-                  <Text style={styles.ingredientLabel}>SHOPPING LIST</Text>
+                  <View style={[styles.dot, styles.dotOlive]} />
+                  <Text style={styles.ingredientLabel}>YOU HAVE</Text>
                 </View>
-                <Text style={styles.ingredientListFull} numberOfLines={4}>
+                <Text style={styles.ingredientList} numberOfLines={4}>
+                  {inStock.length > 0
+                    ? inStock.map(i => i.name).join(', ')
+                    : 'No matching items'}
+                </Text>
+              </View>
+
+              {/* Divider */}
+              <LinearGradient
+                colors={['#F1F5F9', '#E2E8F0', '#F1F5F9']}
+                style={styles.divider}
+              />
+
+              {/* Needed column */}
+              <View style={styles.ingredientColumn}>
+                <View style={styles.ingredientHeader}>
+                  <View style={[styles.dot, styles.dotPrimary]} />
+                  <Text style={styles.ingredientLabel}>YOU NEED</Text>
+                </View>
+                <Text style={styles.ingredientList} numberOfLines={4}>
                   {needed.length > 0
-                    ? needed.map((i) => i.name).join(', ')
-                    : 'You have everything! Ready to cook.'}
+                    ? needed.map(i => i.name).join(', ')
+                    : 'Ready to cook!'}
                 </Text>
               </View>
             </View>
 
-            {/* Pagination Dots */}
+            {/* Pagination dots */}
             <View style={styles.paginationContainer}>
               <View style={styles.paginationDots}>
-                {/* Background dots - all inactive */}
                 {Array.from({ length: totalItems }).map((_, i) => (
-                  <View key={i} style={styles.paginationDot} />
+                  <View
+                    key={i}
+                    style={[styles.paginationDot, { opacity: i === activeIndex ? 0 : 1 }]}
+                  />
                 ))}
-
-                {/* Animated active indicator */}
                 <Animated.View
                   style={[
+                    styles.paginationDot,
                     styles.paginationDotActive,
-                    styles.paginationDotAnimated,
-                    paginationIndicatorStyle,
+                    paginationIndicatorStyle
                   ]}
                 />
               </View>
@@ -429,6 +585,10 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
   );
 };
 
+// ============================================================================
+// STYLES
+// ============================================================================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -439,112 +599,77 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 40,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.white,
     overflow: 'hidden',
-    // Soft ambient shadow for floating effect
-    shadowColor: '#64748b',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 40,
-    elevation: 8,
   },
-  shadowCard3: {
-    transform: [{ translateY: 12 }, { scale: 0.94 }],
-    opacity: 0.9,
-    zIndex: 0,
-    borderWidth: 0,
-    borderColor: 'transparent',
-    // Visible shadow for stacked effect
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 4,
-  },
-  shadowCard2: {
-    transform: [{ translateY: 6 }, { scale: 0.97 }],
-    opacity: 0.95,
+
+  // Stack cards
+  stackCard3: {
     zIndex: 1,
-    borderWidth: 0,
-    borderColor: 'transparent',
-    // Visible shadow for stacked effect
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  backgroundCard: {
-    zIndex: 3,
-    borderWidth: 0,
-    borderColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Visible shadow for stacked effect
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 15 },
-    shadowOpacity: 0.20,
-    shadowRadius: 26,
-    elevation: 8,
-  },
-  nextImage: {
-    width: '100%',
-    height: '100%',
-    opacity: 0.7,
-    position: 'absolute',
-    resizeMode: 'cover',
-  },
-  baseDarkOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    zIndex: 1,
-  },
-  darkOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#000000',
+  stackCard2: {
     zIndex: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
+  },
+
+  // Next card preview
+  nextCard: {
+    zIndex: 3,
+    borderWidth: 2,
+    borderColor: COLORS.blueLight,
+    shadowColor: COLORS.blue,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 25,
+    elevation: 8,
+  },
+  nextCardImage: {
+    width: '100%',
+    height: '50%',
+    resizeMode: 'cover',
+    opacity: 0.2,
+  },
+  nextCardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: COLORS.blueTint,
   },
   nextUpLabel: {
     position: 'absolute',
-    top: 20,
+    top: 24,
     right: 24,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    zIndex: 3,
+    gap: 6,
+    opacity: 0.6,
   },
   nextUpText: {
-    fontSize: 10,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#FFFFFF',
-    marginRight: 4,
-    letterSpacing: 1,
+    fontSize: 10,
+    color: COLORS.blue,
+    letterSpacing: 1.5,
   },
+
+  // Main card
   mainCard: {
-    zIndex: 4,
-    cursor: 'grab',
-    borderWidth: 0,
-    borderColor: 'transparent',
-    // Strong visible drop shadow for floating effect
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 18 },
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.22,
-    shadowRadius: 28,
-    elevation: 25,
+    shadowRadius: 30,
+    elevation: 20,
   },
+
+  // Hero section
   heroSection: {
-    height: '54%',  // Increased from 46% for bigger card
+    height: '48%',
     position: 'relative',
   },
   heroImage: {
@@ -552,68 +677,76 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
   },
-  gradient: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    top: 0,
+  heroGradient: {
+    ...StyleSheet.absoluteFillObject,
   },
+
+  // Badges
   topBadgesContainer: {
     position: 'absolute',
     top: 24,
     left: 24,
     gap: 8,
-  },
-  chefChoiceBadge: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
-    gap: 6,
-  },
-  chefChoiceText: {
-    fontSize: 10,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#121417',
-    letterSpacing: 1.5,
   },
   matchBadge: {
-    backgroundColor: '#FF4B2B',
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 12,
-    shadowColor: '#FF4B2B',
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
   },
-  matchText: {
+  badgeText: {
     fontSize: 10,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#FFFFFF',
-    letterSpacing: 1.5,
+    color: COLORS.white,
+    letterSpacing: 1.2,
   },
-  favoriteButton: {
+  chefChoiceBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  chefChoiceBadgeText: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    color: COLORS.charcoal,
+    letterSpacing: 1,
+  },
+
+  // Favorite button
+  favoriteButtonWrapper: {
     position: 'absolute',
     top: 24,
     right: 24,
+  },
+  favoriteButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   favoriteButtonActive: {
-    backgroundColor: '#FF4B2B',
-    borderColor: '#FF4B2B',
-    transform: [{ scale: 1.1 }],
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
   },
+
+  // Hero bottom info
   heroBottomInfo: {
     position: 'absolute',
     bottom: 24,
@@ -621,14 +754,14 @@ const styles = StyleSheet.create({
     right: 28,
   },
   recipeName: {
-    fontSize: 26,  // Slightly larger from 24px
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#FFFFFF',
-    marginBottom: 10,
-    textShadowColor: 'rgba(0, 0, 0, 0.4)',  // Stronger shadow
+    fontSize: 26,
+    color: COLORS.white,
+    marginBottom: 12,
+    lineHeight: 32,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 6,
-    lineHeight: 30,  // Add line height for multi-line
+    textShadowRadius: 8,
   },
   metaRow: {
     flexDirection: 'row',
@@ -637,18 +770,20 @@ const styles = StyleSheet.create({
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   metaText: {
-    fontSize: 12,
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 13,
     color: 'rgba(255, 255, 255, 0.9)',
   },
+
+  // Ingredients section
   ingredientsSection: {
     flex: 1,
-    paddingHorizontal: 32,  // More horizontal space
-    paddingVertical: 36,     // More vertical breathing room
-    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 28,
+    paddingVertical: 28,
+    backgroundColor: COLORS.white,
   },
   ingredientsGrid: {
     flexDirection: 'row',
@@ -657,47 +792,54 @@ const styles = StyleSheet.create({
   ingredientColumn: {
     flex: 1,
   },
-  ingredientColumnFull: {
-    width: '100%',
-  },
   ingredientHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
   },
+  dotOlive: {
+    backgroundColor: COLORS.olive,
+    shadowColor: COLORS.olive,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+  },
+  dotPrimary: {
+    backgroundColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+  },
   ingredientLabel: {
-    fontSize: 11,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#9CA3AF',
+    fontSize: 11,
+    color: COLORS.gray400,
     letterSpacing: 1.8,
   },
   ingredientList: {
-    fontSize: 15,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#334155',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 14,
+    color: COLORS.slate700,
     lineHeight: 22,
-  },
-  ingredientListFull: {
-    fontSize: 16,  // Slightly larger since we have more space
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#334155',
-    lineHeight: 24,  // More spacious
   },
   divider: {
     width: 1,
-    backgroundColor: '#F1F5F9',
-    marginHorizontal: 24,
+    marginHorizontal: 16,
   },
+
+  // Pagination
   paginationContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 32,
+    marginTop: 'auto',
+    paddingTop: 20,
   },
   paginationDots: {
     flexDirection: 'row',
@@ -709,17 +851,14 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: 'rgba(156, 163, 175, 0.8)',
+    backgroundColor: 'rgba(156, 163, 175, 0.3)',
   },
   paginationDotActive: {
-    width: 40,
+    position: 'absolute',
+    width: 24,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#121417',
-  },
-  paginationDotAnimated: {
-    position: 'absolute',
+    backgroundColor: COLORS.charcoal,
     left: 0,
-    top: 0,
   },
 });

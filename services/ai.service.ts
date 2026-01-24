@@ -315,7 +315,6 @@ Return as JSON in this exact format:
       "temperature": "350°F"
     }
   ],
-  "tools": ["pan", "knife", "bowl"],
   "nutrition_estimate": {
     "calories": 350,
     "protein_g": 25,
