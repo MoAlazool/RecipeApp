@@ -3,6 +3,7 @@ import { View, ScrollView, StyleSheet, Alert, KeyboardAvoidingView, Platform, To
 import { Text, Button } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { socialService, SocialPlatform, SocialVideoMetadata } from '@/services/social.service';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { RecipePreview } from '@/components/recipe/RecipePreview';
@@ -73,6 +74,7 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
 
 export default function AddRecipeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ platform?: string; mode?: string }>();
   const { addRecipe } = useRecipeStore();
 
@@ -300,7 +302,7 @@ export default function AddRecipeScreen() {
   // Extracted recipe preview
   if (stage === 'extracted' && extractedRecipe) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <RecipePreview
           recipe={extractedRecipe}
           onSave={handleSave}
@@ -319,7 +321,7 @@ export default function AddRecipeScreen() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}>
           <View style={styles.topBar}>
             <TouchableOpacity
               style={styles.backButtonTouch}
@@ -402,7 +404,7 @@ export default function AddRecipeScreen() {
   if (stage === 'extracting') {
     return (
       <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}>
           {/* Top Bar */}
           <View style={styles.topBar}>
             <TouchableOpacity
@@ -522,7 +524,7 @@ export default function AddRecipeScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity
             style={styles.backButtonTouch}
@@ -601,7 +603,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F6F5',
   },
   content: {
-    padding: 20,
+    paddingHorizontal: 20,
     paddingBottom: 80,
   },
   topBar: {

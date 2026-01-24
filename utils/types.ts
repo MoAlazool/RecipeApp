@@ -23,7 +23,7 @@ export interface User {
 
 export type CookingStyle = 'quick' | 'healthy' | 'budget' | 'protein' | 'gourmet';
 
-export type DietaryRestriction = 
+export type DietaryRestriction =
   | 'vegetarian'
   | 'vegan'
   | 'gluten-free'
@@ -33,6 +33,8 @@ export type DietaryRestriction =
   | 'kosher'
   | 'low-carb'
   | 'keto';
+
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert';
 
 // ============================================
 // RECIPE TYPES
@@ -232,6 +234,7 @@ export interface ExtractedRecipe {
     fat_g?: number;
   };
   tips?: string[];
+  image_url?: string;
 }
 
 export interface SuggestedRecipe {
@@ -245,6 +248,8 @@ export interface SuggestedRecipe {
   ingredients_you_have: string[];
   ingredients_you_need: string[];
   preview_steps: string[];
+  meal_type?: MealType;
+  image_url?: string;
 }
 
 export interface DetectedIngredient {

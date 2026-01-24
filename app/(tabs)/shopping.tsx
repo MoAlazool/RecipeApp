@@ -17,6 +17,7 @@ import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import {
   useShoppingStore,
   CATEGORY_ICONS,
@@ -28,6 +29,7 @@ import {
 import { AddItemModal } from '@/components/shopping/AddItemModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { INGREDIENT_CATEGORIES } from '@/utils/types';
+import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 
 // Recipe badge colors for visual variety
 const RECIPE_COLORS = [
@@ -44,8 +46,15 @@ const getRecipeColor = (recipeName: string) => {
   return RECIPE_COLORS[index % RECIPE_COLORS.length];
 };
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.4;
+const SWIPE_DELETE_THRESHOLD = 160; // ~160px for iOS-native full-swipe delete
+
+// Custom LayoutAnimation for smooth iOS-style row collapse (~180ms)
+const deleteLayoutAnimation = {
+  duration: 180,
+  create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+  update: { type: LayoutAnimation.Types.easeInEaseOut },
+  delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+};
 
 type SectionData = {
   title: string;
@@ -57,6 +66,7 @@ type SectionData = {
 
 export default function ShoppingScreen() {
   const insets = useSafeAreaInsets();
+  const bottomTabBarHeight = useBottomTabBarHeight();
   const {
     items,
     activeListId,
@@ -81,6 +91,10 @@ export default function ShoppingScreen() {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [deletedItem, setDeletedItem] = useState<ShoppingItem | null>(null);
+  const [showUndo, setShowUndo] = useState(false);
+  const undoTimeoutRef = useRef<NodeJS.Timeout>();
+  const undoSlideAnim = useRef(new Animated.Value(100)).current;
 
   const toggleSection = (title: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -96,6 +110,89 @@ export default function ShoppingScreen() {
   };
 
   const swipeableRefs = useRef<Map<string, Swipeable>>(new Map());
+  const hapticFiredRef = useRef<Set<string>>(new Set()); // Track haptic per item to fire only once
+  const maxDragRef = useRef<Map<string, number>>(new Map()); // Track max drag distance for full-swipe detection
+
+  // Safe haptic wrapper - catches async errors properly
+  const triggerHaptic = useCallback((type: 'light' | 'medium' | 'heavy' | 'success') => {
+    const fire = async () => {
+      try {
+        if (type === 'success') {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else if (type === 'light') {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } else if (type === 'medium') {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        } else if (type === 'heavy') {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        }
+      } catch {
+        // Haptics not available, silently fail
+      }
+    };
+    fire();
+  }, []);
+
+  // Handle deletion with undo
+  const handleDeleteItem = useCallback((item: ShoppingItem) => {
+    // Trigger haptic feedback
+    triggerHaptic('medium');
+
+    // Clear any existing undo timeout
+    if (undoTimeoutRef.current) {
+      clearTimeout(undoTimeoutRef.current);
+    }
+
+    // Store deleted item and show undo
+    setDeletedItem(item);
+    setShowUndo(true);
+
+    // Animate in
+    Animated.spring(undoSlideAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 10,
+    }).start();
+
+    // Remove from list
+    removeItem(item.id);
+
+    // Auto-hide undo after 4 seconds
+    undoTimeoutRef.current = setTimeout(() => {
+      Animated.timing(undoSlideAnim, {
+        toValue: 100,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        setShowUndo(false);
+        setDeletedItem(null);
+      });
+    }, 4000);
+  }, [removeItem, undoSlideAnim, triggerHaptic]);
+
+  // Handle undo
+  const handleUndo = useCallback(() => {
+    if (deletedItem) {
+      addItem(deletedItem);
+
+      if (undoTimeoutRef.current) {
+        clearTimeout(undoTimeoutRef.current);
+      }
+
+      // Animate out
+      Animated.timing(undoSlideAnim, {
+        toValue: 100,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        setShowUndo(false);
+        setDeletedItem(null);
+      });
+
+      triggerHaptic('success');
+    }
+  }, [deletedItem, addItem, undoSlideAnim, triggerHaptic]);
 
   // Get filtered items
   const allFilteredItems = useMemo(() => {
@@ -165,44 +262,44 @@ export default function ShoppingScreen() {
     setQuickAddText('');
   };
 
-  // Swipe actions
+  // Swipe actions - track drag for full-swipe detection
   const renderRightActions = useCallback(
     (item: ShoppingItem, progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>) => {
+      // Track max drag distance (negative = swiping left)
+      dragX.addListener(({ value }) => {
+        const absValue = Math.abs(value);
+        const current = maxDragRef.current.get(item.id) || 0;
+        if (absValue > current) {
+          maxDragRef.current.set(item.id, absValue);
+          // Fire haptic once when crossing delete threshold
+          if (absValue >= SWIPE_DELETE_THRESHOLD && !hapticFiredRef.current.has(item.id)) {
+            hapticFiredRef.current.add(item.id);
+            triggerHaptic('medium');
+          }
+        }
+      });
+
+      // Button reveal animation
       const translateX = progress.interpolate({
         inputRange: [0, 1],
         outputRange: [120, 0],
       });
 
-      // Show "Release to delete" when past threshold
-      const deleteScale = dragX.interpolate({
-        inputRange: [-SWIPE_THRESHOLD - 50, -SWIPE_THRESHOLD, -60, 0],
-        outputRange: [1.1, 1, 0.8, 0.8],
-        extrapolate: 'clamp',
-      });
-
-      const deleteOpacity = dragX.interpolate({
-        inputRange: [-SWIPE_THRESHOLD, -SWIPE_THRESHOLD + 20, 0],
-        outputRange: [1, 0, 0],
-        extrapolate: 'clamp',
-      });
-
       return (
         <View style={styles.swipeActionsContainer}>
-          {/* Full swipe delete background */}
-          <Animated.View style={[styles.swipeDeleteFull, { opacity: deleteOpacity }]}>
-            <Animated.View style={{ transform: [{ scale: deleteScale }] }}>
-              <Ionicons name="trash" size={24} color="#FFF" />
-              <Text style={styles.swipeDeleteText}>Release</Text>
-            </Animated.View>
-          </Animated.View>
+          {/* Full-swipe delete background (always visible behind actions) */}
+          <View style={styles.swipeDeleteFull}>
+            <Ionicons name="trash" size={24} color="#FFF" />
+          </View>
 
-          {/* Regular swipe actions */}
+          {/* Partial swipe action buttons */}
           <Animated.View style={[styles.swipeActions, { transform: [{ translateX }] }]}>
             <TouchableOpacity
               style={[styles.swipeAction, styles.swipeUrgent]}
               onPress={() => {
                 swipeableRefs.current.get(item.id)?.close();
                 updateItem(item.id, { is_urgent: !item.is_urgent });
+                triggerHaptic('light');
               }}
             >
               <Ionicons
@@ -216,7 +313,7 @@ export default function ShoppingScreen() {
               style={[styles.swipeAction, styles.swipeDelete]}
               onPress={() => {
                 swipeableRefs.current.get(item.id)?.close();
-                removeItem(item.id);
+                handleDeleteItem(item);
               }}
             >
               <Ionicons name="trash-outline" size={20} color="#FFF" />
@@ -225,7 +322,7 @@ export default function ShoppingScreen() {
         </View>
       );
     },
-    [updateItem, removeItem]
+    [updateItem, handleDeleteItem, triggerHaptic]
   );
 
   const handleShare = async () => {
@@ -269,13 +366,24 @@ export default function ShoppingScreen() {
             if (ref) swipeableRefs.current.set(item.id, ref);
           }}
           renderRightActions={(progress, dragX) => renderRightActions(item, progress, dragX)}
-          overshootRight={true}
+          overshootRight={false}
           friction={2}
-          rightThreshold={SWIPE_THRESHOLD}
+          rightThreshold={40}
           onSwipeableOpen={(direction) => {
-            if (direction === 'right') {
-              removeItem(item.id);
+            // Check if full swipe exceeded delete threshold
+            const maxDrag = maxDragRef.current.get(item.id) || 0;
+            if (direction === 'right' && maxDrag >= SWIPE_DELETE_THRESHOLD) {
+              LayoutAnimation.configureNext(deleteLayoutAnimation);
+              handleDeleteItem(item);
             }
+            // Reset tracking
+            maxDragRef.current.delete(item.id);
+            hapticFiredRef.current.delete(item.id);
+          }}
+          onSwipeableClose={() => {
+            // Reset tracking on close
+            maxDragRef.current.delete(item.id);
+            hapticFiredRef.current.delete(item.id);
           }}
           containerStyle={[
             isFirst && styles.itemCardFirst,
@@ -353,7 +461,7 @@ export default function ShoppingScreen() {
         </Swipeable>
       );
     },
-    [toggleItem, renderRightActions, sortBy]
+    [toggleItem, renderRightActions, sortBy, triggerHaptic, handleDeleteItem]
   );
 
   const renderSectionHeader = useCallback(
@@ -402,7 +510,6 @@ export default function ShoppingScreen() {
   const sortPills: { key: SortOption; label: string }[] = [
     { key: 'category', label: 'By Aisle' },
     { key: 'recipe', label: 'By Recipe' },
-    { key: 'recent', label: 'Recent' },
   ];
 
   if (items.length === 0) {
@@ -423,14 +530,6 @@ export default function ShoppingScreen() {
           title="Your shopping list is empty"
           subtitle="Add items manually or import ingredients from your recipes"
         />
-
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => setShowAddModal(true)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="cart" size={26} color="#FFF" />
-        </TouchableOpacity>
 
         <AddItemModal visible={showAddModal} onClose={() => setShowAddModal(false)} />
       </GestureHandlerRootView>
@@ -501,7 +600,7 @@ export default function ShoppingScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: bottomTabBarHeight }]}
         stickySectionHeadersEnabled={false}
         showsVerticalScrollIndicator={false}
         ListFooterComponent={() => (
@@ -526,21 +625,44 @@ export default function ShoppingScreen() {
                 {showCheckedItems && (
                   <View style={styles.checkedList}>
                     {checkedItems.map((item, index) => (
-                      <Pressable
+                      <Swipeable
                         key={item.id}
-                        onPress={() => toggleItem(item.id)}
-                        style={[
-                          styles.checkedItem,
-                          index !== checkedItems.length - 1 && styles.itemBorder,
-                        ]}
+                        ref={(ref) => {
+                          if (ref) swipeableRefs.current.set(item.id, ref);
+                        }}
+                        renderRightActions={(progress, dragX) => renderRightActions(item, progress, dragX)}
+                        overshootRight={false}
+                        friction={2}
+                        rightThreshold={40}
+                        onSwipeableOpen={(direction) => {
+                          const maxDrag = maxDragRef.current.get(item.id) || 0;
+                          if (direction === 'right' && maxDrag >= SWIPE_DELETE_THRESHOLD) {
+                            LayoutAnimation.configureNext(deleteLayoutAnimation);
+                            handleDeleteItem(item);
+                          }
+                          maxDragRef.current.delete(item.id);
+                          hapticFiredRef.current.delete(item.id);
+                        }}
+                        onSwipeableClose={() => {
+                          maxDragRef.current.delete(item.id);
+                          hapticFiredRef.current.delete(item.id);
+                        }}
                       >
-                        <View style={[styles.checkbox, styles.checkboxChecked]}>
-                          <Ionicons name="checkmark" size={14} color="#FFF" />
-                        </View>
-                        <Text style={styles.checkedItemName} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                      </Pressable>
+                        <Pressable
+                          onPress={() => toggleItem(item.id)}
+                          style={[
+                            styles.checkedItem,
+                            index !== checkedItems.length - 1 && styles.itemBorder,
+                          ]}
+                        >
+                          <View style={[styles.checkbox, styles.checkboxChecked]}>
+                            <Ionicons name="checkmark" size={14} color="#FFF" />
+                          </View>
+                          <Text style={styles.checkedItemName} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                        </Pressable>
+                      </Swipeable>
                     ))}
 
                     <TouchableOpacity
@@ -567,14 +689,32 @@ export default function ShoppingScreen() {
         )}
       />
 
-      {/* FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setShowAddModal(true)}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="cart" size={26} color="#FFF" />
-      </TouchableOpacity>
+      {/* Undo Snackbar */}
+      {showUndo && deletedItem && (
+        <Animated.View
+          style={[
+            styles.undoSnackbar,
+            {
+              bottom: bottomTabBarHeight + 8, // Above floating nav bar
+              transform: [{ translateY: undoSlideAnim }]
+            }
+          ]}
+        >
+          <View style={styles.undoContent}>
+            <Ionicons name="trash-outline" size={18} color="#FFF" />
+            <Text style={styles.undoText} numberOfLines={1}>
+              Deleted "{deletedItem.name}"
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.undoButton}
+            onPress={handleUndo}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.undoButtonText}>UNDO</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
       {/* Add Item Modal */}
       <AddItemModal visible={showAddModal} onClose={() => setShowAddModal(false)} />
@@ -686,7 +826,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: 100,
+    // paddingBottom is set dynamically via useBottomTabBarHeight()
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -849,17 +989,10 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    width: SCREEN_WIDTH,
-    backgroundColor: '#EF4444',
+    width: SWIPE_DELETE_THRESHOLD + 100,
+    backgroundColor: '#FF3B30', // iOS system red
     justifyContent: 'center',
     alignItems: 'center',
-    paddingRight: SCREEN_WIDTH * 0.6,
-  },
-  swipeDeleteText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontFamily: 'NotoSans_600SemiBold',
-    marginTop: 4,
   },
   swipeActions: {
     flexDirection: 'row',
@@ -874,7 +1007,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F59E0B',
   },
   swipeDelete: {
-    backgroundColor: '#EF4444',
+    backgroundColor: '#FF3B30', // iOS system red
   },
   checkedSection: {
     marginTop: 24,
@@ -942,5 +1075,47 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 8,
+  },
+  undoSnackbar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    backgroundColor: '#1C100D',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  undoContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  undoText: {
+    fontSize: 14,
+    fontFamily: 'NotoSans_500Medium',
+    color: '#FFF',
+    flex: 1,
+  },
+  undoButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(242, 51, 13, 0.2)',
+  },
+  undoButtonText: {
+    fontSize: 13,
+    fontFamily: 'NotoSans_700Bold',
+    color: '#F2330D',
+    letterSpacing: 0.5,
   },
 });

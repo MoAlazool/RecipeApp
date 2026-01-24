@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@rneui/themed';
+import { FloatingTabBar } from '../../components/navigation/FloatingTabBar';
 
 export default function TabLayout() {
   const { theme } = useTheme();
@@ -8,67 +8,20 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: theme.colors.primary,
-        tabBarInactiveTintColor: theme.colors.grey3,
-        tabBarStyle: {
-          backgroundColor: theme.colors.background,
-          borderTopColor: 'transparent',
-          paddingTop: 6,
-          height: 84,
-          shadowColor: '#000',
-          shadowOpacity: 0.06,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: -6 },
-        },
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontFamily: 'PlusJakartaSans_600SemiBold',
-        },
-        headerStyle: {
-          backgroundColor: theme.colors.background,
-        },
-        headerTintColor: theme.colors.black,
-        headerTitleStyle: {
-          fontFamily: 'PlusJakartaSans_700Bold',
-        },
+        headerShown: false,
+        tabBarStyle: { display: 'none' },
       }}
+      tabBar={(props) => (
+        <FloatingTabBar
+          {...props}
+          primaryColor={theme.colors.primary}
+        />
+      )}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Recipes',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="add"
-        options={{
-          title: 'Add',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="shopping"
-        options={{
-          title: 'Shopping',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="cart-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
-          ),
-        }}
-      />
+      <Tabs.Screen name="index" />
+      <Tabs.Screen name="ai-chef" />
+      <Tabs.Screen name="shopping" />
+      <Tabs.Screen name="profile" />
     </Tabs>
   );
 }

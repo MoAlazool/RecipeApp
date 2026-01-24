@@ -20,13 +20,15 @@
       "bundleIdentifier": "com.moalazool.recipeapp",
       "buildNumber": "1",
       "usesNonExemptEncryption": false,
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "We need camera access to scan your fridge and pantry",
         "NSPhotoLibraryUsageDescription": "We need photo access to select images of your ingredients",
         "NSMicrophoneUsageDescription": "We need microphone access for voice-controlled cooking mode",
         "NSSpeechRecognitionUsageDescription": "We need speech recognition for hands-free cooking commands"
-      }
+      },
+      "appleTeamId": "ELD3N9M4AP"
     },
     "android": {
       "adaptiveIcon": {
@@ -38,8 +40,6 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
     },

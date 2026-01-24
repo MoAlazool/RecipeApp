@@ -5,13 +5,19 @@ import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function FridgeScanScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [flashEnabled, setFlashEnabled] = useState(false);
+
+  const handleOpenRecentScans = () => {
+    router.push('/recent-scans');
+  };
 
   const takePicture = async () => {
     if (!cameraRef.current) return;
@@ -62,7 +68,7 @@ export default function FridgeScanScreen() {
 
   if (!permission.granted) {
     return (
-      <View style={styles.permissionContainer}>
+      <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
         <Ionicons name="camera-outline" size={64} color="#C8B7B2" />
         <Text h4 style={styles.permissionTitle}>
           Camera Access Required
@@ -102,7 +108,7 @@ export default function FridgeScanScreen() {
       )}
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { top: insets.top + 12 }]}>
         <Pressable style={styles.headerButton} onPress={() => router.back()}>
           <Ionicons name="close" size={24} color="#FFF" />
         </Pressable>
@@ -117,15 +123,26 @@ export default function FridgeScanScreen() {
         {capturedImage ? (
           <Button title="Retake" onPress={handleReset} type="outline" buttonStyle={styles.retakeButton} />
         ) : (
-          <View style={styles.captureRow}>
-            <Pressable style={styles.galleryIconButton} onPress={pickImage}>
-              <Ionicons name="images" size={24} color="#FFF" />
+          <>
+            {/* Recent Activity Button */}
+            <Pressable
+              style={styles.recentActivityButton}
+              onPress={handleOpenRecentScans}
+            >
+              <Ionicons name="time-outline" size={20} color="#FFF" />
+              <Text style={styles.recentActivityText}>Recent Activity</Text>
             </Pressable>
-            <Pressable style={styles.captureButton} onPress={takePicture}>
-              <View style={styles.captureButtonInner} />
-            </Pressable>
-            <View style={styles.galleryIconButton} />
-          </View>
+
+            <View style={styles.captureRow}>
+              <Pressable style={styles.galleryIconButton} onPress={pickImage}>
+                <Ionicons name="images" size={24} color="#FFF" />
+              </Pressable>
+              <Pressable style={styles.captureButton} onPress={takePicture}>
+                <View style={styles.captureButtonInner} />
+              </Pressable>
+              <View style={styles.galleryIconButton} />
+            </View>
+          </>
         )}
       </View>
     </View>
@@ -186,7 +203,6 @@ const styles = StyleSheet.create({
   },
   header: {
     position: 'absolute',
-    top: 60,
     left: 16,
     right: 16,
     flexDirection: 'row',
@@ -246,5 +262,22 @@ const styles = StyleSheet.create({
     borderColor: '#FFF',
     borderRadius: 16,
     paddingHorizontal: 32,
+  },
+  recentActivityButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    marginBottom: 24,
+  },
+  recentActivityText: {
+    color: '#FFF',
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
 });

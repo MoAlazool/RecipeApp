@@ -2,12 +2,16 @@ import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Text } from '@rneui/themed';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 
 export default function AddScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const bottomTabBarHeight = useBottomTabBarHeight();
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + 20, paddingBottom: bottomTabBarHeight }]}>
       <View style={styles.header}>
         <Text style={styles.kicker}>Create</Text>
         <Text style={styles.title}>Add a Recipe</Text>
@@ -78,7 +82,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
-    paddingBottom: 120,
+    // paddingBottom is set dynamically via useBottomTabBarHeight()
   },
   header: {
     marginBottom: 20,

@@ -12,8 +12,9 @@ import {
 import { Text, Button } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/authStore';
-import { supabaseService } from '@/services/supabase.service';
+import { firebaseService } from '@/services/firebase.service';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { FormInput } from '@/components/auth/FormInput';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
@@ -23,6 +24,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AuthScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const { signIn, signUp, signInWithGoogle, isLoading, clearError } = useAuthStore();
 
@@ -109,7 +111,7 @@ export default function AuthScreen() {
 
     setIsSubmitting(true);
     try {
-      await supabaseService.resetPassword(email.trim());
+      await firebaseService.resetPassword(email.trim());
       setResetEmailSent(true);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to send reset email');
@@ -133,7 +135,7 @@ export default function AuthScreen() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]} keyboardShouldPersistTaps="handled">
           <View style={styles.glowTop} />
           <View style={styles.glowBottom} />
 
@@ -212,7 +214,7 @@ export default function AuthScreen() {
     >
       <LoadingOverlay visible={isLoading} message="Please wait..." />
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]} keyboardShouldPersistTaps="handled">
         <View style={styles.glowTop} />
         <View style={styles.glowBottom} />
 
@@ -344,8 +346,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F6F5',
   },
   content: {
-    padding: 24,
-    paddingTop: 60,
+    paddingHorizontal: 24,
     paddingBottom: 80,
   },
   header: {

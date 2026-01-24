@@ -14,8 +14,9 @@ import {
 import { Text, Button } from '@rneui/themed';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -37,6 +38,7 @@ const { width } = Dimensions.get('window');
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { getRecipe, updateRecipe, deleteRecipe, toggleFavorite } = useRecipeStore();
   const { addItemsFromRecipe } = useShoppingStore();
 
@@ -112,12 +114,16 @@ export default function RecipeDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('[UI] Deleting recipe:', recipe.id);
               await deleteRecipe(recipe.id);
+              console.log('[UI] Delete successful, navigating...');
               router.replace('/(tabs)');
             } catch (error: any) {
-              console.error('Delete error:', error);
+              console.error('[UI] Delete error:', error);
+              console.error('[UI] Error message:', error?.message);
+              console.error('[UI] Error code:', error?.code);
               Alert.alert(
-                'Error',
+                'Delete Failed',
                 error?.message || 'Failed to delete recipe. Please try again.'
               );
             }
@@ -277,8 +283,7 @@ export default function RecipeDetailScreen() {
       <StatusBar barStyle="light-content" />
 
       {/* Sticky Header */}
-      <Animated.View style={[styles.stickyHeader, headerStyle]}>
-        <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
+      <Animated.View style={[styles.stickyHeader, headerStyle, { height: insets.top + 44 }]}>
         <View style={styles.stickyHeaderContent}>
           <Text style={styles.stickyHeaderTitle} numberOfLines={1}>{recipe.title}</Text>
         </View>
@@ -290,7 +295,7 @@ export default function RecipeDetailScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.hero}>
+        <View style={styles.hero} pointerEvents="box-none">
           <Animated.Image
             source={{ uri: recipe.thumbnail_url || FALLBACK_IMAGE }}
             style={[styles.heroImage, heroImageStyle]}
@@ -311,64 +316,58 @@ export default function RecipeDetailScreen() {
             pointerEvents="none"
           />
 
-          {/* Navigation Header */}
-          <View style={styles.heroNav}>
+          {/* Glass Effect Buttons */}
+          <View style={[styles.glassButtonsContainer, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
             {/* Back Button */}
             <TouchableOpacity
-              style={styles.heroNavButton}
               onPress={() => router.back()}
               activeOpacity={0.8}
+              style={styles.glassButton}
             >
-              <BlurView intensity={40} tint="dark" style={styles.heroNavButtonInner}>
-                <Ionicons name="arrow-back" size={20} color="#FFF" />
-              </BlurView>
+              <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+              <Ionicons name="arrow-back" size={20} color="#FFF" />
             </TouchableOpacity>
 
             {/* Right Actions */}
-            <View style={styles.heroNavRight}>
+            <View style={styles.glassButtonsRight} pointerEvents="box-none">
               <TouchableOpacity
-                style={styles.heroNavButton}
                 onPress={handleShare}
                 activeOpacity={0.8}
+                style={styles.glassButton}
               >
-                <BlurView intensity={40} tint="dark" style={styles.heroNavButtonInner}>
-                  <Ionicons name="share-outline" size={20} color="#FFF" />
-                </BlurView>
+                <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+                <Ionicons name="share-outline" size={20} color="#FFF" />
               </TouchableOpacity>
+
               <TouchableOpacity
-                style={styles.heroNavButton}
                 onPress={handleDelete}
                 activeOpacity={0.8}
+                style={styles.glassButton}
               >
-                <BlurView intensity={40} tint="dark" style={styles.heroNavButtonInner}>
-                  <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
-                </BlurView>
+                <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+                <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
               </TouchableOpacity>
+
               <TouchableOpacity
-                style={styles.heroNavButton}
                 onPress={handleFavorite}
                 activeOpacity={0.8}
+                style={[
+                  styles.glassButton,
+                  recipe.is_favorite && styles.glassButtonFavorite
+                ]}
               >
-                <BlurView
-                  intensity={40}
-                  tint={recipe.is_favorite ? "default" : "dark"}
-                  style={[
-                    styles.heroNavButtonInner,
-                    recipe.is_favorite && styles.heroNavButtonInnerFavorite
-                  ]}
-                >
-                  <Ionicons
-                    name={recipe.is_favorite ? "heart" : "heart-outline"}
-                    size={20}
-                    color={recipe.is_favorite ? "#FFF" : "#FFF"}
-                  />
-                </BlurView>
+                <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+                <Ionicons
+                  name={recipe.is_favorite ? "heart" : "heart-outline"}
+                  size={20}
+                  color="#FFF"
+                />
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Info Content */}
-          <View style={styles.heroContent}>
+          <View style={styles.heroContent} pointerEvents="box-none">
             <Text style={styles.heroTitle} numberOfLines={2} ellipsizeMode="tail">
               {recipe.title}
             </Text>
@@ -379,7 +378,7 @@ export default function RecipeDetailScreen() {
             )}
 
             {/* Simple Metadata Row */}
-            <View style={styles.heroMetaRow}>
+            <View style={styles.heroMetaRow} pointerEvents="none">
               <View style={styles.heroMetaItem}>
                 <Ionicons name="time-outline" size={18} color="rgba(255,255,255,0.95)" />
                 <Text style={styles.heroMetaText}>{recipe.total_time_minutes || 0} min</Text>
@@ -499,21 +498,19 @@ export default function RecipeDetailScreen() {
         </View>
       </Animated.ScrollView>
 
-      {/* Floating Glass Footer */}
+      {/* Floating Footer */}
       <View style={styles.footerContainer}>
-        <BlurView intensity={90} tint="light" style={styles.footerBlur}>
-          <TouchableOpacity
-            style={styles.footerButton}
-            onPress={() => router.push(`/cooking/${recipe.id}`)}
-            activeOpacity={0.9}
-          >
-            <View style={styles.footerButtonIcon}>
-              <Ionicons name="restaurant" size={22} color="#FFFFFF" />
-            </View>
-            <Text style={styles.footerButtonText}>Start Cooking</Text>
-            <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-        </BlurView>
+        <TouchableOpacity
+          style={styles.footerButton}
+          onPress={() => router.push(`/cooking/${recipe.id}`)}
+          activeOpacity={0.9}
+        >
+          <View style={styles.footerButtonIcon}>
+            <Ionicons name="restaurant" size={22} color="#FFFFFF" />
+          </View>
+          <Text style={styles.footerButtonText}>Start Cooking</Text>
+          <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -532,9 +529,9 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 90,
     zIndex: 100,
     justifyContent: 'flex-end',
+    backgroundColor: '#F8F6F5',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.05)',
   },
@@ -556,12 +553,6 @@ const styles = StyleSheet.create({
     zIndex: 101, // Above sticky header
     borderRadius: 20,
     overflow: 'hidden',
-  },
-  backButtonBlur: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   loadingContainer: {
     flex: 1,
@@ -604,37 +595,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     height: 250,
-  },
-  heroNav: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 50,
-    paddingHorizontal: 16,
-    zIndex: 20,
-  },
-  heroNavRight: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  heroNavButton: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  heroNavButtonInner: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  heroNavButtonInnerFavorite: {
-    backgroundColor: '#F2330D',
   },
   heroContent: {
     position: 'absolute',
@@ -851,18 +811,14 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  footerBlur: {
-    padding: 6,
-    backgroundColor: 'rgba(255,255,255,0.8)',
-  },
   footerButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
     backgroundColor: '#F2330D',
-    borderRadius: 20,
-    paddingVertical: 16,
+    borderRadius: 24,
+    paddingVertical: 18,
     paddingHorizontal: 24,
   },
   footerButtonIcon: {
@@ -878,5 +834,32 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#FFFFFF',
     marginRight: 4,
+  },
+  glassButtonsContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    zIndex: 20,
+  },
+  glassButtonsRight: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  glassButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  glassButtonFavorite: {
+    borderWidth: 2,
+    borderColor: 'rgba(242, 51, 13, 0.8)',
   },
 });

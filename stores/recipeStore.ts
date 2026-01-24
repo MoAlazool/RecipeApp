@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabaseService } from '@/services/supabase.service';
+import { firebaseService } from '@/services/firebase.service';
 import { youtubeService, getYouTubeThumbnail } from '@/services/youtube.service';
 import { socialService } from '@/services/social.service';
 import type { Recipe, ExtractedRecipe, RecipeSourceType } from '@/utils/types';
@@ -14,7 +14,7 @@ interface RecipeState {
 
   fetchRecipes: () => Promise<void>;
   getRecipe: (id: string) => Promise<Recipe | null>;
-  addRecipe: (recipe: ExtractedRecipe, sourceUrl?: string) => Promise<Recipe>;
+  addRecipe: (recipe: ExtractedRecipe, sourceUrl?: string, thumbnailUrl?: string, sourceType?: RecipeSourceType) => Promise<Recipe>;
   updateRecipe: (id: string, updates: Partial<Recipe>) => Promise<void>;
   deleteRecipe: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
@@ -34,7 +34,7 @@ export const useRecipeStore = create<RecipeState>()(
       fetchRecipes: async () => {
         try {
           set({ isLoading: true, error: null });
-          const recipes = await supabaseService.getRecipes();
+          const recipes = await firebaseService.getRecipes();
           set({ recipes, isLoading: false });
         } catch (error: any) {
           set({
@@ -52,7 +52,7 @@ export const useRecipeStore = create<RecipeState>()(
             return cached;
           }
 
-          const recipe = await supabaseService.getRecipe(id);
+          const recipe = await firebaseService.getRecipe(id);
           if (recipe) {
             set({ currentRecipe: recipe });
           }
@@ -63,24 +63,30 @@ export const useRecipeStore = create<RecipeState>()(
         }
       },
 
-      addRecipe: async (extractedRecipe: ExtractedRecipe, sourceUrl?: string) => {
+      addRecipe: async (extractedRecipe: ExtractedRecipe, sourceUrl?: string, providedThumbnailUrl?: string, providedSourceType?: RecipeSourceType) => {
         try {
           set({ isLoading: true, error: null });
 
           // Detect platform and extract video ID and thumbnail
-          let thumbnailUrl: string | undefined;
+          let thumbnailUrl: string | undefined = providedThumbnailUrl;
           let videoId: string | undefined;
-          let sourceType: RecipeSourceType = 'manual';
+          let sourceType: RecipeSourceType = providedSourceType || 'manual';
 
           if (sourceUrl) {
             const platform = socialService.detectPlatform(sourceUrl);
-            sourceType = socialService.getSourceType(platform);
+            // Only override sourceType if one wasn't explicitly provided
+            if (!providedSourceType) {
+              sourceType = socialService.getSourceType(platform);
+            }
 
             // Get video metadata for thumbnail and ID
             const metadata = await socialService.getVideoMetadata(sourceUrl);
             if (metadata) {
               videoId = metadata.videoId;
-              thumbnailUrl = metadata.thumbnailUrl;
+              // Only use metadata thumbnail if no thumbnail was provided
+              if (!thumbnailUrl) {
+                thumbnailUrl = metadata.thumbnailUrl;
+              }
             }
 
             // Fallback for YouTube thumbnails if metadata fetch failed
@@ -94,6 +100,7 @@ export const useRecipeStore = create<RecipeState>()(
           }
 
           // Map ExtractedRecipe to database schema
+          // Filter out undefined values to avoid Firebase errors
           const recipeData: Partial<Recipe> = {
             title: extractedRecipe.title,
             description: extractedRecipe.description,
@@ -108,18 +115,18 @@ export const useRecipeStore = create<RecipeState>()(
             ingredients: extractedRecipe.ingredients,
             steps: extractedRecipe.steps,
             tools: extractedRecipe.tools,
-            source_url: sourceUrl,
+            ...(sourceUrl && { source_url: sourceUrl }),
             source_type: sourceType,
-            thumbnail_url: thumbnailUrl,
-            video_id: videoId,
+            ...(thumbnailUrl && { thumbnail_url: thumbnailUrl }),
+            ...(videoId && { video_id: videoId }),
             // Flatten nutrition_estimate to individual columns
-            calories: extractedRecipe.nutrition_estimate?.calories,
-            protein_g: extractedRecipe.nutrition_estimate?.protein_g,
-            carbs_g: extractedRecipe.nutrition_estimate?.carbs_g,
-            fat_g: extractedRecipe.nutrition_estimate?.fat_g,
+            ...(extractedRecipe.nutrition_estimate?.calories && { calories: extractedRecipe.nutrition_estimate.calories }),
+            ...(extractedRecipe.nutrition_estimate?.protein_g && { protein_g: extractedRecipe.nutrition_estimate.protein_g }),
+            ...(extractedRecipe.nutrition_estimate?.carbs_g && { carbs_g: extractedRecipe.nutrition_estimate.carbs_g }),
+            ...(extractedRecipe.nutrition_estimate?.fat_g && { fat_g: extractedRecipe.nutrition_estimate.fat_g }),
           };
 
-          const recipe = await supabaseService.createRecipe(recipeData);
+          const recipe = await firebaseService.createRecipe(recipeData);
 
           set((state) => ({
             recipes: [recipe, ...state.recipes],
@@ -138,7 +145,7 @@ export const useRecipeStore = create<RecipeState>()(
 
       updateRecipe: async (id: string, updates: Partial<Recipe>) => {
         try {
-          await supabaseService.updateRecipe(id, updates);
+          await firebaseService.updateRecipe(id, updates);
 
           set((state) => ({
             recipes: state.recipes.map((r) =>
@@ -157,19 +164,29 @@ export const useRecipeStore = create<RecipeState>()(
 
       deleteRecipe: async (id: string) => {
         try {
-          await supabaseService.deleteRecipe(id);
+          console.log('[RecipeStore] Starting delete for recipe:', id);
 
-          // Update local state immediately
+          // Step 1: Delete from Firebase
+          console.log('[RecipeStore] Deleting from Firebase...');
+          await firebaseService.deleteRecipe(id);
+          console.log('[RecipeStore] ✓ Deleted from Firebase');
+
+          // Step 2: Update local app state immediately
+          console.log('[RecipeStore] Removing from local app state...');
           set((state) => ({
             recipes: state.recipes.filter((r) => r.id !== id),
             currentRecipe:
               state.currentRecipe?.id === id ? null : state.currentRecipe,
           }));
+          console.log('[RecipeStore] ✓ Removed from local app state');
 
-          // Refresh from database to ensure sync
+          // Step 3: Refresh from database to ensure sync
+          console.log('[RecipeStore] Syncing with Firebase...');
           await get().fetchRecipes();
+          console.log('[RecipeStore] ✓ Synced with Firebase');
+          console.log('[RecipeStore] Delete completed successfully');
         } catch (error) {
-          console.error('Delete recipe error:', error);
+          console.error('[RecipeStore] Delete recipe error:', error);
           throw error;
         }
       },

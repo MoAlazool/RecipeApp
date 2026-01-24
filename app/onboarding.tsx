@@ -7,7 +7,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { Text } from '@rneui/themed';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
 const { width } = Dimensions.get('window');
@@ -35,6 +35,7 @@ const SLIDES = [
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(0);
   const slide = SLIDES[index];
 
@@ -61,7 +62,7 @@ export default function OnboardingScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <View style={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 24 }]}>
       <TouchableOpacity style={styles.skip} onPress={() => router.replace('/auth')}>
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
@@ -81,7 +82,7 @@ export default function OnboardingScreen() {
           <Text style={styles.buttonText}>{buttonText}</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -90,8 +91,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F6F5',
     paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 24,
     justifyContent: 'space-between',
   },
   skip: {

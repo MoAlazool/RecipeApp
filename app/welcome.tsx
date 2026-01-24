@@ -2,20 +2,21 @@ import { View, StyleSheet, ImageBackground, TouchableOpacity } from 'react-nativ
 import { Text } from '@rneui/themed';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const HERO_IMAGE =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuCoxBsywBe-w6v3I8KuCIcXGgrzg7ui9Yp-xMLJwSF0wJRAGm7kzKaluE5PDq8PQZZMsYuQDadosLE11Jg3YulTd8kHfAP6vOGvzsthc1jiIE9eSr9pOFMiUFfaVKhBohjeDCwVLZ7cKQCn229bQF0-yAN96ICN498PMBio-5doKvNpLKcBg9rI4jybBGdGFw26TUmfLyC0U_vF93IlLHpyvmJAzBRJFa7B-GoQRSjEDkvIvVpn1sc_VzgTS7nfr1vPk8WNKfJA9lc';
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   return (
     <View style={styles.container}>
       <ImageBackground source={{ uri: HERO_IMAGE }} style={styles.background}>
         <View style={styles.overlayTop} />
         <View style={styles.overlayBottom} />
-        <SafeAreaView style={styles.content} edges={['top', 'bottom']}>
+        <View style={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom + 32 }]}>
           <View style={styles.centerBlock}>
             <View style={styles.logoShell}>
               <Ionicons name="restaurant" size={32} color="#F2330D" />
@@ -48,7 +49,7 @@ export default function WelcomeScreen() {
               By continuing, you agree to our Terms & Privacy Policy.
             </Text>
           </View>
-        </SafeAreaView>
+        </View>
       </ImageBackground>
     </View>
   );
@@ -78,7 +79,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingBottom: 32,
   },
   centerBlock: {
     flex: 1,

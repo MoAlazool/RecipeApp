@@ -28,12 +28,20 @@ const isSupported = (): boolean => {
 const buildTimerState = (params: {
   label: string;
   recipeName?: string;
+  stepLabel?: string;
   endTimeMs: number;
 }): LiveActivityState => ({
   title: params.label,
-  subtitle: params.recipeName ?? undefined,
+  subtitle: buildSubtitle(params.recipeName, params.stepLabel),
   progressBar: { date: params.endTimeMs },
 });
+
+const buildSubtitle = (recipeName?: string, stepLabel?: string): string | undefined => {
+  if (recipeName && stepLabel) {
+    return `${recipeName}||${stepLabel}`;
+  }
+  return recipeName ?? stepLabel;
+};
 
 let activeActivityId: string | null = null;
 let activeKey: string | null = null;
@@ -43,6 +51,7 @@ export const LiveActivity = {
   async startTimer(params: {
     label: string;
     recipeName?: string;
+    stepLabel?: string;
     startTimeMs: number;
     endTimeMs: number;
     key: string;
@@ -54,6 +63,7 @@ export const LiveActivity = {
     const state = buildTimerState({
       label: params.label,
       recipeName: params.recipeName,
+      stepLabel: params.stepLabel,
       endTimeMs: params.endTimeMs,
     });
     lastState = state;

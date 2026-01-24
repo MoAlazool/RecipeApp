@@ -9,6 +9,11 @@ import {
   useColorScheme,
   Dimensions,
   ActivityIndicator,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
 } from 'react-native';
 import { Text, Button } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -16,7 +21,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system';
 import { aiService } from '@/services/ai.service';
-import { supabaseService } from '@/services/supabase.service';
+import { firebaseService } from '@/services/firebase.service';
+import { pantryService } from '@/services/pantry.service';
 import {
   getIngredientEmoji,
   getIngredientColors,
@@ -132,10 +138,12 @@ function DetectedItemRow({
   item,
   onRemove,
   isDark,
+  isViewOnly = false,
 }: {
   item: DetectedItem;
   onRemove: (id: string) => void;
   isDark: boolean;
+  isViewOnly?: boolean;
 }) {
   return (
     <View
@@ -172,24 +180,26 @@ function DetectedItemRow({
           </Text>
         </View>
       </View>
-      <Pressable
-        style={styles.deleteButton}
-        onPress={() => onRemove(item.id)}
-        hitSlop={8}
-      >
-        <Ionicons
-          name="trash-outline"
-          size={20}
-          color={isDark ? '#9CA3AF' : '#9CA3AF'}
-        />
-      </Pressable>
+      {!isViewOnly && (
+        <Pressable
+          style={styles.deleteButton}
+          onPress={() => onRemove(item.id)}
+          hitSlop={8}
+        >
+          <Ionicons
+            name="trash-outline"
+            size={20}
+            color={isDark ? '#9CA3AF' : '#9CA3AF'}
+          />
+        </Pressable>
+      )}
     </View>
   );
 }
 
 export default function FridgeReviewScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ imageUri?: string }>();
+  const params = useLocalSearchParams<{ imageUri?: string; scanId?: string; viewOnly?: string }>();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -197,15 +207,45 @@ export default function FridgeReviewScreen() {
   const [items, setItems] = useState<DetectedItem[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [manualItemName, setManualItemName] = useState('');
+  const [scanDate, setScanDate] = useState<string | null>(null);
 
+  const isViewOnly = params.viewOnly === 'true';
   const imageUri =
     params.imageUri ||
     'https://lh3.googleusercontent.com/aida-public/AB6AXuCwWnH5Buhj6z60_18QC_n14Ord9RRbLRpqQSDTzGDNqJ9kYeh4bFvLwI6TZ_06ZgMhwRSSvzp12BchvZco7IpsEbgzTSIquW8GUU7vj3K1oTqKu6hVCl5Aa1ALsNuSLcmv1In4NecyBF6ORiqs-LrNvB9d3Oo3B3JD_0ViJbqfAsnHVNkPeQgixy1NiLWl1Z_91GmAP-KPpYeoy4ZBWs9TjT-yLBkYGs1N_-lDhT290uolSomJmIs8J9sXzYX6kpmpVCycFfSb3s8';
 
   // Analyze the fridge image when the screen loads
   useEffect(() => {
-    analyzeImage();
+    if (params.scanId && isViewOnly) {
+      loadPreviousScan();
+    } else {
+      analyzeImage();
+    }
   }, []);
+
+  const loadPreviousScan = async () => {
+    try {
+      setIsAnalyzing(true);
+      setError(null);
+
+      const scan = await firebaseService.getFridgeScan(params.scanId!);
+      if (!scan) {
+        setError('Scan not found');
+        return;
+      }
+
+      const detectedItems = mapDetectedIngredientsToItems(scan.ingredients);
+      setItems(detectedItems);
+      setScanDate(scan.created_at);
+    } catch (err) {
+      console.error('Failed to load scan:', err);
+      setError('Failed to load scan. Please try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const analyzeImage = async () => {
     try {
@@ -255,7 +295,7 @@ export default function FridgeReviewScreen() {
       setItems(detectedItems);
 
       // Increment usage counter
-      await supabaseService.incrementUsage('scan');
+      await firebaseService.incrementUsage('scan');
     } catch (err) {
       console.error('Failed to analyze image:', err);
       setError('Failed to analyze image. Please try again.');
@@ -269,8 +309,26 @@ export default function FridgeReviewScreen() {
   };
 
   const handleAddItem = () => {
-    // TODO: Open add item modal
-    console.log('Add item');
+    setShowAddModal(true);
+    setManualItemName('');
+  };
+
+  const handleConfirmAddItem = () => {
+    if (!manualItemName.trim()) return;
+
+    const newItem: DetectedItem = {
+      id: `manual-${Date.now()}`,
+      name: manualItemName.trim(),
+      emoji: getIngredientEmoji(manualItemName.trim()),
+      confidence: 100, // Manual items have 100% confidence
+      position: generateMarkerPosition(items.length, items.length + 1),
+      bgColor: getIngredientColors('other').bgColor,
+      darkBgColor: getIngredientColors('other').darkBgColor,
+    };
+
+    setItems((prev) => [...prev, newItem]);
+    setShowAddModal(false);
+    setManualItemName('');
   };
 
   const handleRetake = () => {
@@ -285,15 +343,44 @@ export default function FridgeReviewScreen() {
     analyzeImage();
   };
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
+    // Navigate to recipe results immediately (don't block on save)
     const selectedItems = items.map((item) => ({
       name: item.name,
       emoji: item.emoji,
     }));
+
     router.push({
       pathname: '/recipe-results',
       params: { ingredients: JSON.stringify(selectedItems) },
     });
+
+    // Save items to Firebase pantry in background
+    try {
+      const detectedIngredients: DetectedIngredient[] = items.map((item) => ({
+        name: item.name,
+        category: 'other' as any,
+        quantity_estimate: '1',
+        confidence: item.confidence > 80 ? 'high' : item.confidence > 50 ? 'medium' : 'low',
+        confidence_percent: item.confidence,
+      }));
+
+      await pantryService.saveFridgeItems(detectedIngredients, imageUri);
+      console.log('✅ Pantry items saved successfully');
+    } catch (error: any) {
+      console.error('Failed to save pantry items:', error);
+
+      // Show helpful error message if it's a permission issue
+      if (error.message?.includes('Permission denied')) {
+        setTimeout(() => {
+          Alert.alert(
+            'Setup Required',
+            'To save fridge items, please update your Firestore security rules. Check the Firebase Console → Firestore → Rules tab.',
+            [{ text: 'OK' }]
+          );
+        }, 1000); // Delay so it doesn't interfere with navigation
+      }
+    }
   };
 
   return (
@@ -309,10 +396,15 @@ export default function FridgeReviewScreen() {
         <Pressable style={styles.headerButton} onPress={handleClose}>
           <Ionicons name="close" size={20} color="#FFFFFF" />
         </Pressable>
-        <Text style={styles.headerTitle}>Review Photo</Text>
-        <Pressable style={styles.headerButton} onPress={handleRetake}>
-          <Ionicons name="refresh" size={20} color="#FFFFFF" />
-        </Pressable>
+        <Text style={styles.headerTitle}>
+          {isViewOnly ? 'Previous Scan' : 'Review Photo'}
+        </Text>
+        {!isViewOnly && (
+          <Pressable style={styles.headerButton} onPress={handleRetake}>
+            <Ionicons name="refresh" size={20} color="#FFFFFF" />
+          </Pressable>
+        )}
+        {isViewOnly && <View style={styles.headerButton} />}
       </View>
 
       {/* Detection Markers */}
@@ -356,7 +448,7 @@ export default function FridgeReviewScreen() {
           <View style={styles.sheetHeader}>
             <View>
               <Text style={styles.detectionLabel}>
-                {isAnalyzing ? 'Analyzing...' : error ? 'Analysis Failed' : 'Detection Complete'}
+                {isAnalyzing ? 'Loading...' : error ? 'Error' : isViewOnly ? 'Saved Scan' : 'Detection Complete'}
               </Text>
               <Text
                 style={[
@@ -364,10 +456,22 @@ export default function FridgeReviewScreen() {
                   { color: isDark ? '#FFFFFF' : '#221310' },
                 ]}
               >
-                {isAnalyzing ? 'Scanning your fridge...' : error ? 'Please try again' : `${items.length} Items Found`}
+                {isAnalyzing
+                  ? (isViewOnly ? 'Loading scan...' : 'Scanning your fridge...')
+                  : error
+                  ? 'Please try again'
+                  : isViewOnly && scanDate
+                  ? new Date(scanDate).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })
+                  : `${items.length} Items Found`}
               </Text>
             </View>
-            {!isAnalyzing && !error && (
+            {!isAnalyzing && !error && !isViewOnly && (
               <Pressable
                 style={[
                   styles.addButton,
@@ -413,7 +517,10 @@ export default function FridgeReviewScreen() {
             <ScrollView
               style={styles.itemsList}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.itemsListContent}
+              contentContainerStyle={[
+                styles.itemsListContent,
+                isViewOnly && { paddingBottom: insets.bottom || 24 }
+              ]}
             >
               {items.map((item) => (
                 <DetectedItemRow
@@ -421,13 +528,14 @@ export default function FridgeReviewScreen() {
                   item={item}
                   onRemove={handleRemoveItem}
                   isDark={isDark}
+                  isViewOnly={isViewOnly}
                 />
               ))}
             </ScrollView>
           )}
 
           {/* Analyze Button */}
-          {!isAnalyzing && !error && items.length > 0 && (
+          {!isAnalyzing && !error && items.length > 0 && !isViewOnly && (
             <View style={{ paddingBottom: insets.bottom || 24 }}>
               <Pressable
                 style={({ pressed }) => [
@@ -448,6 +556,115 @@ export default function FridgeReviewScreen() {
           )}
         </View>
       </View>
+
+      {/* Add Manual Item Modal */}
+      <Modal
+        visible={showAddModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAddModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setShowAddModal(false)}
+          />
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: isDark ? '#1A0F0D' : '#FFFFFF' },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text
+                style={[
+                  styles.modalTitle,
+                  { color: isDark ? '#FFFFFF' : '#0F172A' },
+                ]}
+              >
+                Add Item Manually
+              </Text>
+              <Pressable
+                onPress={() => setShowAddModal(false)}
+                hitSlop={8}
+              >
+                <Ionicons
+                  name="close"
+                  size={24}
+                  color={isDark ? '#9CA3AF' : '#64748B'}
+                />
+              </Pressable>
+            </View>
+
+            <View style={styles.modalBody}>
+              <Text
+                style={[
+                  styles.inputLabel,
+                  { color: isDark ? '#D1D5DB' : '#64748B' },
+                ]}
+              >
+                Item Name
+              </Text>
+              <TextInput
+                style={[
+                  styles.textInput,
+                  {
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6',
+                    color: isDark ? '#FFFFFF' : '#0F172A',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB',
+                  },
+                ]}
+                placeholder="e.g., Tomatoes, Milk, Eggs..."
+                placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
+                value={manualItemName}
+                onChangeText={setManualItemName}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleConfirmAddItem}
+              />
+            </View>
+
+            <View style={styles.modalFooter}>
+              <Pressable
+                style={[
+                  styles.modalButton,
+                  styles.modalCancelButton,
+                  {
+                    backgroundColor: isDark
+                      ? 'rgba(255,255,255,0.05)'
+                      : '#F3F4F6',
+                  },
+                ]}
+                onPress={() => setShowAddModal(false)}
+              >
+                <Text
+                  style={[
+                    styles.modalButtonText,
+                    { color: isDark ? '#D1D5DB' : '#64748B' },
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.modalButton,
+                  styles.modalConfirmButton,
+                  !manualItemName.trim() && styles.modalButtonDisabled,
+                ]}
+                onPress={handleConfirmAddItem}
+                disabled={!manualItemName.trim()}
+              >
+                <Ionicons name="add" size={20} color="#FFFFFF" />
+                <Text style={styles.modalConfirmButtonText}>Add Item</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -599,7 +816,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   itemsList: {
-    maxHeight: 240,
+    maxHeight: 340,
     paddingHorizontal: 24,
   },
   itemsListContent: {
@@ -709,6 +926,93 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   retryButtonText: {
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#FFFFFF',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  modalBody: {
+    marginBottom: 24,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    marginBottom: 8,
+  },
+  textInput: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    fontFamily: 'NotoSans_400Regular',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  modalCancelButton: {
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  modalConfirmButton: {
+    backgroundColor: '#F2330D',
+    shadowColor: '#F2330D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modalButtonDisabled: {
+    opacity: 0.5,
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+  },
+  modalConfirmButtonText: {
     fontSize: 16,
     fontFamily: 'PlusJakartaSans_700Bold',
     color: '#FFFFFF',

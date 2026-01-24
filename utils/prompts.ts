@@ -81,6 +81,11 @@ Be accurate and thorough. This data will be used for cooking guidance.`;
 User cooking style: ${userPreferences.cooking_style || 'any'}
 Servings needed: ${userPreferences.default_servings || 2}
 Maximum time: ${userPreferences.max_time_minutes ? userPreferences.max_time_minutes + ' minutes' : 'any'}
+${userPreferences.meal_type ? `(${userPreferences.meal_type} recipes should prioritize ${
+  userPreferences.meal_type === 'breakfast' ? '5-15 minute quick prep' :
+  userPreferences.meal_type === 'lunch' ? '15-30 minute moderate prep' :
+  '30-60 minute fuller cooking'
+})` : ''}
 Difficulty limit: ${userPreferences.difficulty_level || 'any'}
 Kitchen Tools Available: ${userPreferences.kitchen_tools?.join(', ') || 'Any standard tools'}
 Meal type: ${userPreferences.meal_type || 'any'}`
@@ -99,7 +104,7 @@ Return ONLY valid JSON (no markdown, no backticks) with this structure:
   "recipes": [
     {
       "title": "Recipe name",
-      "description": "Why this recipe works with these ingredients",
+      "description": "Brief 1-2 sentence description",
       "cuisine_type": "Italian/Mexican/etc",
       "difficulty": "beginner/intermediate/advanced",
       "total_time_minutes": number,
@@ -107,20 +112,88 @@ Return ONLY valid JSON (no markdown, no backticks) with this structure:
       "match_score": number (0-100, how well it matches available ingredients),
       "ingredients_you_have": ["ingredient1", "ingredient2"],
       "ingredients_you_need": ["ingredient3"] or [],
-      "preview_steps": ["Step 1", "Step 2", "Step 3"] (first 3 steps only)
+      "preview_steps": ["Step 1", "Step 2", "Step 3"] (first 3 steps only, keep concise),
+      "image_url": "https://example.com/image.jpg" or null (optional - provide ONLY if you have a reliable direct image URL, otherwise leave as null)
     }
   ]
 }
 
-RULES:
-1. Prioritize recipes with 80%+ match (few missing ingredients)
-2. Variety: suggest different types (quick meal, hearty dish, healthy option)
-3. Respect dietary restrictions STRICTLY
-4. Match cooking style preference when possible
-5. STRICTLY respect the maximum time limit if specified
-6. STRICTLY respect the difficulty limit if specified
-7. Be creative but practical
-8. Missing ingredients should be common and easy to get
+CRITICAL RULES:
+1. Keep descriptions brief (max 2 sentences)
+2. Keep preview_steps concise (each step should be 1-2 sentences)
+3. Prioritize recipes with 80%+ match (few missing ingredients)
+4. VARIETY IS ESSENTIAL: Ensure recipes are DISTINCTLY DIFFERENT from each other:
+   - Different cooking methods (baked, fried, grilled, raw, steamed, sautéed, etc.)
+   - Different cuisine types (Italian, Mexican, Asian, American, Middle Eastern, Mediterranean, etc.)
+   - Different flavor profiles (savory, sweet, spicy, tangy, umami, mild, bold)
+   - Different textures (crispy, creamy, crunchy, soft, chewy, tender)
+   - Different preparation styles (one-pan, multi-step, quick assembly, slow-cooked, no-cook)
+   - Mix of: light meals, hearty meals, comfort food, healthy options, budget-friendly, gourmet
+4.5. MEAL-SPECIFIC VARIETY:
+   ${userPreferences?.meal_type === 'breakfast' ? `
+   - Balance: sweet vs. savory options
+   - Protein sources: eggs-based, dairy-based, plant-based
+   - Temperature: hot dishes vs. cold/room-temp options
+   - Prep style: cooked vs. assembled (overnight oats, smoothies)
+   ` : ''}
+   ${userPreferences?.meal_type === 'lunch' ? `
+   - Format: hot vs. cold meals
+   - Eating style: fork meals vs. handheld (wraps, sandwiches)
+   - Heartiness: light (salads) vs. substantial (grain bowls)
+   - Cuisine rotation: Asian bowls, Mediterranean wraps, American sandwiches, etc.
+   ` : ''}
+   ${userPreferences?.meal_type === 'dinner' ? `
+   - Cooking method: oven-based, stovetop, slow-cooker, grilled
+   - Meal structure: one-pot dishes vs. protein+sides
+   - Cultural variety: Italian pasta, Asian stir-fry, American comfort, Mexican casserole
+   - Richness: light proteins (fish) vs. hearty (beef/pork)
+   ` : ''}
+5. MEAL TYPE ENFORCEMENT:
+   ${userPreferences?.meal_type ? `
+   ⚠️ CRITICAL: ALL recipes MUST be appropriate for ${userPreferences.meal_type.toUpperCase()}
+
+   ${userPreferences.meal_type === 'breakfast' ? `
+   BREAKFAST REQUIREMENTS:
+   - Prep time: 5-20 minutes maximum (morning time constraints)
+   - Serving size: 1-2 portions (individual servings)
+   - Ingredient types: Emphasize eggs, dairy, bread/grains, fruits, quick proteins
+   - Cooking methods: Quick (scrambled, toasted, blended, assembled, microwaved)
+   - Temperature: Typically served warm OR cold/room-temp (smoothies, overnight oats)
+   - Examples: Scrambled eggs, avocado toast, smoothie bowls, pancakes, oatmeal, breakfast burritos, yogurt parfaits
+   - REJECT: Heavy pastas, slow-cooked stews, elaborate multi-course meals, dinner-style proteins
+   ` : ''}
+
+   ${userPreferences.meal_type === 'lunch' ? `
+   LUNCH REQUIREMENTS:
+   - Prep time: 15-35 minutes maximum (midday efficiency)
+   - Serving size: 2-4 portions (individual or small group)
+   - Ingredient types: Balanced proteins + vegetables + grains, portable options
+   - Cooking methods: One-pan, assembled, light sautéing, fresh/raw components
+   - Temperature: Can be served cold, room-temp, or warm (must be portable-friendly)
+   - Examples: Grain bowls, wraps, sandwiches, salads with protein, light pasta, stir-fries, soups
+   - REJECT: Heavy casseroles, elaborate roasts, breakfast-only foods (pancakes, cereal)
+   ` : ''}
+
+   ${userPreferences.meal_type === 'dinner' ? `
+   DINNER REQUIREMENTS:
+   - Prep time: 30-60 minutes acceptable (evening leisure time)
+   - Serving size: 4+ portions (family/sharing focus)
+   - Ingredient types: Substantial proteins (chicken, beef, fish), hearty vegetables, complex carbs
+   - Cooking methods: Roasting, braising, baking, grilling, simmering (full cooking techniques)
+   - Temperature: Typically served warm/hot (comfort and presentation focused)
+   - Examples: Roasted chicken, pasta dishes, casseroles, stews, curries, grilled proteins with sides
+   - REJECT: Quick breakfast items (toast, cereal), ultra-light salads, grab-and-go wraps
+   ` : ''}
+
+   - If ingredients don't naturally fit this meal type, adapt cooking method/presentation to match
+   - STRICTLY REJECT any recipe that violates time, serving, or meal-appropriateness constraints
+   ` : '- Include recipes suitable for any meal time'}
+6. Respect dietary restrictions STRICTLY
+7. Match cooking style preference when possible
+8. STRICTLY respect the maximum time limit if specified
+9. STRICTLY respect the difficulty limit if specified
+10. Be creative but practical
+11. Missing ingredients should be common and easy to get
 
 Sort recipes by match_score (highest first).`;
   },
@@ -190,16 +263,37 @@ RULES:
   // ANALYZE FRIDGE IMAGE (Vision)
   // ============================================
   analyzeFridgeImage: () => {
-    return `Analyze this fridge/pantry photo and identify ALL visible cooking ingredients.
+    return `Analyze this fridge/pantry photo and identify ALL visible cooking ingredients with their QUANTITIES.
 
-Return JSON: {"items":[{"n":"name","c":"category","q":"qty"}],"count":N}
+Return JSON: {"items":[{"n":"name","c":"category","q":"quantity estimate"}],"count":N}
 
 Categories: produce/meat/dairy/pantry/spices/condiment/beverage/other
-Rules:
+
+CRITICAL QUANTITY RULES:
+- ALWAYS estimate the quantity/amount you see
+- For countable items: use numbers (e.g., "3", "5", "8-10")
+- For liquids: estimate volume (e.g., "1 bottle", "half carton", "500ml")
+- For produce: count individual items (e.g., "4 apples", "6 tomatoes", "2 bunches")
+- For packaged items: note package size if visible (e.g., "1 lb bag", "500g package")
+- For partial amounts: use descriptive terms (e.g., "half", "quarter", "about 1/3")
+- If uncertain about exact count: use ranges (e.g., "5-7", "about 10")
+
+OTHER RULES:
 - Include ALL visible items, not just a few
 - Be specific: "roma tomatoes" not just "tomatoes"
-- Group identical items with quantity: "6 eggs" not separate entries
+- Group identical items with total quantity: "6 eggs" not separate entries
 - Include beverages useful for cooking (milk, wine, juice)
+- Count carefully - accuracy in quantity is ESSENTIAL
+
+Examples:
+✓ {"n":"eggs","c":"dairy","q":"8"}
+✓ {"n":"roma tomatoes","c":"produce","q":"5"}
+✓ {"n":"milk","c":"dairy","q":"1 carton (about 1L)"}
+✓ {"n":"apples","c":"produce","q":"4-5"}
+✓ {"n":"bell peppers","c":"produce","q":"3 (1 red, 2 green)"}
+✗ {"n":"eggs","c":"dairy","q":"some"} - TOO VAGUE
+✗ {"n":"tomatoes","c":"produce","q":"1"} - NOT SPECIFIC ENOUGH
+
 If unclear image: {"items":[],"count":0,"err":"unclear"}`;
   },
 
@@ -434,7 +528,7 @@ Extract constructive feedback that could help the user or others.`;
 // ============================================
 // HELPER: Parse JSON Response Safely
 // ============================================
-export const parseAIResponse = (response: string): any => {
+export const parseAIResponse = (response: string, silent: boolean = false): any => {
   try {
     // Remove markdown code blocks if present
     let cleaned = response.trim();
@@ -497,8 +591,10 @@ export const parseAIResponse = (response: string): any => {
       return JSON.parse(recovered);
     }
   } catch (error) {
-    console.error('Failed to parse AI response:', error);
-    console.error('Raw response:', response);
+    if (!silent) {
+      console.error('Failed to parse AI response:', error);
+      console.error('Raw response:', response);
+    }
     throw new Error('Invalid JSON response from AI');
   }
 };

@@ -57,35 +57,33 @@ struct LiveActivityWidget: Widget {
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading, priority: 1) {
-          DynamicIslandExpandedLeading(
-            title: context.state.title,
-            subtitle: context.state.subtitle
-          )
-          .padding(.leading, 6)
-          .applyWidgetURL(from: context.attributes.deepLinkUrl)
+          dynamicIslandExpandedLeading(title: context.state.title, subtitle: context.state.subtitle)
+            .dynamicIsland(verticalPlacement: .belowIfTooWide)
+            .padding(.leading, 5)
+            .applyWidgetURL(from: context.attributes.deepLinkUrl)
         }
-        DynamicIslandExpandedRegion(.center) {
-          DynamicIslandExpandedCenter(
-            title: context.state.title,
-            endDateInMilliseconds: context.state.timerEndDateInMilliseconds,
-            progress: context.state.progress
-          )
-          .padding(.horizontal, 6)
-          .applyWidgetURL(from: context.attributes.deepLinkUrl)
+        DynamicIslandExpandedRegion(.trailing) {
+          if let imageName = context.state.imageName {
+            dynamicIslandExpandedTrailing(imageName: imageName)
+              .padding(.trailing, 5)
+              .applyWidgetURL(from: context.attributes.deepLinkUrl)
+          }
         }
         DynamicIslandExpandedRegion(.bottom) {
-          DynamicIslandExpandedBottom(
-            endDateInMilliseconds: context.state.timerEndDateInMilliseconds
-          )
-          .padding(.horizontal, 6)
-          .padding(.bottom, 2)
-          .applyWidgetURL(from: context.attributes.deepLinkUrl)
+          if let date = context.state.timerEndDateInMilliseconds {
+            dynamicIslandExpandedBottom(
+              endDate: date, progressViewTint: context.attributes.progressViewTint
+            )
+            .padding(.horizontal, 5)
+            .applyWidgetURL(from: context.attributes.deepLinkUrl)
+          }
         }
       } compactLeading: {
-        Image(systemName: "fork.knife")
-          .font(.system(size: 14, weight: .semibold))
-          .foregroundStyle(Color(hex: "F2330D"))
-          .applyWidgetURL(from: context.attributes.deepLinkUrl)
+        if let dynamicIslandImageName = context.state.dynamicIslandImageName {
+          resizableImage(imageName: dynamicIslandImageName)
+            .frame(maxWidth: 23, maxHeight: 23)
+            .applyWidgetURL(from: context.attributes.deepLinkUrl)
+        }
       } compactTrailing: {
         if let date = context.state.timerEndDateInMilliseconds {
           compactTimer(
@@ -125,6 +123,38 @@ struct LiveActivityWidget: Widget {
     }
   }
 
+  private func dynamicIslandExpandedLeading(title: String, subtitle: String?) -> some View {
+    VStack(alignment: .leading) {
+      Spacer()
+      Text(title)
+        .font(.title2)
+        .foregroundStyle(.white)
+        .fontWeight(.semibold)
+      if let subtitle {
+        Text(subtitle)
+          .font(.title3)
+          .minimumScaleFactor(0.8)
+          .foregroundStyle(.white.opacity(0.75))
+      }
+      Spacer()
+    }
+  }
+
+  private func dynamicIslandExpandedTrailing(imageName: String) -> some View {
+    VStack {
+      Spacer()
+      resizableImage(imageName: imageName)
+      Spacer()
+    }
+  }
+
+  private func dynamicIslandExpandedBottom(endDate: Double, progressViewTint: String?) -> some View {
+    ProgressView(timerInterval: Date.toTimerInterval(miliseconds: endDate))
+      .foregroundStyle(.white)
+      .tint(progressViewTint.map { Color(hex: $0) })
+      .padding(.top, 5)
+  }
+
   private func circularTimer(endDate: Double) -> some View {
     ProgressView(
       timerInterval: Date.toTimerInterval(miliseconds: endDate),
@@ -135,193 +165,5 @@ struct LiveActivityWidget: Widget {
       }
     )
     .progressViewStyle(.circular)
-  }
-}
-
-private struct DynamicIslandExpandedLeading: View {
-  let title: String
-  let subtitle: String?
-
-  private let primaryColor = Color(hex: "F2330D")
-
-  var body: some View {
-    let recipeTitle = subtitle ?? title
-    HStack(spacing: 8) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(primaryColor.opacity(0.2))
-        Image(systemName: "fork.knife")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(primaryColor)
-      }
-      .frame(width: 26, height: 26)
-
-      Text(recipeTitle)
-        .font(.system(size: 14, weight: .bold))
-        .foregroundStyle(.white)
-        .lineLimit(1)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-}
-
-private struct DynamicIslandExpandedCenter: View {
-  let title: String
-  let endDateInMilliseconds: Double?
-  let progress: Double?
-
-  private let primaryColor = Color(hex: "F2330D")
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text("Cooking Step")
-        .font(.caption2)
-        .fontWeight(.bold)
-        .foregroundStyle(Color.white.opacity(0.55))
-        .textCase(.uppercase)
-        .tracking(1.5)
-
-      Text(title)
-        .font(.system(size: 18, weight: .bold))
-        .foregroundStyle(.white)
-        .lineLimit(2)
-        .minimumScaleFactor(0.85)
-
-      HStack {
-        Text("Cooking Progress")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(Color.white.opacity(0.6))
-        Spacer()
-        if let endDate = endDateInMilliseconds {
-          Text(timerInterval: Date.toTimerInterval(miliseconds: endDate))
-            .font(.system(size: 13, weight: .bold, design: .rounded))
-            .foregroundStyle(primaryColor)
-            .monospacedDigit()
-        }
-      }
-
-      if let endDate = endDateInMilliseconds {
-        ProgressView(timerInterval: Date.toTimerInterval(miliseconds: endDate))
-          .progressViewStyle(.linear)
-          .tint(primaryColor)
-      } else if let progress {
-        ProgressView(value: progress)
-          .progressViewStyle(.linear)
-          .tint(primaryColor)
-      }
-    }
-    .padding(.vertical, 2)
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-}
-
-private struct DynamicIslandExpandedBottom: View {
-  let endDateInMilliseconds: Double?
-
-  private let primaryColor = Color(hex: "F2330D")
-
-  var body: some View {
-    VStack(spacing: 10) {
-      if let endDate = endDateInMilliseconds {
-        CountdownBoxesView(endDate: Date(timeIntervalSince1970: endDate / 1000))
-      }
-
-      HStack(spacing: 8) {
-        actionPill(
-          title: "Pause",
-          systemImage: "pause.fill",
-          background: Color.white.opacity(0.12),
-          foreground: .white
-        )
-
-        actionPill(
-          title: "+1m",
-          systemImage: nil,
-          background: Color.white.opacity(0.12),
-          foreground: .white
-        )
-
-        actionPill(
-          title: "Finish",
-          systemImage: "checkmark.circle.fill",
-          background: primaryColor,
-          foreground: .white
-        )
-      }
-    }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 6)
-    .background(Color.black.opacity(0.85))
-    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 22, style: .continuous)
-        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-    )
-  }
-
-  private func actionPill(
-    title: String,
-    systemImage: String?,
-    background: Color,
-    foreground: Color
-  ) -> some View {
-    HStack(spacing: 6) {
-      if let systemImage {
-        Image(systemName: systemImage)
-          .font(.system(size: 12, weight: .semibold))
-      }
-      Text(title)
-        .font(.system(size: 12, weight: .bold))
-    }
-    .foregroundStyle(foreground)
-    .frame(maxWidth: .infinity, minHeight: 30)
-    .background(background)
-    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-  }
-}
-
-private struct CountdownBoxesView: View {
-  let endDate: Date
-
-  var body: some View {
-    TimelineView(.periodic(from: .now, by: 1)) { context in
-      let remainingSeconds = max(0, Int(endDate.timeIntervalSince(context.date)))
-      let minutes = remainingSeconds / 60
-      let seconds = remainingSeconds % 60
-
-      HStack(spacing: 10) {
-        timeBox(value: String(format: "%02d", minutes), label: "Minutes")
-        Text(":")
-          .font(.system(size: 16, weight: .bold))
-          .foregroundStyle(Color.white.opacity(0.5))
-          .padding(.bottom, 10)
-        timeBox(value: String(format: "%02d", seconds), label: "Seconds")
-      }
-    }
-  }
-
-  private func timeBox(value: String, label: String) -> some View {
-    VStack(spacing: 4) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .fill(Color.white.opacity(0.08))
-          .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-              .stroke(Color.white.opacity(0.06), lineWidth: 1)
-          )
-        Text(value)
-          .font(.system(size: 20, weight: .bold, design: .rounded))
-          .foregroundStyle(.white)
-          .monospacedDigit()
-      }
-      .frame(height: 46)
-
-      Text(label)
-        .font(.system(size: 9, weight: .bold))
-        .foregroundStyle(Color.white.opacity(0.5))
-        .textCase(.uppercase)
-        .tracking(1.2)
-    }
-    .frame(maxWidth: .infinity)
   }
 }

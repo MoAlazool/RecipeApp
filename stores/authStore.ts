@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabaseService } from '@/services/supabase.service';
+import { firebaseService } from '@/services/firebase.service';
 import { useRecipeStore } from './recipeStore';
 import { useShoppingStore } from './shoppingStore';
 import type { User } from '@/utils/types';
@@ -32,10 +32,10 @@ export const useAuthStore = create<AuthState>()(
       initialize: async () => {
         try {
           set({ isLoading: true });
-          const session = await supabaseService.getSession();
+          const session = await firebaseService.getSession();
 
           if (session?.user) {
-            const profile = await supabaseService.getProfile(session.user.id);
+            const profile = await firebaseService.getProfile(session.user.id);
             set({
               user: profile,
               isAuthenticated: true,
@@ -58,10 +58,10 @@ export const useAuthStore = create<AuthState>()(
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
 
-          const { user } = await supabaseService.signIn(email, password);
+          const { user } = await firebaseService.signIn(email, password);
 
           if (user) {
-            const profile = await supabaseService.getProfile(user.id);
+            const profile = await firebaseService.getProfile(user.id);
             set({
               user: profile,
               isAuthenticated: true,
@@ -89,17 +89,17 @@ export const useAuthStore = create<AuthState>()(
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
 
-          const { user, session } = await supabaseService.signUp(email, password);
+          const { user, session } = await firebaseService.signUp(email, password);
 
           if (user && session) {
             // Create profile
-            await supabaseService.createProfile({
+            await firebaseService.createProfile({
               id: user.id,
               email: user.email!,
               full_name: fullName,
             });
 
-            const profile = await supabaseService.getProfile(user.id);
+            const profile = await firebaseService.getProfile(user.id);
             set({
               user: profile,
               isAuthenticated: true,
@@ -133,12 +133,12 @@ export const useAuthStore = create<AuthState>()(
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
 
-          const { user } = await supabaseService.signInWithGoogle();
+          const { user } = await firebaseService.signInWithGoogle();
 
           if (user) {
-            let profile = await supabaseService.getProfile(user.id);
+            let profile = await firebaseService.getProfile(user.id);
             if (!profile) {
-              await supabaseService.createProfile({
+              await firebaseService.createProfile({
                 id: user.id,
                 email: user.email || '',
                 full_name:
@@ -146,7 +146,7 @@ export const useAuthStore = create<AuthState>()(
                   user.user_metadata?.name ||
                   undefined,
               });
-              profile = await supabaseService.getProfile(user.id);
+              profile = await firebaseService.getProfile(user.id);
             }
 
             set({
@@ -170,7 +170,7 @@ export const useAuthStore = create<AuthState>()(
 
       signOut: async () => {
         try {
-          await supabaseService.signOut();
+          await firebaseService.signOut();
 
           // Clear all app data
           useRecipeStore.getState().clearAll();
@@ -190,7 +190,7 @@ export const useAuthStore = create<AuthState>()(
           const { user } = get();
           if (!user) return;
 
-          await supabaseService.updateProfile(user.id, updates);
+          await firebaseService.updateProfile(user.id, updates);
           set({ user: { ...user, ...updates } });
         } catch (error) {
           console.error('Update profile error:', error);

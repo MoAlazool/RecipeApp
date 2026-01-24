@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
-import { supabaseService } from '@/services/supabase.service';
+import { firebaseService } from '@/services/firebase.service';
 import type { Ingredient, IngredientCategory } from '@/utils/types';
 
 // ============================================
@@ -268,8 +268,8 @@ export const useShoppingStore = create<ShoppingState>()(
 
           // Sync to Supabase
           try {
-            if (isUuid(existingItem.id)) {
-              await supabaseService.updateShoppingItem(existingItem.id, { amount: newAmount });
+            if (isUuid(existingItem.id) && isUuid(existingItem.list_id)) {
+              await firebaseService.updateShoppingItem(existingItem.id, { amount: newAmount });
             }
           } catch (error) {
             console.error('Failed to update shopping item:', error);
@@ -306,7 +306,7 @@ export const useShoppingStore = create<ShoppingState>()(
         // Sync to Supabase
         if (isUuid(state.activeListId)) {
           try {
-            await supabaseService.addShoppingItem({
+            await firebaseService.addShoppingItem({
               id: newItem.id,
               list_id: state.activeListId,
               recipe_id: newItem.recipe_id,
@@ -358,7 +358,7 @@ export const useShoppingStore = create<ShoppingState>()(
         if (isUuid(state.activeListId)) {
           try {
             for (const item of newItems) {
-              await supabaseService.addShoppingItem({
+              await firebaseService.addShoppingItem({
                 id: item.id,
                 list_id: item.list_id,
                 recipe_id: item.recipe_id,
@@ -399,8 +399,8 @@ export const useShoppingStore = create<ShoppingState>()(
         try {
           for (const item of updatedItems) {
             const originalItem = state.items.find((i) => i.id === item.id);
-            if (originalItem && originalItem.amount !== item.amount && isUuid(item.id)) {
-              await supabaseService.updateShoppingItem(item.id, { amount: item.amount });
+            if (originalItem && originalItem.amount !== item.amount && isUuid(item.id) && isUuid(item.list_id)) {
+              await firebaseService.updateShoppingItem(item.id, { amount: item.amount });
             }
           }
         } catch (error) {
@@ -413,9 +413,11 @@ export const useShoppingStore = create<ShoppingState>()(
       },
 
       removeItem: async (id: string) => {
+        const itemToRemove = get().items.find((item) => item.id === id);
+
         try {
-          if (isUuid(id)) {
-            await supabaseService.deleteShoppingItem(id);
+          if (itemToRemove && isUuid(id) && isUuid(itemToRemove.list_id)) {
+            await firebaseService.deleteShoppingItem(id);
           }
         } catch (error) {
           console.error('Failed to delete shopping item:', error);
@@ -443,8 +445,8 @@ export const useShoppingStore = create<ShoppingState>()(
         }));
 
         // BACKGROUND: Sync to Supabase without blocking
-        if (isUuid(id)) {
-          supabaseService.updateShoppingItem(id, { is_checked: newChecked })
+        if (isUuid(id) && isUuid(item.list_id)) {
+          firebaseService.updateShoppingItem(id, { is_checked: newChecked })
             .catch((error) => {
               console.error('Failed to sync, rolling back:', error);
               // Rollback on failure
@@ -481,7 +483,7 @@ export const useShoppingStore = create<ShoppingState>()(
         try {
           const state = get();
           set({ isLoading: true });
-          const shoppingList = await supabaseService.getShoppingList();
+          const shoppingList = await firebaseService.getShoppingList();
           if (shoppingList?.items) {
             const normalizedItems: ShoppingItem[] = shoppingList.items.map((item: any) => ({
               ...item,
@@ -544,8 +546,8 @@ export const useShoppingStore = create<ShoppingState>()(
 
         try {
           for (const item of checkedItems) {
-            if (isUuid(item.id)) {
-              await supabaseService.deleteShoppingItem(item.id);
+            if (isUuid(item.id) && isUuid(item.list_id)) {
+              await firebaseService.deleteShoppingItem(item.id);
             }
           }
         } catch (error) {

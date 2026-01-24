@@ -3,6 +3,7 @@ import { View, ScrollView, StyleSheet, Alert } from 'react-native';
 import { Text, Button, CheckBox } from '@rneui/themed';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { revenueCatService } from '@/services/revenueCat.service';
 import { useAuthStore } from '@/stores/authStore';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
@@ -47,6 +48,7 @@ const FEATURES = [
 
 export default function PaywallScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, updateProfile } = useAuthStore();
 
   const [selectedPlan, setSelectedPlan] = useState('yearly');
@@ -128,7 +130,7 @@ export default function PaywallScreen() {
     <View style={styles.container}>
       <LoadingOverlay visible={isLoading} message={loadingMessage} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]}>
         {/* Header */}
         <View style={styles.header}>
           <Button
@@ -234,8 +236,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F6F5',
   },
   content: {
-    padding: 24,
-    paddingTop: 16,
+    paddingHorizontal: 24,
   },
   header: {
     alignItems: 'center',

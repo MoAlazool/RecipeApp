@@ -11,13 +11,17 @@ import {
 import { Text, Button } from '@rneui/themed';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { RecipeCard } from '@/components/recipe/RecipeCard';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 
 export default function RecipesScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const bottomTabBarHeight = useBottomTabBarHeight();
   const { recipes, isLoading, fetchRecipes } = useRecipeStore();
   const { user } = useAuthStore();
   const [search, setSearch] = useState('');
@@ -52,7 +56,7 @@ export default function RecipesScreen() {
   );
 
   const header = (
-    <View style={styles.header}>
+    <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
       <View style={styles.topBar}>
         <View style={styles.userBlock}>
           <View style={styles.avatar}>
@@ -65,10 +69,14 @@ export default function RecipesScreen() {
             <Text style={styles.name}>{user?.full_name || 'Chef'}</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.notifyButton}>
-          <Ionicons name="notifications-outline" size={22} color="#1C100D" />
-          <View style={styles.notifyDot} />
-        </TouchableOpacity>
+        <View style={styles.topBarActions}>
+          <TouchableOpacity
+            style={styles.topBarAddButton}
+            onPress={() => router.push('/add-recipe')}
+          >
+            <Ionicons name="add" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchWrapper}>
@@ -238,7 +246,7 @@ export default function RecipesScreen() {
         renderItem={renderRecipe}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={header}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: bottomTabBarHeight }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -309,26 +317,18 @@ const styles = StyleSheet.create({
     fontFamily: 'PlusJakartaSans_700Bold',
     fontSize: 16,
   },
-  notifyButton: {
+  topBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  topBarAddButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    backgroundColor: '#F2330D',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  notifyDot: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#F2330D',
-    borderWidth: 1,
-    borderColor: '#FFFFFF',
   },
   searchWrapper: {
     backgroundColor: '#FFFFFF',
@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
     fontFamily: 'NotoSans_500Medium',
   },
   list: {
-    paddingBottom: 120,
+    // paddingBottom is set dynamically via useBottomTabBarHeight()
   },
   addButton: {
     backgroundColor: '#F2330D',

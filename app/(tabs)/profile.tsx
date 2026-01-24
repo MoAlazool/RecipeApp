@@ -2,22 +2,33 @@ import { View, ScrollView, StyleSheet, Alert } from 'react-native';
 import { Text, ListItem, Avatar, Button, Switch } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/authStore';
+import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const bottomTabBarHeight = useBottomTabBarHeight();
   const { user, signOut, isAuthenticated } = useAuthStore();
 
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: signOut },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          await signOut();
+          router.replace('/auth');
+        }
+      },
     ]);
   };
 
   if (!isAuthenticated) {
     return (
-      <View style={styles.authContainer}>
+      <View style={[styles.authContainer, { paddingTop: insets.top }]}>
         <Ionicons name="person-circle-outline" size={96} color="#C8B7B2" />
         <Text h4 style={styles.authTitle}>Sign in to sync your recipes</Text>
         <Text style={styles.authSubtitle}>
@@ -41,7 +52,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingTop: insets.top, paddingBottom: bottomTabBarHeight }}>
       <View style={styles.header}>
         <Avatar
           size={80}

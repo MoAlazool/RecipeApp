@@ -20,11 +20,6 @@ import {
   NotoSans_700Bold,
 } from '@expo-google-fonts/noto-sans';
 import { useAuthStore } from '@/stores/authStore';
-import {
-  BackButton,
-  RecipeHeaderRight,
-  TranslucentHeaderBackground,
-} from '@/components/navigation/RecipeHeader';
 import { configureNotifications } from '@/services/notifications.service';
 
 const theme = {
@@ -127,12 +122,7 @@ export default function RootLayout() {
             <Stack.Screen
               name="recipe/[id]"
               options={{
-                headerShown: true,
-                headerTransparent: true,
-                headerTitle: '',
-                headerLeft: () => <BackButton />,
-                headerRight: () => <RecipeHeaderRight />,
-                headerBackground: () => <TranslucentHeaderBackground />,
+                headerShown: false,
               }}
             />
             <Stack.Screen
@@ -145,8 +135,7 @@ export default function RootLayout() {
             <Stack.Screen
               name="add-recipe"
               options={{
-                headerShown: true,
-                title: 'Add Recipe',
+                headerShown: false,
                 presentation: 'modal'
               }}
             />
@@ -162,6 +151,18 @@ export default function RootLayout() {
               options={{
                 headerShown: false,
                 presentation: 'fullScreenModal'
+              }}
+            />
+            <Stack.Screen
+              name="recent-scans"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="scan-detail"
+              options={{
+                headerShown: false,
               }}
             />
             <Stack.Screen

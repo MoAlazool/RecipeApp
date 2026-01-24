@@ -11,7 +11,7 @@ interface StepListProps {
 export function StepList({ steps }: StepListProps) {
   return (
     <View style={styles.container}>
-      {steps.map((step, index) => (
+      {steps.filter(step => step.instruction).map((step, index) => (
         <View key={index} style={styles.step}>
           <View style={styles.stepNumber}>
             <Text style={styles.stepNumberText}>{step.step_number}</Text>
