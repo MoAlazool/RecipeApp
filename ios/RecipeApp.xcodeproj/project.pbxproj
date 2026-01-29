@@ -7,55 +7,45 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0EE2F74A6FAD6AD24764DB98 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 768C61EB18E170376D560D0C /* PrivacyInfo.xcprivacy */; };
+		137C6C68A61B4EC1B646FA45 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A2ABFA0378904638B0A92A9A /* GoogleService-Info.plist */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		33C74784067D47C28791287F /* ViewHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3C272B0534497485D49427 /* ViewHelpers.swift */; };
+		15DFE01E138DB89DCB51E2AB /* libPods-RecipeApp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 25BE52F0DB86FB07286A37B3 /* libPods-RecipeApp.a */; };
+		3889250EB90E40DA95D0A4B3 /* Image+dynamic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BBBB63B5D0E48FD8D881381 /* Image+dynamic.swift */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		3F07C95B6047031EAC579DA3 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47C2F090D4188E6D6BDBFE14 /* ExpoModulesProvider.swift */; };
-		46BD31934182497987AC6BFB /* LiveActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609D331905BC44B4AE51399F /* LiveActivityView.swift */; };
-		4A0C44756D81EE40377FBD3A /* libPods-RecipeApp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A133ADCD65A257A0907B29CB /* libPods-RecipeApp.a */; };
-		57BD11228EE64653AA46F2CE /* LiveActivityWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF6A46B992984EA291D489C0 /* LiveActivityWidgetBundle.swift */; };
-		59449FF8795C484CB1CCEADA /* View+applyWidgetURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CC076D9D4FB48188D64CED4 /* View+applyWidgetURL.swift */; };
-		61945A2D58304359982F5F62 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D085D7E60695470B97984E3E /* Assets.xcassets */; };
-		706F953C45363E00C0BE2F1D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 86279B4E8359C0F73EAC8797 /* PrivacyInfo.xcprivacy */; };
-		85FBAA76B3BD4F11A3550BE0 /* Color+hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A285C2B2EF44C78A8C0CCD /* Color+hex.swift */; };
-		96928ADD66F94B7285D1B43C /* Date+toTimerInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9215B42119834D6581E5D0D0 /* Date+toTimerInterval.swift */; };
-		9DF2EB7BB46D478EBDAADC80 /* LiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CCFD7D95D0E24DB3915D8158 /* LiveActivity.appex */; };
-		B5E8CFBC480E4D759A1C400C /* Image+dynamic.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1149EF77AA41D4A7BD1F6E /* Image+dynamic.swift */; };
+		6755A06CA36E4C34BC576E3F /* LiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 61960148D9474C97905F71FD /* LiveActivity.appex */; };
+		6E966B09854B4BE98AA6306A /* Color+hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF91935C38834D7F9BEE615D /* Color+hex.swift */; };
+		75245BED4E434E2480296B92 /* View+applyIfPresent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC24BE3AEA734933891C6BBC /* View+applyIfPresent.swift */; };
+		8648E8DE5B5E477882B4646D /* LiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE3433A4338041FE9D3204E1 /* LiveActivityWidget.swift */; };
+		86AE1B64FC4849A8A0CF2F7F /* LiveActivityWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B7D3A891FF422D957074C3 /* LiveActivityWidgetBundle.swift */; };
+		8E46A1BEE3384C5D88FCFEFF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C39165E6672D422CBE2D38E9 /* Assets.xcassets */; };
+		B1A14413F05ED031017FB91A /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E380EC889D92A8630DF1DE0 /* ExpoModulesProvider.swift */; };
+		B70DBEF9959E4F24971FD4ED /* LiveActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745510A00E5948F2ACB4686E /* LiveActivityView.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		C8194E706A7E471D9A65CC8E /* View+applyIfPresent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6B327468B214E388A0CE9A2 /* View+applyIfPresent.swift */; };
-		DC6411C7DFBB4EC097E3262E /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = D740AB3DBA6247FFA985E9B2 /* GoogleService-Info.plist */; };
+		DFEA21E2412141D69812B56C /* Date+toTimerInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = E59C70DA2E574AB48DFA5099 /* Date+toTimerInterval.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
-		FC5B21FE016A454088F1C59A /* LiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22950101DA5744F8AABDD553 /* LiveActivityWidget.swift */; };
+		F3189B672CB64609826F29B5 /* View+applyWidgetURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4FC93459CF747FFAFAF5232 /* View+applyWidgetURL.swift */; };
+		F75B63865BC54279B9E9710F /* ViewHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72D89F8F750471295E83833 /* ViewHelpers.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		8BD72119B07D49D6B7830128 /* PBXContainerItemProxy */ = {
+		D811F40AE15C4FACBB5D28DB /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = EB4C9476E6374176A7F167E4;
+			remoteGlobalIDString = 394019DF671F4D058883F40D;
 			remoteInfo = LiveActivity;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		06E8A92CFA884FCF84F3AC9F /* Embed Foundation Extensions */ = {
+		FC8AAC08F4FA4CFB9F3E5F15 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				9DF2EB7BB46D478EBDAADC80 /* LiveActivity.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		431A8775B99C49989D128A84 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
+				6755A06CA36E4C34BC576E3F /* LiveActivity.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -63,33 +53,33 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0B61EF9AB71547BD8759CDEE /* Info.plist */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0E380EC889D92A8630DF1DE0 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-RecipeApp/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* RecipeApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RecipeApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = RecipeApp/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = RecipeApp/Info.plist; sourceTree = "<group>"; };
-		22950101DA5744F8AABDD553 /* LiveActivityWidget.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = LiveActivityWidget.swift; path = LiveActivityWidget.swift; sourceTree = "<group>"; };
-		2CC076D9D4FB48188D64CED4 /* View+applyWidgetURL.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = "View+applyWidgetURL.swift"; path = "View+applyWidgetURL.swift"; sourceTree = "<group>"; };
-		31EE25DF852342D2B60DA01F /* LiveActivity.entitlements */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = LiveActivity.entitlements; path = LiveActivity.entitlements; sourceTree = "<group>"; };
-		47C2F090D4188E6D6BDBFE14 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-RecipeApp/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		609D331905BC44B4AE51399F /* LiveActivityView.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = LiveActivityView.swift; path = LiveActivityView.swift; sourceTree = "<group>"; };
-		86279B4E8359C0F73EAC8797 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = RecipeApp/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		9215B42119834D6581E5D0D0 /* Date+toTimerInterval.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = "Date+toTimerInterval.swift"; path = "Date+toTimerInterval.swift"; sourceTree = "<group>"; };
-		9DE263B847322CF603016639 /* Pods-RecipeApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RecipeApp.debug.xcconfig"; path = "Target Support Files/Pods-RecipeApp/Pods-RecipeApp.debug.xcconfig"; sourceTree = "<group>"; };
-		A133ADCD65A257A0907B29CB /* libPods-RecipeApp.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-RecipeApp.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		A1C3907CA67D06C6502CA6A3 /* Pods-RecipeApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RecipeApp.release.xcconfig"; path = "Target Support Files/Pods-RecipeApp/Pods-RecipeApp.release.xcconfig"; sourceTree = "<group>"; };
+		25BE52F0DB86FB07286A37B3 /* libPods-RecipeApp.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-RecipeApp.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		41B7D3A891FF422D957074C3 /* LiveActivityWidgetBundle.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = LiveActivityWidgetBundle.swift; sourceTree = "<group>"; };
+		45E48B17AA3047E79CA4186E /* LiveActivity.entitlements */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; path = LiveActivity.entitlements; sourceTree = "<group>"; };
+		61960148D9474C97905F71FD /* LiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; fileEncoding = 9; includeInIndex = 0; path = LiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		745510A00E5948F2ACB4686E /* LiveActivityView.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = LiveActivityView.swift; sourceTree = "<group>"; };
+		768C61EB18E170376D560D0C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = RecipeApp/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		7A7A981D004153675441AEDA /* Pods-RecipeApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RecipeApp.release.xcconfig"; path = "Target Support Files/Pods-RecipeApp/Pods-RecipeApp.release.xcconfig"; sourceTree = "<group>"; };
+		9BBBB63B5D0E48FD8D881381 /* Image+dynamic.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = "Image+dynamic.swift"; sourceTree = "<group>"; };
+		A2ABFA0378904638B0A92A9A /* GoogleService-Info.plist */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "RecipeApp/GoogleService-Info.plist"; sourceTree = "<group>"; };
+		A4FC93459CF747FFAFAF5232 /* View+applyWidgetURL.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = "View+applyWidgetURL.swift"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = RecipeApp/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		BF6A46B992984EA291D489C0 /* LiveActivityWidgetBundle.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = LiveActivityWidgetBundle.swift; path = LiveActivityWidgetBundle.swift; sourceTree = "<group>"; };
-		CCFD7D95D0E24DB3915D8158 /* LiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = undefined; name = LiveActivity.appex; path = LiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		D085D7E60695470B97984E3E /* Assets.xcassets */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Assets.xcassets; sourceTree = "<group>"; };
-		D4A285C2B2EF44C78A8C0CCD /* Color+hex.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = "Color+hex.swift"; path = "Color+hex.swift"; sourceTree = "<group>"; };
-		D740AB3DBA6247FFA985E9B2 /* GoogleService-Info.plist */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "RecipeApp/GoogleService-Info.plist"; sourceTree = "<group>"; };
-		DB3C272B0534497485D49427 /* ViewHelpers.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = ViewHelpers.swift; path = ViewHelpers.swift; sourceTree = "<group>"; };
-		DF1149EF77AA41D4A7BD1F6E /* Image+dynamic.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = "Image+dynamic.swift"; path = "Image+dynamic.swift"; sourceTree = "<group>"; };
+		BC24BE3AEA734933891C6BBC /* View+applyIfPresent.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = "View+applyIfPresent.swift"; sourceTree = "<group>"; };
+		C39165E6672D422CBE2D38E9 /* Assets.xcassets */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CCC1ED154594255D5927D84E /* Pods-RecipeApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RecipeApp.debug.xcconfig"; path = "Target Support Files/Pods-RecipeApp/Pods-RecipeApp.debug.xcconfig"; sourceTree = "<group>"; };
+		CE3433A4338041FE9D3204E1 /* LiveActivityWidget.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = LiveActivityWidget.swift; sourceTree = "<group>"; };
+		DF91935C38834D7F9BEE615D /* Color+hex.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = "Color+hex.swift"; sourceTree = "<group>"; };
+		E59C70DA2E574AB48DFA5099 /* Date+toTimerInterval.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = "Date+toTimerInterval.swift"; sourceTree = "<group>"; };
+		E72D89F8F750471295E83833 /* ViewHelpers.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = ViewHelpers.swift; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = RecipeApp/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* RecipeApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "RecipeApp-Bridging-Header.h"; path = "RecipeApp/RecipeApp-Bridging-Header.h"; sourceTree = "<group>"; };
-		F6B327468B214E388A0CE9A2 /* View+applyIfPresent.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = "View+applyIfPresent.swift"; path = "View+applyIfPresent.swift"; sourceTree = "<group>"; };
-		FF71A757D2654C5FA93373B9 /* Info.plist */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = text.plist.xml; name = Info.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,11 +87,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4A0C44756D81EE40377FBD3A /* libPods-RecipeApp.a in Frameworks */,
+				15DFE01E138DB89DCB51E2AB /* libPods-RecipeApp.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		2B082A853F8940B28BE1B6CA /* Frameworks */ = {
+		BAA9221E49BC4B96AFFEBF05 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -111,14 +101,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		080470F3E2B36D6409DF1461 /* RecipeApp */ = {
-			isa = PBXGroup;
-			children = (
-				47C2F090D4188E6D6BDBFE14 /* ExpoModulesProvider.swift */,
-			);
-			name = RecipeApp;
-			sourceTree = "<group>";
-		};
 		13B07FAE1A68108700A75B9A /* RecipeApp */ = {
 			isa = PBXGroup;
 			children = (
@@ -128,8 +110,8 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				D740AB3DBA6247FFA985E9B2 /* GoogleService-Info.plist */,
-				86279B4E8359C0F73EAC8797 /* PrivacyInfo.xcprivacy */,
+				A2ABFA0378904638B0A92A9A /* GoogleService-Info.plist */,
+				768C61EB18E170376D560D0C /* PrivacyInfo.xcprivacy */,
 			);
 			name = RecipeApp;
 			sourceTree = "<group>";
@@ -138,39 +120,9 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				A133ADCD65A257A0907B29CB /* libPods-RecipeApp.a */,
+				25BE52F0DB86FB07286A37B3 /* libPods-RecipeApp.a */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		349D0BC625134B0D9D75E5E0 /* LiveActivity */ = {
-			isa = PBXGroup;
-			children = (
-				D4A285C2B2EF44C78A8C0CCD /* Color+hex.swift */,
-				9215B42119834D6581E5D0D0 /* Date+toTimerInterval.swift */,
-				DF1149EF77AA41D4A7BD1F6E /* Image+dynamic.swift */,
-				609D331905BC44B4AE51399F /* LiveActivityView.swift */,
-				22950101DA5744F8AABDD553 /* LiveActivityWidget.swift */,
-				BF6A46B992984EA291D489C0 /* LiveActivityWidgetBundle.swift */,
-				F6B327468B214E388A0CE9A2 /* View+applyIfPresent.swift */,
-				2CC076D9D4FB48188D64CED4 /* View+applyWidgetURL.swift */,
-				DB3C272B0534497485D49427 /* ViewHelpers.swift */,
-				FF71A757D2654C5FA93373B9 /* Info.plist */,
-				D085D7E60695470B97984E3E /* Assets.xcassets */,
-				31EE25DF852342D2B60DA01F /* LiveActivity.entitlements */,
-			);
-			name = LiveActivity;
-			path = LiveActivity;
-			sourceTree = "<group>";
-		};
-		74C2CD64A9FA5A84597E37A9 /* Pods */ = {
-			isa = PBXGroup;
-			children = (
-				9DE263B847322CF603016639 /* Pods-RecipeApp.debug.xcconfig */,
-				A1C3907CA67D06C6502CA6A3 /* Pods-RecipeApp.release.xcconfig */,
-			);
-			name = Pods;
-			path = Pods;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -187,9 +139,9 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				349D0BC625134B0D9D75E5E0 /* LiveActivity */,
-				74C2CD64A9FA5A84597E37A9 /* Pods */,
-				A740DA5180CB1354D40AC62D /* ExpoModulesProviders */,
+				8E4EED3CF47D4DDAB9854955 /* LiveActivity */,
+				C44FB735463A34C49D3C777F /* Pods */,
+				BB1CBCA1F0044AB5A41B596B /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -200,15 +152,34 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* RecipeApp.app */,
-				CCFD7D95D0E24DB3915D8158 /* LiveActivity.appex */,
+				61960148D9474C97905F71FD /* LiveActivity.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		A740DA5180CB1354D40AC62D /* ExpoModulesProviders */ = {
+		8E4EED3CF47D4DDAB9854955 /* LiveActivity */ = {
 			isa = PBXGroup;
 			children = (
-				080470F3E2B36D6409DF1461 /* RecipeApp */,
+				DF91935C38834D7F9BEE615D /* Color+hex.swift */,
+				E59C70DA2E574AB48DFA5099 /* Date+toTimerInterval.swift */,
+				9BBBB63B5D0E48FD8D881381 /* Image+dynamic.swift */,
+				745510A00E5948F2ACB4686E /* LiveActivityView.swift */,
+				CE3433A4338041FE9D3204E1 /* LiveActivityWidget.swift */,
+				41B7D3A891FF422D957074C3 /* LiveActivityWidgetBundle.swift */,
+				BC24BE3AEA734933891C6BBC /* View+applyIfPresent.swift */,
+				A4FC93459CF747FFAFAF5232 /* View+applyWidgetURL.swift */,
+				E72D89F8F750471295E83833 /* ViewHelpers.swift */,
+				0B61EF9AB71547BD8759CDEE /* Info.plist */,
+				C39165E6672D422CBE2D38E9 /* Assets.xcassets */,
+				45E48B17AA3047E79CA4186E /* LiveActivity.entitlements */,
+			);
+			path = LiveActivity;
+			sourceTree = "<group>";
+		};
+		BB1CBCA1F0044AB5A41B596B /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				C791276B38C0D4F732B1C9C8 /* RecipeApp */,
 			);
 			name = ExpoModulesProviders;
 			sourceTree = "<group>";
@@ -222,6 +193,23 @@
 			path = RecipeApp/Supporting;
 			sourceTree = "<group>";
 		};
+		C44FB735463A34C49D3C777F /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				CCC1ED154594255D5927D84E /* Pods-RecipeApp.debug.xcconfig */,
+				7A7A981D004153675441AEDA /* Pods-RecipeApp.release.xcconfig */,
+			);
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		C791276B38C0D4F732B1C9C8 /* RecipeApp */ = {
+			isa = PBXGroup;
+			children = (
+				0E380EC889D92A8630DF1DE0 /* ExpoModulesProvider.swift */,
+			);
+			name = RecipeApp;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -230,33 +218,32 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "RecipeApp" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				DFFC9BA58BCA2109E8CE1503 /* [Expo] Configure project */,
+				98B8BF44245E4931216C1A65 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				06E8A92CFA884FCF84F3AC9F /* Embed Foundation Extensions */,
-				ED5D5C3A66E119A92BE45A78 /* [CP] Embed Pods Frameworks */,
-				431A8775B99C49989D128A84 /* Embed Foundation Extensions */,
+				FC8AAC08F4FA4CFB9F3E5F15 /* Embed Foundation Extensions */,
+				E80E3DA422B8D73947571B18 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				4162B25A8D8B43D3869838F1 /* PBXTargetDependency */,
+				816CB5C857F84E85B1A957AF /* PBXTargetDependency */,
 			);
 			name = RecipeApp;
 			productName = RecipeApp;
 			productReference = 13B07F961A680F5B00A75B9A /* RecipeApp.app */;
 			productType = "com.apple.product-type.application";
 		};
-		EB4C9476E6374176A7F167E4 /* LiveActivity */ = {
+		394019DF671F4D058883F40D /* LiveActivity */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = B450BB0F17F84F1284879CBA /* Build configuration list for PBXNativeTarget "LiveActivity" */;
+			buildConfigurationList = 74F24627672041F5A5D0FFA9 /* Build configuration list for PBXNativeTarget "LiveActivity" */;
 			buildPhases = (
-				305B9829C539486EA9B7D1A8 /* Sources */,
-				2B082A853F8940B28BE1B6CA /* Frameworks */,
-				353FBBC3163C4361843E5F3F /* Resources */,
+				24097A4C6B674C11A31EFD4B /* Sources */,
+				BAA9221E49BC4B96AFFEBF05 /* Frameworks */,
+				2EFECB4D534942C59A96C709 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -264,7 +251,7 @@
 			);
 			name = LiveActivity;
 			productName = LiveActivity;
-			productReference = CCFD7D95D0E24DB3915D8158 /* LiveActivity.appex */;
+			productReference = 61960148D9474C97905F71FD /* LiveActivity.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -276,14 +263,10 @@
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
-						DevelopmentTeam = ELD3N9M4AP;
 						LastSwiftMigration = 1250;
-						ProvisioningStyle = Automatic;
 					};
-					EB4C9476E6374176A7F167E4 = {
-						DevelopmentTeam = ELD3N9M4AP;
+					394019DF671F4D058883F40D = {
 						LastSwiftMigration = 1250;
-						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -301,7 +284,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* RecipeApp */,
-				EB4C9476E6374176A7F167E4 /* LiveActivity */,
+				394019DF671F4D058883F40D /* LiveActivity */,
 			);
 		};
 /* End PBXProject section */
@@ -314,16 +297,16 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				DC6411C7DFBB4EC097E3262E /* GoogleService-Info.plist in Resources */,
-				706F953C45363E00C0BE2F1D /* PrivacyInfo.xcprivacy in Resources */,
+				137C6C68A61B4EC1B646FA45 /* GoogleService-Info.plist in Resources */,
+				0EE2F74A6FAD6AD24764DB98 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		353FBBC3163C4361843E5F3F /* Resources */ = {
+		2EFECB4D534942C59A96C709 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				61945A2D58304359982F5F62 /* Assets.xcassets in Resources */,
+				8E46A1BEE3384C5D88FCFEFF /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -413,7 +396,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-RecipeApp/Pods-RecipeApp-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		DFFC9BA58BCA2109E8CE1503 /* [Expo] Configure project */ = {
+		98B8BF44245E4931216C1A65 /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -437,7 +420,7 @@
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-RecipeApp/expo-configure-project.sh\"\n";
 		};
-		ED5D5C3A66E119A92BE45A78 /* [CP] Embed Pods Frameworks */ = {
+		E80E3DA422B8D73947571B18 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -467,46 +450,66 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				3F07C95B6047031EAC579DA3 /* ExpoModulesProvider.swift in Sources */,
+				B1A14413F05ED031017FB91A /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		305B9829C539486EA9B7D1A8 /* Sources */ = {
+		24097A4C6B674C11A31EFD4B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				85FBAA76B3BD4F11A3550BE0 /* Color+hex.swift in Sources */,
-				96928ADD66F94B7285D1B43C /* Date+toTimerInterval.swift in Sources */,
-				B5E8CFBC480E4D759A1C400C /* Image+dynamic.swift in Sources */,
-				46BD31934182497987AC6BFB /* LiveActivityView.swift in Sources */,
-				FC5B21FE016A454088F1C59A /* LiveActivityWidget.swift in Sources */,
-				57BD11228EE64653AA46F2CE /* LiveActivityWidgetBundle.swift in Sources */,
-				C8194E706A7E471D9A65CC8E /* View+applyIfPresent.swift in Sources */,
-				59449FF8795C484CB1CCEADA /* View+applyWidgetURL.swift in Sources */,
-				33C74784067D47C28791287F /* ViewHelpers.swift in Sources */,
+				6E966B09854B4BE98AA6306A /* Color+hex.swift in Sources */,
+				DFEA21E2412141D69812B56C /* Date+toTimerInterval.swift in Sources */,
+				3889250EB90E40DA95D0A4B3 /* Image+dynamic.swift in Sources */,
+				B70DBEF9959E4F24971FD4ED /* LiveActivityView.swift in Sources */,
+				8648E8DE5B5E477882B4646D /* LiveActivityWidget.swift in Sources */,
+				86AE1B64FC4849A8A0CF2F7F /* LiveActivityWidgetBundle.swift in Sources */,
+				75245BED4E434E2480296B92 /* View+applyIfPresent.swift in Sources */,
+				F3189B672CB64609826F29B5 /* View+applyWidgetURL.swift in Sources */,
+				F75B63865BC54279B9E9710F /* ViewHelpers.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		4162B25A8D8B43D3869838F1 /* PBXTargetDependency */ = {
+		816CB5C857F84E85B1A957AF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = EB4C9476E6374176A7F167E4 /* LiveActivity */;
-			targetProxy = 8BD72119B07D49D6B7830128 /* PBXContainerItemProxy */;
+			target = 394019DF671F4D058883F40D /* LiveActivity */;
+			targetProxy = D811F40AE15C4FACBB5D28DB /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		054EAAFA65044AE698634700 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = LiveActivity/LiveActivity.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ELD3N9M4AP;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LiveActivity/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LiveActivity;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				MARKETING_VERSION = 1.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.moalazool.recipeapp.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 9DE263B847322CF603016639 /* Pods-RecipeApp.debug.xcconfig */;
+			baseConfigurationReference = CCC1ED154594255D5927D84E /* Pods-RecipeApp.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = RecipeApp/RecipeApp.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = ELD3N9M4AP;
 				ENABLE_BITCODE = NO;
@@ -539,13 +542,11 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A1C3907CA67D06C6502CA6A3 /* Pods-RecipeApp.release.xcconfig */;
+			baseConfigurationReference = 7A7A981D004153675441AEDA /* Pods-RecipeApp.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = RecipeApp/RecipeApp.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = ELD3N9M4AP;
 				INFOPLIST_FILE = RecipeApp/Info.plist;
@@ -570,13 +571,11 @@
 			};
 			name = Release;
 		};
-		2F2D4F5FD45444A0A9FE56F3 /* Release */ = {
+		64E0C67D95A04F9DA83F0945 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = LiveActivity/LiveActivity.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = ELD3N9M4AP;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -712,30 +711,6 @@
 			};
 			name = Release;
 		};
-		E0D9504E329340A89338D085 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = LiveActivity/LiveActivity.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = ELD3N9M4AP;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = LiveActivity/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = LiveActivity;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
-				MARKETING_VERSION = 1.0.0;
-				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = com.moalazool.recipeapp.LiveActivity;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -748,20 +723,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		74F24627672041F5A5D0FFA9 /* Build configuration list for PBXNativeTarget "LiveActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				054EAAFA65044AE698634700 /* Debug */,
+				64E0C67D95A04F9DA83F0945 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "RecipeApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		B450BB0F17F84F1284879CBA /* Build configuration list for PBXNativeTarget "LiveActivity" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				E0D9504E329340A89338D085 /* Debug */,
-				2F2D4F5FD45444A0A9FE56F3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

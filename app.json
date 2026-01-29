@@ -58,7 +58,8 @@
         }
       ],
       "expo-live-activity",
-      "./plugins/withNoPushEntitlements"
+      "./plugins/withNoPushEntitlements",
+      "expo-speech-recognition"
     ],
     "experiments": {
       "typedRoutes": true

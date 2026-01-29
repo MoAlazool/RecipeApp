@@ -381,12 +381,14 @@ Return as JSON:
       "ingredients_you_need": ["soy sauce", "garlic"],
       "preview_steps": ["Step 1", "Step 2"],
       "meal_type": "dinner",
-      "image_url": "https://example.com/recipe-image.jpg (provide a real public image URL that shows this dish)"
+      "food_keywords": ["main food type", "second keyword"]
     }
   ]
 }
 
-If they're just asking what's in their fridge or making small talk, set recipes to an empty array.`;
+If they're just asking what's in their fridge or making small talk, set recipes to an empty array.
+
+IMPORTANT for food_keywords: provide 2-3 simple, common food words that best describe what the final dish looks like (e.g., ["ice cream", "dessert"], ["pasta", "carbonara"], ["chicken", "stir fry"], ["burger", "beef"], ["salad", "vegetable"], ["cake", "chocolate"], ["soup", "curry"]). Use generic food category words, not brand names.`;
 
       const responseText = await generateText(prompt, {
         temperature: 0.8,

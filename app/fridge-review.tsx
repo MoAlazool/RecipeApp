@@ -311,6 +311,15 @@ export default function FridgeReviewScreen() {
 
       // Increment usage counter
       await firebaseService.incrementUsage('scan');
+
+      // Save items to Firebase pantry immediately after detection
+      try {
+        await pantryService.saveFridgeItems(result.ingredients, imageUri);
+        console.log('✅ Pantry items saved successfully');
+      } catch (saveError: any) {
+        console.error('Failed to save pantry items:', saveError);
+        // Don't show error to user - detection succeeded, save is secondary
+      }
     } catch (err) {
       console.error('Failed to analyze image:', err);
       setError('Failed to analyze image. Please try again.');
@@ -360,8 +369,8 @@ export default function FridgeReviewScreen() {
     analyzeImage();
   };
 
-  const handleAnalyze = async () => {
-    // Navigate to recipe results immediately (don't block on save)
+  const handleAnalyze = () => {
+    // Navigate to recipe results (items are already saved after detection)
     const selectedItems = items.map((item) => ({
       name: item.name,
       emoji: item.emoji,
@@ -371,33 +380,6 @@ export default function FridgeReviewScreen() {
       pathname: '/recipe-results',
       params: { ingredients: JSON.stringify(selectedItems) },
     });
-
-    // Save items to Firebase pantry in background
-    try {
-      const detectedIngredients: DetectedIngredient[] = items.map((item) => ({
-        name: item.name,
-        category: (item.category || 'other') as any,
-        quantity_estimate: item.quantity || 'some', // Use actual quantity from detection
-        confidence: item.confidence > 80 ? 'high' : item.confidence > 50 ? 'medium' : 'low',
-        confidence_percent: item.confidence,
-      }));
-
-      await pantryService.saveFridgeItems(detectedIngredients, imageUri);
-      console.log('✅ Pantry items saved successfully');
-    } catch (error: any) {
-      console.error('Failed to save pantry items:', error);
-
-      // Show helpful error message if it's a permission issue
-      if (error.message?.includes('Permission denied')) {
-        setTimeout(() => {
-          Alert.alert(
-            'Setup Required',
-            'To save fridge items, please update your Firestore security rules. Check the Firebase Console → Firestore → Rules tab.',
-            [{ text: 'OK' }]
-          );
-        }, 1000); // Delay so it doesn't interfere with navigation
-      }
-    }
   };
 
   return (

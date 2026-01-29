@@ -6,7 +6,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScanSweep } from '@/components/ui/ScanSweep';
+
 
 export default function FridgeScanScreen() {
   const router = useRouter();
@@ -107,7 +107,6 @@ export default function FridgeScanScreen() {
           enableTorch={flashEnabled}
         />
       )}
-      <ScanSweep />
 
       {/* Header */}
       <View style={[styles.header, { top: insets.top + 12 }]}>

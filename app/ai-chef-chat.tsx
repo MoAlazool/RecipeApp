@@ -14,13 +14,11 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { aiService } from '@/services/ai.service';
 import { pantryService } from '@/services/pantry.service';
 import { getRecipeImage } from '@/utils/recipePlaceholders';
-import { FLOATING_NAV } from '@/constants/layout';
-import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 
 const COLORS = {
   primary: '#FF4B2B',
@@ -30,41 +28,79 @@ const COLORS = {
   backgroundDark: '#1A1210',
 };
 
+interface IngredientItem {
+  name: string;
+  quantity?: string;
+  emoji?: string;
+  category?: string;
+  selected: boolean;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  recipes?: any[]; // Suggested recipes from AI
+  recipes?: any[];
 }
 
-export default function AiChefScreen() {
+export default function AiChefChatModal() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ ingredients?: string }>();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const scrollViewRef = useRef<ScrollView>(null);
-  const navBottomPadding = Math.max(insets.bottom - 8, FLOATING_NAV.BASE_BOTTOM_PADDING);
-  const inputLift = FLOATING_NAV.BAR_HEIGHT + navBottomPadding + 8;
-  const inputAreaSpacing = 12;
-  const safeKeyboardOffset = 0;
+
+  // Parse ingredients passed from scan-detail (with quantities)
+  const parsedIngredients: IngredientItem[] = params.ingredients
+    ? JSON.parse(params.ingredients).map((i: any) => ({
+        name: i.name || i,
+        quantity: i.quantity || 'some',
+        emoji: i.emoji || '🥘',
+        category: i.category,
+        selected: true,
+      }))
+    : [];
+
+  const [ingredients, setIngredients] = useState<IngredientItem[]>(parsedIngredients);
+  const [showIngredients, setShowIngredients] = useState(true);
+
+  const getSelectedIngredientsText = () => {
+    const selected = ingredients.filter((i) => i.selected);
+    if (selected.length === 0) return '';
+    return selected
+      .map((i) => `${i.quantity} ${i.name}`)
+      .join(', ');
+  };
+
+  const getSelectedIngredientsForAI = () => {
+    return ingredients
+      .filter((i) => i.selected)
+      .map((i) => `${i.quantity} ${i.name}`);
+  };
+
+  const getInitialMessage = () => {
+    if (ingredients.length > 0) {
+      const ingredientList = ingredients
+        .map((i) => `• ${i.emoji} ${i.name} (${i.quantity})`)
+        .join('\n');
+      return `Hi! I can see you have:\n\n${ingredientList}\n\nYou can toggle items on/off above. What would you like to cook with these ingredients?`;
+    }
+    return "Hi! I'm your AI Chef assistant. I can see what's in your fridge and suggest recipes based on what you want to cook. Try asking:\n\n• \"I want to cook pasta\"\n• \"What can I make for dinner?\"\n• \"I'm craving something spicy\"";
+  };
 
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '0',
       role: 'assistant',
-      content: "Hi! I'm your AI Chef assistant. I can see what's in your fridge and suggest recipes based on what you want to cook. Try asking:\n\n• \"I want to cook pasta\"\n• \"What can I make for dinner?\"\n• \"I'm craving something spicy\"",
+      content: getInitialMessage(),
       timestamp: new Date(),
     },
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [pantryItems, setPantryItems] = useState<string[]>([]);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    loadPantryItems();
-  }, []);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -78,13 +114,12 @@ export default function AiChefScreen() {
     };
   }, []);
 
-  const loadPantryItems = async () => {
-    try {
-      const items = await pantryService.getAvailableIngredients();
-      setPantryItems(items);
-    } catch (error) {
-      console.error('Failed to load pantry:', error);
-    }
+  const toggleIngredient = (index: number) => {
+    setIngredients((prev) =>
+      prev.map((item, i) =>
+        i === index ? { ...item, selected: !item.selected } : item
+      )
+    );
   };
 
   const handleSend = async () => {
@@ -101,14 +136,14 @@ export default function AiChefScreen() {
     setInputText('');
     setIsLoading(true);
 
-    // Scroll to bottom
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
 
     try {
-      // Call AI with user's request and available ingredients
-      const response = await aiService.chatWithChef(inputText.trim(), pantryItems);
+      // Pass ingredients with quantities to AI
+      const ingredientsForAI = getSelectedIngredientsForAI();
+      const response = await aiService.chatWithChef(inputText.trim(), ingredientsForAI);
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -153,6 +188,12 @@ export default function AiChefScreen() {
     });
   };
 
+  const handleClose = () => {
+    router.back();
+  };
+
+  const selectedCount = ingredients.filter((i) => i.selected).length;
+
   const renderMessage = (message: Message) => {
     const isUser = message.role === 'user';
 
@@ -196,7 +237,6 @@ export default function AiChefScreen() {
             {message.content}
           </Text>
 
-          {/* Render suggested recipes */}
           {message.recipes && message.recipes.length > 0 && (
             <View style={styles.recipesContainer}>
               <Text style={styles.recipesHeader}>Suggested Recipes:</Text>
@@ -251,50 +291,130 @@ export default function AiChefScreen() {
     );
   };
 
-  const suggestionChips = [
-    "What's in my fridge?",
-    "I want pasta",
-    "Quick dinner ideas",
-    "Healthy breakfast",
-  ];
+  const suggestionChips = ingredients.length > 0
+    ? [
+        "What can I make?",
+        "Quick recipe",
+        "Something healthy",
+        "Comfort food",
+      ]
+    : [
+        "What's in my fridge?",
+        "I want pasta",
+        "Quick dinner ideas",
+        "Healthy breakfast",
+      ];
 
   return (
-    <TabScreenTransition style={styles.container}>
-      <SafeAreaView
-        style={[
-          styles.container,
-          { backgroundColor: isDark ? COLORS.backgroundDark : COLORS.backgroundLight },
-        ]}
-        edges={['top', 'left', 'right']}
-      >
+    <View
+      style={[
+        styles.container,
+        { backgroundColor: isDark ? COLORS.backgroundDark : COLORS.backgroundLight },
+      ]}
+    >
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.headerIcon}>
-            <Ionicons name="restaurant" size={24} color={COLORS.primary} />
-          </View>
-          <View>
-            <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : COLORS.charcoal }]}>
-              AI Chef
-            </Text>
-            <Text style={styles.headerSubtitle}>
-              {pantryItems.length} items in your fridge
-            </Text>
-          </View>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.handleContainer}>
+          <View style={styles.handle} />
         </View>
-        <Pressable style={styles.refreshButton} onPress={loadPantryItems}>
-          <Ionicons name="refresh" size={20} color={isDark ? '#FFFFFF' : COLORS.charcoal} />
-        </Pressable>
+        <View style={styles.headerRow}>
+          <Pressable style={styles.closeButton} onPress={handleClose}>
+            <Ionicons name="close" size={24} color={isDark ? '#FFFFFF' : COLORS.charcoal} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <View style={styles.headerIcon}>
+              <Ionicons name="restaurant" size={24} color={COLORS.primary} />
+            </View>
+            <View>
+              <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : COLORS.charcoal }]}>
+                AI Chef
+              </Text>
+              <Text style={styles.headerSubtitle}>
+                {selectedCount} of {ingredients.length} items selected
+              </Text>
+            </View>
+          </View>
+          <View style={styles.closeButton} />
+        </View>
       </View>
+
+      {/* Ingredients Selection */}
+      {ingredients.length > 0 && (
+        <View style={[styles.ingredientsSection, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB' }]}>
+          <Pressable
+            style={styles.ingredientsHeader}
+            onPress={() => setShowIngredients(!showIngredients)}
+          >
+            <View style={styles.ingredientsHeaderLeft}>
+              <Ionicons name="cube-outline" size={18} color={COLORS.primary} />
+              <Text style={[styles.ingredientsHeaderText, { color: isDark ? '#FFFFFF' : COLORS.charcoal }]}>
+                Your Ingredients
+              </Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{selectedCount}</Text>
+              </View>
+            </View>
+            <Ionicons
+              name={showIngredients ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={isDark ? '#9CA3AF' : '#6B7280'}
+            />
+          </Pressable>
+
+          {showIngredients && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.ingredientsList}
+            >
+              {ingredients.map((item, index) => (
+                <Pressable
+                  key={index}
+                  style={[
+                    styles.ingredientChip,
+                    item.selected
+                      ? styles.ingredientChipSelected
+                      : [styles.ingredientChipUnselected, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF' }],
+                  ]}
+                  onPress={() => toggleIngredient(index)}
+                >
+                  <Text style={styles.ingredientEmoji}>{item.emoji}</Text>
+                  <View style={styles.ingredientChipText}>
+                    <Text
+                      style={[
+                        styles.ingredientName,
+                        { color: item.selected ? '#FFFFFF' : (isDark ? '#E5E7EB' : COLORS.charcoal) },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.ingredientQuantity,
+                        { color: item.selected ? 'rgba(255,255,255,0.8)' : '#9CA3AF' },
+                      ]}
+                    >
+                      {item.quantity}
+                    </Text>
+                  </View>
+                  {item.selected && (
+                    <View style={styles.checkIcon}>
+                      <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                    </View>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
 
       {/* Messages */}
       <ScrollView
         ref={scrollViewRef}
         style={styles.messagesContainer}
-        contentContainerStyle={[
-          styles.messagesContent,
-          { paddingBottom: inputAreaSpacing },
-        ]}
+        contentContainerStyle={styles.messagesContent}
         showsVerticalScrollIndicator={false}
       >
         {messages.map(renderMessage)}
@@ -306,7 +426,6 @@ export default function AiChefScreen() {
           </View>
         )}
 
-        {/* Suggestion Chips */}
         {messages.length === 1 && (
           <View style={styles.suggestionsContainer}>
             <Text style={styles.suggestionsLabel}>Try asking:</Text>
@@ -317,7 +436,6 @@ export default function AiChefScreen() {
                   style={styles.suggestionChip}
                   onPress={() => {
                     setInputText(suggestion);
-                    handleSend();
                   }}
                 >
                   <Text style={styles.suggestionText}>{suggestion}</Text>
@@ -331,13 +449,13 @@ export default function AiChefScreen() {
       {/* Input Area */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={safeKeyboardOffset}
+        keyboardVerticalOffset={0}
       >
         <View
           style={[
             styles.inputContainer,
             {
-              marginBottom: isKeyboardVisible ? 0 : inputLift,
+              paddingBottom: isKeyboardVisible ? 12 : insets.bottom + 12,
               backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
               borderTopColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB',
             },
@@ -369,8 +487,7 @@ export default function AiChefScreen() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
-    </TabScreenTransition>
+    </View>
   );
 }
 
@@ -379,15 +496,34 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.05)',
   },
-  headerLeft: {
+  handleContainer: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  handle: {
+    width: 36,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(156,163,175,0.4)',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerCenter: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -401,22 +537,92 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 20,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    fontSize: 18,
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   headerSubtitle: {
     fontSize: 13,
     fontFamily: 'NotoSans_500Medium',
     color: '#64748B',
-    marginTop: 2,
+    marginTop: 1,
   },
-  refreshButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  // Ingredients Section
+  ingredientsSection: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  ingredientsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  ingredientsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ingredientsHeaderText: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  countBadge: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  countBadgeText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#FFFFFF',
+  },
+  ingredientsList: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  ingredientChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    gap: 8,
+    marginRight: 8,
+  },
+  ingredientChipSelected: {
+    backgroundColor: COLORS.olive,
+  },
+  ingredientChipUnselected: {
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  ingredientEmoji: {
+    fontSize: 18,
+  },
+  ingredientChipText: {
+    gap: 1,
+  },
+  ingredientName: {
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    maxWidth: 80,
+  },
+  ingredientQuantity: {
+    fontSize: 11,
+    fontFamily: 'NotoSans_500Medium',
+  },
+  checkIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
+  // Messages
   messagesContainer: {
     flex: 1,
   },
@@ -564,7 +770,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 12,
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
   },
   input: {

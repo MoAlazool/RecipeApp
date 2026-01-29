@@ -253,22 +253,29 @@ export default function SuggestedRecipeDetailScreen() {
               <View style={styles.ingredientGroupHeader}>
                 <View style={[styles.statusDot, { backgroundColor: COLORS.olive }]} />
                 <Text style={[styles.ingredientGroupTitle, { color: isDark ? '#FFFFFF' : COLORS.charcoal }]}>
-                  You Have ({inStockIngredients.length})
+                  {`You Have (${inStockIngredients.length})`}
                 </Text>
               </View>
               {fullRecipe.ingredients
-                .filter((ing) => inStockIngredients.includes(ing.name))
-                .map((ingredient, index) => (
-                  <View key={`have-${index}`} style={styles.ingredientItem}>
-                    <View style={[styles.ingredientDot, { backgroundColor: COLORS.olive }]} />
-                    <Text style={[styles.ingredientText, { color: isDark ? '#D1D5DB' : '#1F2937' }]}>
-                      {ingredient.amount ? `${ingredient.amount} ` : ''}
-                      {ingredient.unit ? `${ingredient.unit} ` : ''}
-                      {ingredient.name}
-                    </Text>
-                    <Ionicons name="checkmark-circle" size={20} color={COLORS.olive} />
-                  </View>
-                ))}
+                .filter((ing) => {
+                  const name = typeof ing === 'string' ? ing : ing.name;
+                  return name && inStockIngredients.includes(name);
+                })
+                .map((ingredient, index) => {
+                  const isString = typeof ingredient === 'string';
+                  const name = isString ? ingredient : (ingredient.name || '');
+                  const amount = isString ? '' : (ingredient.amount ? String(ingredient.amount) : '');
+                  const unit = isString ? '' : (ingredient.unit || '');
+                  return (
+                    <View key={`have-${index}`} style={styles.ingredientItem}>
+                      <View style={[styles.ingredientDot, { backgroundColor: COLORS.olive }]} />
+                      <Text style={[styles.ingredientText, { color: isDark ? '#D1D5DB' : '#1F2937' }]}>
+                        {amount ? `${amount} ` : ''}{unit ? `${unit} ` : ''}{name}
+                      </Text>
+                      <Ionicons name="checkmark-circle" size={20} color={COLORS.olive} />
+                    </View>
+                  );
+                })}
             </View>
           )}
 
@@ -278,22 +285,29 @@ export default function SuggestedRecipeDetailScreen() {
               <View style={styles.ingredientGroupHeader}>
                 <View style={[styles.statusDot, { backgroundColor: COLORS.primary }]} />
                 <Text style={[styles.ingredientGroupTitle, { color: isDark ? '#FFFFFF' : COLORS.charcoal }]}>
-                  Shopping List ({neededIngredients.length})
+                  {`Shopping List (${neededIngredients.length})`}
                 </Text>
               </View>
               {fullRecipe.ingredients
-                .filter((ing) => neededIngredients.includes(ing.name))
-                .map((ingredient, index) => (
-                  <View key={`need-${index}`} style={styles.ingredientItem}>
-                    <View style={[styles.ingredientDot, { backgroundColor: COLORS.primary }]} />
-                    <Text style={[styles.ingredientText, { color: isDark ? '#D1D5DB' : '#1F2937' }]}>
-                      {ingredient.amount ? `${ingredient.amount} ` : ''}
-                      {ingredient.unit ? `${ingredient.unit} ` : ''}
-                      {ingredient.name}
-                    </Text>
-                    <Ionicons name="cart-outline" size={20} color={COLORS.primary} />
-                  </View>
-                ))}
+                .filter((ing) => {
+                  const name = typeof ing === 'string' ? ing : ing.name;
+                  return name && neededIngredients.includes(name);
+                })
+                .map((ingredient, index) => {
+                  const isString = typeof ingredient === 'string';
+                  const name = isString ? ingredient : (ingredient.name || '');
+                  const amount = isString ? '' : (ingredient.amount ? String(ingredient.amount) : '');
+                  const unit = isString ? '' : (ingredient.unit || '');
+                  return (
+                    <View key={`need-${index}`} style={styles.ingredientItem}>
+                      <View style={[styles.ingredientDot, { backgroundColor: COLORS.primary }]} />
+                      <Text style={[styles.ingredientText, { color: isDark ? '#D1D5DB' : '#1F2937' }]}>
+                        {amount ? `${amount} ` : ''}{unit ? `${unit} ` : ''}{name}
+                      </Text>
+                      <Ionicons name="cart-outline" size={20} color={COLORS.primary} />
+                    </View>
+                  );
+                })}
             </View>
           )}
         </View>

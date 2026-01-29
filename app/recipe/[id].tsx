@@ -24,6 +24,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { useShoppingStore } from '@/stores/shoppingStore';
+import { useAuthStore } from '@/stores/authStore';
 import { ServingAdjuster } from '@/components/recipe/ServingAdjuster';
 import { IngredientList } from '@/components/recipe/IngredientList';
 import { StepList } from '@/components/recipe/StepList';
@@ -35,13 +36,18 @@ export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { getRecipe, updateRecipe, deleteRecipe, toggleFavorite } = useRecipeStore();
+  const { getRecipe, updateRecipe, deleteRecipe, toggleFavorite, saveRecipeToMyList } = useRecipeStore();
   const { addItemsFromRecipe } = useShoppingStore();
+  const { user } = useAuthStore();
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'ingredients' | 'steps'>('ingredients');
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Check if the current user owns this recipe
+  const isOwner = recipe?.user_id === user?.id;
 
   const scrollY = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler({
@@ -135,19 +141,74 @@ export default function RecipeDetailScreen() {
     setRecipe({ ...recipe, is_favorite: !recipe.is_favorite });
   };
 
+  const handleSaveToMyList = async () => {
+    if (!recipe || isSaving) return;
+
+    setIsSaving(true);
+    try {
+      const savedRecipe = await saveRecipeToMyList(recipe);
+      Alert.alert(
+        'Recipe Saved!',
+        `"${recipe.title}" has been added to your recipes.`,
+        [
+          {
+            text: 'View My Recipe',
+            onPress: () => router.replace(`/recipe/${savedRecipe.id}` as any),
+          },
+          { text: 'Stay Here', style: 'cancel' },
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to save recipe');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleShare = async () => {
     if (!recipe) return;
-    try {
-      const message = recipe.source_url
-        ? `Check out this recipe: ${recipe.title}\n${recipe.source_url}`
-        : `Check out this recipe: ${recipe.title}`;
-      await Share.share({
-        message,
-        title: recipe.title,
-      });
-    } catch (error) {
-      // User cancelled or error
-    }
+
+    Alert.alert(
+      'Share Recipe',
+      'How would you like to share this recipe?',
+      [
+        {
+          text: 'Send to Friend',
+          onPress: () => handleShareToFriend(),
+        },
+        {
+          text: 'Share Link',
+          onPress: async () => {
+            try {
+              const message = recipe.source_url
+                ? `Check out this recipe: ${recipe.title}\n${recipe.source_url}`
+                : `Check out this recipe: ${recipe.title}`;
+              await Share.share({
+                message,
+                title: recipe.title,
+              });
+            } catch (error) {
+              // User cancelled or error
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleShareToFriend = () => {
+    if (!recipe) return;
+    router.push({
+      pathname: '/share-recipe' as any,
+      params: {
+        recipeId: recipe.id,
+        recipeTitle: recipe.title,
+        recipeThumbnail: recipe.thumbnail_url || '',
+        recipeTime: recipe.total_time_minutes?.toString() || '',
+        recipeDifficulty: recipe.difficulty || '',
+      },
+    });
   };
 
 
@@ -249,14 +310,30 @@ export default function RecipeDetailScreen() {
                 <Ionicons name="share-outline" size={20} color="#FFF" />
               </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={handleDelete}
-                activeOpacity={0.8}
-                style={styles.glassButtonCircular}
-              >
-                <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />
-                <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
-              </TouchableOpacity>
+              {isOwner ? (
+                <TouchableOpacity
+                  onPress={handleDelete}
+                  activeOpacity={0.8}
+                  style={styles.glassButtonCircular}
+                >
+                  <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />
+                  <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={handleSaveToMyList}
+                  activeOpacity={0.8}
+                  style={styles.glassButtonCircular}
+                  disabled={isSaving}
+                >
+                  <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />
+                  <Ionicons
+                    name={isSaving ? "hourglass-outline" : "bookmark-outline"}
+                    size={20}
+                    color="#22C55E"
+                  />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -379,25 +456,59 @@ export default function RecipeDetailScreen() {
 
       {/* Floating Footer */}
       <View style={styles.footerContainer}>
-        <TouchableOpacity
-          style={styles.startCookingButton}
-          onPress={() => router.push(`/cooking/${recipe.id}`)}
-          activeOpacity={0.9}
-        >
-          <View style={styles.startCookingIcon}>
-            <Ionicons name="restaurant" size={20} color="#FFFFFF" />
-          </View>
-          <Text style={styles.startCookingText}>Start Cooking</Text>
-          <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
+        {!isOwner ? (
+          // Show Save button for shared recipes
+          <>
+            <TouchableOpacity
+              style={styles.saveToMyListButton}
+              onPress={handleSaveToMyList}
+              activeOpacity={0.9}
+              disabled={isSaving}
+            >
+              <View style={styles.saveToMyListIcon}>
+                <Ionicons
+                  name={isSaving ? "hourglass-outline" : "bookmark"}
+                  size={20}
+                  color="#FFFFFF"
+                />
+              </View>
+              <Text style={styles.saveToMyListText}>
+                {isSaving ? 'Saving...' : 'Save to My Recipes'}
+              </Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.addToListButton}
-          onPress={handleAddToShoppingList}
-          activeOpacity={0.9}
-        >
-          <Ionicons name="cart-outline" size={22} color="#F2330D" />
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.startCookingButtonSmall}
+              onPress={() => router.push(`/cooking/${recipe.id}`)}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="restaurant" size={22} color="#F2330D" />
+            </TouchableOpacity>
+          </>
+        ) : (
+          // Show normal footer for owned recipes
+          <>
+            <TouchableOpacity
+              style={styles.startCookingButton}
+              onPress={() => router.push(`/cooking/${recipe.id}`)}
+              activeOpacity={0.9}
+            >
+              <View style={styles.startCookingIcon}>
+                <Ionicons name="restaurant" size={20} color="#FFFFFF" />
+              </View>
+              <Text style={styles.startCookingText}>Start Cooking</Text>
+              <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.addToListButton}
+              onPress={handleAddToShoppingList}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="cart-outline" size={22} color="#F2330D" />
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </View>
   );
@@ -689,6 +800,48 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   addToListButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF1EF',
+    shadowColor: '#F2330D',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  saveToMyListButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#22C55E',
+    borderRadius: 28,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    gap: 10,
+    shadowColor: '#22C55E',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  saveToMyListIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveToMyListText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 18,
+    color: '#FFFFFF',
+  },
+  startCookingButtonSmall: {
     width: 56,
     height: 56,
     borderRadius: 28,

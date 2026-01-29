@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { firebaseService } from '@/services/firebase.service';
 import { useRecipeStore } from './recipeStore';
 import { useShoppingStore } from './shoppingStore';
+import { useMessagingStore } from './messagingStore';
 import type { User } from '@/utils/types';
 
 interface AuthState {
@@ -57,6 +58,7 @@ export const useAuthStore = create<AuthState>()(
           // Clear old data before signing in new user
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
+          useMessagingStore.getState().clearAll();
 
           const { user } = await firebaseService.signIn(email, password);
 
@@ -88,6 +90,7 @@ export const useAuthStore = create<AuthState>()(
           // Clear old data before signing up new user
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
+          useMessagingStore.getState().clearAll();
 
           const { user, session } = await firebaseService.signUp(email, password);
 
@@ -132,6 +135,7 @@ export const useAuthStore = create<AuthState>()(
           // Clear old data before signing in new user
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
+          useMessagingStore.getState().clearAll();
 
           const { user } = await firebaseService.signInWithGoogle();
 
@@ -175,6 +179,7 @@ export const useAuthStore = create<AuthState>()(
           // Clear all app data
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
+          useMessagingStore.getState().clearAll();
 
           set({
             user: null,

@@ -76,9 +76,22 @@ class PantryService {
         }
       }
 
+      // Upload scan image to Firebase Storage if provided
+      let uploadedImageUrl: string | undefined;
+      if (scanImageUrl && !scanImageUrl.startsWith('http')) {
+        // It's a local file URI, upload it to Firebase Storage
+        try {
+          uploadedImageUrl = await firebaseService.uploadFridgeScanImage(scanImageUrl);
+        } catch (uploadError) {
+          console.warn('Failed to upload scan image, saving without image:', uploadError);
+        }
+      } else {
+        uploadedImageUrl = scanImageUrl;
+      }
+
       // Also save the scan record for history
       await firebaseService.saveFridgeScan({
-        image_url: scanImageUrl,
+        image_url: uploadedImageUrl,
         ingredients: detectedIngredients,
         total_items: detectedIngredients.length,
       });

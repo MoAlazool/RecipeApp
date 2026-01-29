@@ -171,6 +171,84 @@ export default function RootLayout() {
                 presentation: 'modal'
               }}
             />
+            <Stack.Screen
+              name="chat/[userId]"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="find-users"
+              options={{
+                headerShown: false,
+                presentation: 'modal'
+              }}
+            />
+            <Stack.Screen
+              name="profile/[userId]"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="share-recipe"
+              options={{
+                headerShown: false,
+                presentation: 'modal'
+              }}
+            />
+            <Stack.Screen
+              name="setup-username"
+              options={{
+                headerShown: false,
+                presentation: 'modal'
+              }}
+            />
+            <Stack.Screen
+              name="create-group"
+              options={{
+                headerShown: false,
+                presentation: 'modal'
+              }}
+            />
+            <Stack.Screen
+              name="group-settings/[groupId]"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="edit-profile"
+              options={{
+                headerShown: false,
+                presentation: 'modal'
+              }}
+            />
+            <Stack.Screen
+              name="followers"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="following"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="blocked-users"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="ai-chef-chat"
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
           </Stack>
         </ThemeProvider>
       </BottomSheetModalProvider>

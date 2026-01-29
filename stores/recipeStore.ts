@@ -18,6 +18,7 @@ interface RecipeState {
   updateRecipe: (id: string, updates: Partial<Recipe>) => Promise<void>;
   deleteRecipe: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
+  saveRecipeToMyList: (recipe: Recipe) => Promise<Recipe>;
   setCurrentRecipe: (recipe: Recipe | null) => void;
   clearError: () => void;
   clearAll: () => void;
@@ -97,6 +98,11 @@ export const useRecipeStore = create<RecipeState>()(
                 thumbnailUrl = getYouTubeThumbnail(ytVideoId, 'high');
               }
             }
+          }
+
+          // Use image_url from extracted recipe as final fallback (e.g., from website scraping)
+          if (!thumbnailUrl && extractedRecipe.image_url) {
+            thumbnailUrl = extractedRecipe.image_url;
           }
 
           // Map ExtractedRecipe to database schema
@@ -194,6 +200,55 @@ export const useRecipeStore = create<RecipeState>()(
         const recipe = get().recipes.find((r) => r.id === id);
         if (recipe) {
           await get().updateRecipe(id, { is_favorite: !recipe.is_favorite });
+        }
+      },
+
+      saveRecipeToMyList: async (recipe: Recipe) => {
+        try {
+          set({ isLoading: true, error: null });
+
+          // Create a copy of the recipe without the id and user_id
+          // The firebaseService.createRecipe will assign the new user_id
+          const recipeCopy: Partial<Recipe> = {
+            title: recipe.title,
+            description: recipe.description,
+            cuisine_type: recipe.cuisine_type,
+            difficulty: recipe.difficulty,
+            prep_time_minutes: recipe.prep_time_minutes,
+            cook_time_minutes: recipe.cook_time_minutes,
+            total_time_minutes: recipe.total_time_minutes,
+            active_time_minutes: recipe.active_time_minutes,
+            original_servings: recipe.original_servings,
+            current_servings: recipe.current_servings,
+            ingredients: recipe.ingredients,
+            steps: recipe.steps,
+            source_url: recipe.source_url,
+            source_type: recipe.source_type,
+            thumbnail_url: recipe.thumbnail_url,
+            video_id: recipe.video_id,
+            calories: recipe.calories,
+            protein_g: recipe.protein_g,
+            carbs_g: recipe.carbs_g,
+            fat_g: recipe.fat_g,
+            // Reset these for the new copy
+            is_favorite: false,
+            times_cooked: 0,
+          };
+
+          const savedRecipe = await firebaseService.createRecipe(recipeCopy);
+
+          set((state) => ({
+            recipes: [savedRecipe, ...state.recipes],
+            isLoading: false,
+          }));
+
+          return savedRecipe;
+        } catch (error: any) {
+          set({
+            error: error.message || 'Failed to save recipe',
+            isLoading: false,
+          });
+          throw error;
         }
       },
 

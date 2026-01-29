@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { useMessagingStore } from '@/stores/messagingStore';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -25,15 +26,16 @@ const BAR_HEIGHT = 74;
 const BAR_MARGIN = 16;
 const BAR_RADIUS = 37;
 
-// Tab configuration (4 items - no add button)
+// Tab configuration (5 items - includes messages)
 const TAB_CONFIG: Record<string, { label: string; icon: IconName; iconActive: IconName }> = {
   index: { label: 'Recipes', icon: 'book-outline', iconActive: 'book' },
   'ai-chef': { label: 'AI Chef', icon: 'sparkles-outline', iconActive: 'sparkles' },
+  messages: { label: 'Messages', icon: 'chatbubble-outline', iconActive: 'chatbubble' },
   shopping: { label: 'Shopping', icon: 'cart-outline', iconActive: 'cart' },
   profile: { label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 };
 
-const TAB_ORDER = ['index', 'ai-chef', 'shopping', 'profile'];
+const TAB_ORDER = ['index', 'ai-chef', 'messages', 'shopping', 'profile'];
 
 interface FloatingTabBarProps extends BottomTabBarProps {
   primaryColor?: string;
@@ -103,6 +105,7 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
   primaryColor = '#E6482E',
 }) => {
   const insets = useSafeAreaInsets();
+  const unreadCount = useMessagingStore((state) => state.unreadCount);
   const [containerWidth, setContainerWidth] = React.useState(0);
   const contentPadding = 8;
   const activeRouteName = state.routes[state.index]?.name;
@@ -218,6 +221,13 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
                       size={24}
                       color={isActive ? primaryColor : 'rgba(60,60,67,0.5)'}
                     />
+                    {routeName === 'messages' && unreadCount > 0 && (
+                      <View style={[styles.badge, { backgroundColor: primaryColor }]}>
+                        <Text style={styles.badgeText}>
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </Text>
+                      </View>
+                    )}
                   </Animated.View>
                   <Animated.Text
                     style={[
@@ -339,6 +349,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     marginTop: 2,
+  },
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
   },
 });
 

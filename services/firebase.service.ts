@@ -30,6 +30,16 @@ import {
   Timestamp,
   QueryDocumentSnapshot
 } from 'firebase/firestore';
+import {
+  getStorage,
+  FirebaseStorage,
+  ref,
+  uploadBytes,
+  uploadString,
+  getDownloadURL,
+  deleteObject,
+  listAll,
+} from 'firebase/storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
@@ -50,6 +60,7 @@ class FirebaseService {
   private app: FirebaseApp;
   private auth: Auth;
   private db: Firestore;
+  private storage: FirebaseStorage;
 
   constructor() {
     WebBrowser.maybeCompleteAuthSession();
@@ -68,6 +79,9 @@ class FirebaseService {
 
     // Initialize Firestore
     this.db = getFirestore(this.app);
+
+    // Initialize Storage
+    this.storage = getStorage(this.app);
   }
 
   // ============================================
@@ -778,6 +792,212 @@ class FirebaseService {
       await setDoc(docRef, pantry, { merge: true });
     } catch (error) {
       this.handleFirebaseError(error);
+    }
+  }
+
+  // ============================================
+  // FIREBASE STORAGE
+  // ============================================
+
+  /**
+   * Upload a profile avatar image
+   * @param userId - User ID
+   * @param imageUri - Local image URI or base64 data
+   * @returns Download URL of the uploaded image
+   */
+  async uploadAvatar(userId: string, imageUri: string): Promise<string> {
+    try {
+      const fileName = `avatars/${userId}/avatar_${Date.now()}.jpg`;
+      const storageRef = ref(this.storage, fileName);
+
+      // Convert image to blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      // Upload the blob
+      await uploadBytes(storageRef, blob, {
+        contentType: 'image/jpeg',
+      });
+
+      // Get download URL
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      // Update user profile with new avatar URL
+      await this.updateProfile(userId, { avatar_url: downloadUrl });
+
+      return downloadUrl;
+    } catch (error) {
+      console.error('Failed to upload avatar:', error);
+      this.handleFirebaseError(error);
+    }
+  }
+
+  /**
+   * Upload a fridge scan photo
+   * @param imageUri - Local image URI
+   * @param scanId - Optional scan ID to associate with
+   * @returns Download URL of the uploaded image
+   */
+  async uploadFridgeScanImage(imageUri: string, scanId?: string): Promise<string> {
+    try {
+      const session = await this.getSession();
+      if (!session?.user) throw new Error('Not authenticated');
+
+      const fileName = `fridge_scans/${session.user.id}/${scanId || 'scan'}_${Date.now()}.jpg`;
+      const storageRef = ref(this.storage, fileName);
+
+      // Convert image to blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      // Upload the blob
+      await uploadBytes(storageRef, blob, {
+        contentType: 'image/jpeg',
+      });
+
+      // Get download URL
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      return downloadUrl;
+    } catch (error) {
+      console.error('Failed to upload fridge scan image:', error);
+      this.handleFirebaseError(error);
+    }
+  }
+
+  /**
+   * Upload a recipe thumbnail/image
+   * @param imageUri - Local image URI
+   * @param recipeId - Recipe ID to associate with
+   * @returns Download URL of the uploaded image
+   */
+  async uploadRecipeImage(imageUri: string, recipeId: string): Promise<string> {
+    try {
+      const session = await this.getSession();
+      if (!session?.user) throw new Error('Not authenticated');
+
+      const fileName = `recipes/${session.user.id}/${recipeId}_${Date.now()}.jpg`;
+      const storageRef = ref(this.storage, fileName);
+
+      // Convert image to blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      // Upload the blob
+      await uploadBytes(storageRef, blob, {
+        contentType: 'image/jpeg',
+      });
+
+      // Get download URL
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      return downloadUrl;
+    } catch (error) {
+      console.error('Failed to upload recipe image:', error);
+      this.handleFirebaseError(error);
+    }
+  }
+
+  /**
+   * Upload an image from base64 data
+   * @param base64Data - Base64 encoded image data (without data:image prefix)
+   * @param path - Storage path (e.g., 'avatars/userId/avatar.jpg')
+   * @param contentType - Image content type (default: 'image/jpeg')
+   * @returns Download URL of the uploaded image
+   */
+  async uploadBase64Image(
+    base64Data: string,
+    path: string,
+    contentType: string = 'image/jpeg'
+  ): Promise<string> {
+    try {
+      const storageRef = ref(this.storage, path);
+
+      // Upload base64 string
+      await uploadString(storageRef, base64Data, 'base64', {
+        contentType,
+      });
+
+      // Get download URL
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      return downloadUrl;
+    } catch (error) {
+      console.error('Failed to upload base64 image:', error);
+      this.handleFirebaseError(error);
+    }
+  }
+
+  /**
+   * Delete an image from storage
+   * @param imageUrl - The full download URL or storage path of the image
+   */
+  async deleteImage(imageUrl: string): Promise<void> {
+    try {
+      // If it's a full URL, extract the path
+      let storagePath = imageUrl;
+      if (imageUrl.includes('firebasestorage.googleapis.com')) {
+        // Extract path from URL
+        const url = new URL(imageUrl);
+        const pathMatch = url.pathname.match(/\/o\/(.+?)(\?|$)/);
+        if (pathMatch) {
+          storagePath = decodeURIComponent(pathMatch[1]);
+        }
+      }
+
+      const storageRef = ref(this.storage, storagePath);
+      await deleteObject(storageRef);
+    } catch (error: any) {
+      // Ignore 'object-not-found' errors
+      if (error.code !== 'storage/object-not-found') {
+        console.error('Failed to delete image:', error);
+      }
+    }
+  }
+
+  /**
+   * Delete all images in a folder (e.g., when deleting a user's data)
+   * @param folderPath - The storage folder path
+   */
+  async deleteFolder(folderPath: string): Promise<void> {
+    try {
+      const folderRef = ref(this.storage, folderPath);
+      const listResult = await listAll(folderRef);
+
+      // Delete all files in the folder
+      const deletePromises = listResult.items.map((itemRef) =>
+        deleteObject(itemRef).catch(() => {})
+      );
+
+      // Recursively delete subfolders
+      const subfolderPromises = listResult.prefixes.map((prefixRef) =>
+        this.deleteFolder(prefixRef.fullPath)
+      );
+
+      await Promise.all([...deletePromises, ...subfolderPromises]);
+    } catch (error: any) {
+      // Ignore errors for non-existent folders
+      if (error.code !== 'storage/object-not-found') {
+        console.error('Failed to delete folder:', error);
+      }
+    }
+  }
+
+  /**
+   * Get a signed download URL for an image (useful for private images)
+   * @param path - Storage path
+   * @returns Download URL
+   */
+  async getImageUrl(path: string): Promise<string | null> {
+    try {
+      const storageRef = ref(this.storage, path);
+      return await getDownloadURL(storageRef);
+    } catch (error: any) {
+      if (error.code === 'storage/object-not-found') {
+        return null;
+      }
+      console.error('Failed to get image URL:', error);
+      return null;
     }
   }
 }

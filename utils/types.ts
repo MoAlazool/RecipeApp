@@ -8,7 +8,10 @@
 export interface User {
   id: string;
   email: string;
+  username?: string;
   full_name?: string;
+  avatar_url?: string;
+  bio?: string;
   cooking_style?: CookingStyle;
   dietary_restrictions?: DietaryRestriction[];
   default_servings: number;
@@ -91,7 +94,7 @@ export interface Recipe {
   updated_at: string;
 }
 
-export type RecipeSourceType = 'youtube' | 'manual' | 'fridge_scan' | 'tiktok' | 'instagram';
+export type RecipeSourceType = 'youtube' | 'manual' | 'fridge_scan' | 'tiktok' | 'instagram' | 'website';
 
 export type RecipeDifficulty = 'beginner' | 'intermediate' | 'advanced';
 
@@ -404,6 +407,104 @@ export interface RecipeFilterOptions {
 export interface RecipeSortOption {
   field: 'created_at' | 'last_cooked_at' | 'times_cooked' | 'user_rating' | 'total_time_minutes';
   order: 'asc' | 'desc';
+}
+
+// ============================================
+// MESSAGING TYPES
+// ============================================
+export interface Conversation {
+  id: string;
+  participants: string[];
+  participant_details: ConversationParticipant[];
+  last_message?: string;
+  last_message_at?: string;
+  last_message_sender_id?: string;
+  // Group chat fields
+  is_group: boolean;
+  group_name?: string;
+  group_avatar_url?: string;
+  group_description?: string;
+  admin_ids?: string[];
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationParticipant {
+  user_id: string;
+  username?: string;
+  full_name?: string;
+  avatar_url?: string;
+  unread_count: number;
+  last_read_at?: string;
+  joined_at?: string;
+  role?: 'admin' | 'member';
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  message_type: MessageType;
+  recipe_id?: string;
+  recipe_data?: SharedRecipeData;
+  reactions?: MessageReaction[];
+  read_by: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type MessageType = 'text' | 'recipe' | 'image' | 'system';
+
+export interface SharedRecipeData {
+  id: string;
+  title: string;
+  thumbnail_url?: string;
+  total_time_minutes?: number;
+  difficulty?: RecipeDifficulty;
+}
+
+export interface MessageReaction {
+  user_id: string;
+  emoji: string;
+  created_at: string;
+}
+
+// ============================================
+// SOCIAL TYPES
+// ============================================
+export interface UserProfile {
+  id: string;
+  email: string;
+  username?: string;
+  full_name?: string;
+  avatar_url?: string;
+  bio?: string;
+  is_public: boolean;
+  followers_count: number;
+  following_count: number;
+  recipes_count: number;
+  is_online?: boolean;
+  last_seen_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Follow {
+  id: string;
+  follower_id: string;
+  following_id: string;
+  created_at: string;
+}
+
+export interface RecipeShare {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  recipe_id: string;
+  message_id?: string;
+  created_at: string;
 }
 
 // ============================================

@@ -2,6 +2,7 @@
 // SOCIAL SERVICE - Unified Platform Orchestrator
 // ============================================
 
+import axios from 'axios';
 import { tiktokService, TikTokVideoMetadata } from './tiktok.service';
 import { instagramService, InstagramVideoMetadata } from './instagram.service';
 import { youtubeService, isYouTubeUrl } from './youtube.service';
@@ -12,7 +13,7 @@ import type { ExtractedRecipe, RecipeSourceType } from '@/utils/types';
 // TYPES
 // ============================================
 
-export type SocialPlatform = 'youtube' | 'tiktok' | 'instagram' | 'unknown';
+export type SocialPlatform = 'youtube' | 'tiktok' | 'instagram' | 'website' | 'unknown';
 
 export interface SocialVideoMetadata {
   platform: SocialPlatform;
@@ -74,6 +75,11 @@ class SocialService {
       return 'instagram';
     }
 
+    // Generic website URL (any http/https URL not matching a known platform)
+    if (/^https?:\/\//i.test(trimmedUrl)) {
+      return 'website';
+    }
+
     return 'unknown';
   }
 
@@ -92,6 +98,7 @@ class SocialService {
       youtube: 'YouTube',
       tiktok: 'TikTok',
       instagram: 'Instagram',
+      website: 'Website',
       unknown: 'Unknown',
     };
     return names[platform];
@@ -104,6 +111,7 @@ class SocialService {
     if (platform === 'youtube') return 'youtube';
     if (platform === 'tiktok') return 'tiktok';
     if (platform === 'instagram') return 'instagram';
+    if (platform === 'website') return 'website';
     return 'manual';
   }
 
@@ -208,7 +216,7 @@ class SocialService {
     if (platform === 'unknown') {
       return {
         success: false,
-        error: 'Unsupported URL. Please use a YouTube, TikTok, or Instagram link.',
+        error: 'Unsupported URL. Please use a YouTube, TikTok, Instagram, or website link.',
       };
     }
 
@@ -227,6 +235,11 @@ class SocialService {
         return await this.extractFromSocialMedia(url, platform, updateProgress);
       }
 
+      // Website uses scraping + JSON-LD extraction
+      if (platform === 'website') {
+        return await this.extractFromWebsite(url, updateProgress);
+      }
+
       return {
         success: false,
         error: 'Platform not supported',
@@ -241,7 +254,8 @@ class SocialService {
   }
 
   /**
-   * Extract recipe from YouTube using transcript
+   * Extract recipe from YouTube
+   * Priority: 1) Description  2) AI Vision  3) Transcript (last resort)
    */
   private async extractFromYouTube(
     url: string,
@@ -254,34 +268,124 @@ class SocialService {
       return { success: false, error: 'Invalid YouTube URL' };
     }
 
-    updateProgress('Fetching transcript...', 25);
+    const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+    let description: string | undefined;
+    let title: string | undefined;
 
-    const transcriptResult = await youtubeService.getTranscript(url);
+    // Get video info (description + title) from transcript API
+    updateProgress('Fetching video info...', 15);
+    const videoInfo = await youtubeService.getVideoDescription(videoId);
+    description = videoInfo.description || undefined;
+    title = videoInfo.title || undefined;
 
-    if (!transcriptResult.success || !transcriptResult.transcript) {
-      return {
-        success: false,
-        error: transcriptResult.error || 'Could not get transcript',
-        needsManualInput: true,
-      };
+    const metadata: SocialVideoMetadata = {
+      platform: 'youtube',
+      videoId,
+      title,
+      thumbnailUrl,
+    };
+
+    // ========== Strategy 1: Description (FIRST PRIORITY) ==========
+    if (description) {
+      updateProgress('Analyzing recipe from description...', 30);
+
+      try {
+        const recipe = await aiService.extractRecipeFromDescription(description, []);
+
+        if (recipe && recipe.title && recipe.ingredients && recipe.ingredients.length > 0) {
+          updateProgress('Finalizing...', 90);
+
+          return {
+            success: true,
+            recipe,
+            metadata: { ...metadata, description },
+            extractionMethod: 'description',
+          };
+        }
+      } catch {
+        // Continue to next strategy
+      }
     }
 
-    updateProgress('Analyzing recipe...', 50);
+    // ========== Strategy 2: AI Vision (analyze thumbnail) ==========
+    updateProgress('Analyzing video thumbnail with AI...', 50);
 
-    const recipe = await aiService.extractRecipeFromTranscript(transcriptResult.transcript);
+    try {
+      const recipe = await aiService.extractRecipeFromVideoFrames([thumbnailUrl], metadata);
 
-    updateProgress('Finalizing...', 90);
+      if (recipe && recipe.title && recipe.ingredients && recipe.ingredients.length > 0) {
+        updateProgress('Finalizing...', 90);
 
+        return {
+          success: true,
+          recipe,
+          metadata,
+          extractionMethod: 'vision',
+        };
+      }
+    } catch {
+      // Continue to next strategy
+    }
+
+    // ========== Strategy 3: Transcript (LAST RESORT) ==========
+    updateProgress('Fetching transcript...', 70);
+
+    try {
+      const transcriptResult = await youtubeService.getTranscript(url);
+
+      // Update metadata if we got more info
+      if (transcriptResult.description && !description) {
+        description = transcriptResult.description;
+        metadata.description = description;
+      }
+      if (transcriptResult.metadata?.title && !title) {
+        metadata.title = transcriptResult.metadata.title;
+      }
+
+      if (transcriptResult.success && transcriptResult.transcript) {
+        updateProgress('Analyzing recipe from transcript...', 85);
+
+        const recipe = await aiService.extractRecipeFromTranscript(transcriptResult.transcript);
+
+        if (recipe && recipe.title && recipe.ingredients && recipe.ingredients.length > 0) {
+          updateProgress('Finalizing...', 90);
+
+          return {
+            success: true,
+            recipe,
+            metadata,
+            extractionMethod: 'transcript',
+          };
+        }
+      }
+
+      // If we got description from transcript API but haven't tried it yet
+      if (description && !videoInfo.description) {
+        updateProgress('Analyzing recipe from description...', 85);
+
+        const recipe = await aiService.extractRecipeFromDescription(description, []);
+
+        if (recipe && recipe.title && recipe.ingredients && recipe.ingredients.length > 0) {
+          updateProgress('Finalizing...', 90);
+
+          return {
+            success: true,
+            recipe,
+            metadata,
+            extractionMethod: 'description',
+          };
+        }
+      }
+    } catch {
+      // Continue to manual input
+    }
+
+    // All strategies failed - request manual input
     return {
-      success: true,
-      recipe,
-      metadata: {
-        platform: 'youtube',
-        videoId,
-        title: transcriptResult.metadata?.title,
-        thumbnailUrl: transcriptResult.metadata?.thumbnail,
-      },
-      extractionMethod: 'transcript',
+      success: false,
+      error: 'Could not extract recipe automatically',
+      metadata,
+      needsManualInput: true,
     };
   }
 
@@ -364,6 +468,182 @@ class SocialService {
         needsManualInput: true,
       };
     }
+  }
+
+  /**
+   * Extract recipe from a website URL using backend scraping
+   */
+  private async extractFromWebsite(
+    url: string,
+    updateProgress: (stage: string, progress: number) => void
+  ): Promise<ExtractionResult> {
+    updateProgress('Fetching webpage...', 10);
+
+    const metadata: SocialVideoMetadata = {
+      platform: 'website',
+      title: undefined,
+      thumbnailUrl: undefined,
+    };
+
+    const apiUrl = process.env.EXPO_PUBLIC_TRANSCRIPT_API_URL;
+
+    // The scrape endpoint only exists on self-hosted servers, not the Vercel fallback
+    if (!apiUrl) {
+      return {
+        success: false,
+        error: 'Website extraction requires a self-hosted transcript API. Please provide the recipe details manually.',
+        needsManualInput: true,
+      };
+    }
+
+    // Strip trailing /api/transcript if present to get base URL
+    const baseUrl = apiUrl.replace(/\/api\/transcript\/?$/, '');
+    const scrapeUrl = `${baseUrl}/api/scrape-recipe`;
+
+    let scrapeResult: any;
+    try {
+      const response = await axios.get(scrapeUrl, {
+        params: { url },
+        timeout: 20000,
+      });
+      scrapeResult = response.data;
+    } catch (error: any) {
+      console.error('Website scrape failed:', error);
+      console.error('Attempted URL:', scrapeUrl);
+
+      // Provide helpful error message
+      const isNetworkError = error.message?.includes('Network Error');
+      const errorMsg = isNetworkError
+        ? 'Could not connect to the recipe scraper. Make sure the transcript API server is running.'
+        : 'Could not fetch the webpage. Please check the URL and try again.';
+
+      return {
+        success: false,
+        error: errorMsg,
+        needsManualInput: true,
+      };
+    }
+
+    if (!scrapeResult?.success) {
+      return {
+        success: false,
+        error: scrapeResult?.error || 'Failed to scrape the webpage.',
+        needsManualInput: true,
+      };
+    }
+
+    // Update metadata with scraped info
+    metadata.title = scrapeResult.title || undefined;
+    metadata.thumbnailUrl = scrapeResult.image_url || undefined;
+
+    updateProgress('Analyzing recipe data...', 40);
+
+    // If JSON-LD recipe data was found, format it into text for AI extraction
+    if (scrapeResult.recipe_data) {
+      try {
+        const recipeText = this.formatJsonLdRecipe(scrapeResult.recipe_data);
+        const recipe = await aiService.extractRecipeFromDescription(recipeText, []);
+
+        if (recipe && recipe.title && recipe.ingredients && recipe.ingredients.length > 0) {
+          // Use image from JSON-LD or og:image
+          if (scrapeResult.image_url && !recipe.image_url) {
+            recipe.image_url = scrapeResult.image_url;
+          }
+          updateProgress('Finalizing...', 90);
+          return {
+            success: true,
+            recipe,
+            metadata,
+            extractionMethod: 'description',
+          };
+        }
+      } catch {
+        // Fall through to page text
+      }
+    }
+
+    // Fallback: use raw page text
+    if (scrapeResult.page_text) {
+      updateProgress('Extracting recipe from page content...', 60);
+
+      try {
+        const recipe = await aiService.extractRecipeFromDescription(scrapeResult.page_text, []);
+
+        if (recipe && recipe.title && recipe.ingredients && recipe.ingredients.length > 0) {
+          if (scrapeResult.image_url && !recipe.image_url) {
+            recipe.image_url = scrapeResult.image_url;
+          }
+          updateProgress('Finalizing...', 90);
+          return {
+            success: true,
+            recipe,
+            metadata,
+            extractionMethod: 'description',
+          };
+        }
+      } catch {
+        // Fall through to manual input
+      }
+    }
+
+    return {
+      success: false,
+      metadata,
+      error: 'Could not extract a recipe from this webpage. Please provide the recipe details manually.',
+      needsManualInput: true,
+    };
+  }
+
+  /**
+   * Format JSON-LD recipe structured data into readable text for AI extraction
+   */
+  private formatJsonLdRecipe(data: any): string {
+    const parts: string[] = [];
+
+    if (data.name) parts.push(`Recipe: ${data.name}`);
+    if (data.description) parts.push(`Description: ${data.description}`);
+    if (data.recipeYield) parts.push(`Servings: ${Array.isArray(data.recipeYield) ? data.recipeYield[0] : data.recipeYield}`);
+    if (data.prepTime) parts.push(`Prep Time: ${data.prepTime}`);
+    if (data.cookTime) parts.push(`Cook Time: ${data.cookTime}`);
+    if (data.totalTime) parts.push(`Total Time: ${data.totalTime}`);
+    if (data.recipeCategory) parts.push(`Category: ${data.recipeCategory}`);
+    if (data.recipeCuisine) parts.push(`Cuisine: ${data.recipeCuisine}`);
+
+    if (data.recipeIngredient && Array.isArray(data.recipeIngredient)) {
+      parts.push('\nIngredients:');
+      data.recipeIngredient.forEach((ing: string) => parts.push(`- ${ing}`));
+    }
+
+    if (data.recipeInstructions) {
+      parts.push('\nInstructions:');
+      if (Array.isArray(data.recipeInstructions)) {
+        data.recipeInstructions.forEach((step: any, i: number) => {
+          if (typeof step === 'string') {
+            parts.push(`${i + 1}. ${step}`);
+          } else if (step.text) {
+            parts.push(`${i + 1}. ${step.text}`);
+          } else if (step.itemListElement) {
+            // HowToSection
+            if (step.name) parts.push(`\n${step.name}:`);
+            step.itemListElement.forEach((sub: any, j: number) => {
+              parts.push(`${j + 1}. ${typeof sub === 'string' ? sub : sub.text || ''}`);
+            });
+          }
+        });
+      } else if (typeof data.recipeInstructions === 'string') {
+        parts.push(data.recipeInstructions);
+      }
+    }
+
+    if (data.nutrition) {
+      parts.push('\nNutrition:');
+      if (data.nutrition.calories) parts.push(`Calories: ${data.nutrition.calories}`);
+      if (data.nutrition.proteinContent) parts.push(`Protein: ${data.nutrition.proteinContent}`);
+      if (data.nutrition.carbohydrateContent) parts.push(`Carbs: ${data.nutrition.carbohydrateContent}`);
+      if (data.nutrition.fatContent) parts.push(`Fat: ${data.nutrition.fatContent}`);
+    }
+
+    return parts.join('\n');
   }
 
   /**

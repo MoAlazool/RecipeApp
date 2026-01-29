@@ -7,6 +7,7 @@ import axios from 'axios';
 interface YouTubeTranscriptResponse {
   success: boolean;
   transcript?: string;
+  description?: string;
   error?: string;
   metadata?: {
     title: string;
@@ -65,73 +66,70 @@ class YouTubeService {
   // GET TRANSCRIPT FROM YOUTUBE
   // ============================================
   async getTranscript(videoUrl: string): Promise<YouTubeTranscriptResponse> {
-    try {
-      const videoId = this.extractVideoId(videoUrl);
-      
-      if (!videoId) {
-        return {
-          success: false,
-          error: 'Invalid YouTube URL'
-        };
-      }
+    const videoId = this.extractVideoId(videoUrl);
 
-      // Option 1: Use youtube-transcript npm package (server-side)
-      // Option 2: Use external API service (more reliable for production)
-      
-      // Use self-hosted transcript API if provided, fallback to public endpoint
-      const transcriptApiUrl =
-        process.env.EXPO_PUBLIC_TRANSCRIPT_API_URL ||
-        'https://youtube-transcript-api.vercel.app/api/transcript';
-
-      const response = await axios.get(transcriptApiUrl, {
-        params: { videoId },
-        timeout: 30000 // 30 seconds
-      });
-
-      if (response.data && response.data.transcript) {
-        // Clean up transcript
-        const cleanTranscript = this.cleanTranscript(response.data.transcript);
-        
-        return {
-          success: true,
-          transcript: cleanTranscript,
-          metadata: {
-            title: response.data.title || '',
-            thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-            duration: response.data.duration || 0
-          }
-        };
-      }
-
+    if (!videoId) {
       return {
         success: false,
-        error: 'No transcript available for this video'
-      };
-      
-    } catch (error) {
-      console.error('Failed to get transcript:', error);
-      
-      if (axios.isAxiosError(error)) {
-        if (error.code === 'ECONNABORTED') {
-          return {
-            success: false,
-            error: 'Request timeout - video may be too long'
-          };
-        }
-        
-        if (error.response?.status === 404) {
-          return {
-            success: false,
-            error: 'Transcript not available for this video'
-          };
-        }
-      }
-      
-      return {
-        success: false,
-        error: 'Failed to extract transcript. Please try another video.'
+        error: 'Invalid YouTube URL'
       };
     }
+
+    // Try self-hosted API first, then fallback to public endpoint
+    const apiUrls = [
+      process.env.EXPO_PUBLIC_TRANSCRIPT_API_URL,
+      'https://youtube-transcript-api.vercel.app/api/transcript'
+    ].filter(Boolean) as string[];
+
+    let lastError: string | undefined;
+
+    for (const apiUrl of apiUrls) {
+      try {
+        const response = await axios.get(apiUrl, {
+          params: { videoId },
+          timeout: 30000
+        });
+
+        // Clean up transcript if available
+        const cleanTranscript = response.data.transcript
+          ? this.cleanTranscript(response.data.transcript)
+          : undefined;
+
+        // Return response with both transcript and description
+        if (cleanTranscript || response.data.description) {
+          return {
+            success: !!cleanTranscript,
+            transcript: cleanTranscript,
+            description: response.data.description || undefined,
+            error: cleanTranscript ? undefined : 'No transcript available for this video',
+            metadata: {
+              title: response.data.title || '',
+              thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+              duration: response.data.duration || 0
+            }
+          };
+        }
+
+        lastError = 'No transcript or description available';
+      } catch (error) {
+        // Silent fallback to next API
+        if (axios.isAxiosError(error)) {
+          if (error.code === 'ECONNABORTED') {
+            lastError = 'Request timeout';
+          } else if (error.response?.status === 404) {
+            lastError = 'Transcript not available';
+          } else {
+            lastError = 'API unavailable';
+          }
+        }
+        // Continue to next API URL
+      }
+    }
+
+    return {
+      success: false,
+      error: lastError || 'Could not fetch transcript'
+    };
   }
 
   // ============================================
@@ -174,17 +172,17 @@ class YouTubeService {
   // GET VIDEO METADATA (without transcript)
   // ============================================
   async getVideoMetadata(videoUrl: string): Promise<any> {
-    try {
-      const videoId = this.extractVideoId(videoUrl);
-      
-      if (!videoId) {
-        throw new Error('Invalid YouTube URL');
-      }
+    const videoId = this.extractVideoId(videoUrl);
 
-      // For production, use YouTube Data API
-      // For MVP, we can use oEmbed endpoint (no API key needed)
+    if (!videoId) {
+      return null;
+    }
+
+    try {
+      // Use oEmbed endpoint (no API key needed)
       const response = await axios.get(
-        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+        { timeout: 10000 }
       );
 
       return {
@@ -193,10 +191,12 @@ class YouTubeService {
         thumbnail: response.data.thumbnail_url,
         videoId
       };
-      
-    } catch (error) {
-      console.error('Failed to get video metadata:', error);
-      throw error;
+    } catch {
+      // Return basic metadata with thumbnail
+      return {
+        videoId,
+        thumbnail: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+      };
     }
   }
 
@@ -220,17 +220,59 @@ class YouTubeService {
   }
 
   // ============================================
-  // FALLBACK: Extract from Video Description
+  // Get Video Description
+  // Note: Direct scraping doesn't work from React Native (401/CORS)
+  // This requires the transcript API to be running
   // ============================================
-  async getVideoDescription(videoId: string): Promise<string | null> {
+  async getVideoDescription(videoId: string): Promise<{
+    description: string | null;
+    title: string | null;
+  }> {
+    // Try to get from transcript API (which can scrape server-side)
     try {
-      // This would require YouTube Data API
-      // For MVP, we skip this or use external service
-      return null;
-    } catch (error) {
-      console.error('Failed to get video description:', error);
-      return null;
+      const transcriptApiUrl =
+        process.env.EXPO_PUBLIC_TRANSCRIPT_API_URL ||
+        'https://youtube-transcript-api.vercel.app/api/transcript';
+
+      const response = await axios.get(transcriptApiUrl, {
+        params: { videoId },
+        timeout: 15000,
+      });
+
+      return {
+        description: response.data?.description || null,
+        title: response.data?.title || null,
+      };
+    } catch {
+      // Fallback to oEmbed for at least the title
+      try {
+        const oembedResponse = await axios.get(
+          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+          { timeout: 5000 }
+        );
+        return {
+          description: null,
+          title: oembedResponse.data?.title || null,
+        };
+      } catch {
+        return { description: null, title: null };
+      }
     }
+  }
+
+  // ============================================
+  // Helper: Decode HTML entities
+  // ============================================
+  private decodeHtmlEntities(text: string): string {
+    return text
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&#x27;/g, "'")
+      .replace(/&#x2F;/g, '/')
+      .replace(/&nbsp;/g, ' ');
   }
 }
 

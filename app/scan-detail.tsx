@@ -61,7 +61,20 @@ export default function ScanDetailScreen() {
   };
 
   const handleChatWithAI = () => {
-    router.push('/(tabs)/ai-chef');
+    if (!scan) return;
+
+    // Pass full ingredient details including quantities
+    const ingredientsWithQuantities = scan.ingredients.map((ing) => ({
+      name: ing.name,
+      quantity: ing.quantity_estimate || 'some',
+      emoji: getIngredientEmoji(ing.name),
+      category: ing.category,
+    }));
+
+    router.push({
+      pathname: '/ai-chef-chat',
+      params: { ingredients: JSON.stringify(ingredientsWithQuantities) },
+    });
   };
 
   if (loading) {

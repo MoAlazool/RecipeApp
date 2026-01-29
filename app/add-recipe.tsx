@@ -60,14 +60,27 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
       'You may need to add details manually',
     ],
   },
+  website: {
+    name: 'Website',
+    icon: 'globe-outline',
+    color: '#4A90D9',
+    bgColor: 'rgba(74, 144, 217, 0.12)',
+    placeholder: 'https://example.com/recipe/...',
+    tips: [
+      'Works best with recipe blogs and cooking websites',
+      'Sites with structured recipe data are ideal',
+      'You may need to add details for non-recipe pages',
+      'Public pages only — paywalled content won\'t work',
+    ],
+  },
   unknown: {
-    name: 'Video',
-    icon: 'videocam',
+    name: 'Link',
+    icon: 'link',
     color: '#9C5749',
     bgColor: 'rgba(156, 87, 73, 0.12)',
-    placeholder: 'Paste a video URL...',
+    placeholder: 'Paste a link...',
     tips: [
-      'Supported platforms: YouTube, TikTok, Instagram',
+      'Supported: YouTube, TikTok, Instagram, and recipe websites',
     ],
   },
 };
@@ -75,7 +88,7 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
 export default function AddRecipeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ platform?: string; mode?: string; url?: string; autoExtract?: string }>();
+  const params = useLocalSearchParams<{ platform?: string; mode?: string; url?: string; autoExtract?: string; shareFail?: string }>();
   const { addRecipe } = useRecipeStore();
 
   // Determine initial platform from URL params
@@ -83,6 +96,7 @@ export default function AddRecipeScreen() {
 
   const initialUrlParam = Array.isArray(params.url) ? params.url[0] : params.url;
   const shouldAutoExtract = params.autoExtract === '1' || params.autoExtract === 'true';
+  const shouldShowShareFail = params.shareFail === '1' || params.shareFail === 'true';
   const [url, setUrl] = useState(initialUrlParam ?? '');
   const [detectedPlatform, setDetectedPlatform] = useState<SocialPlatform>(initialPlatform);
   const [stage, setStage] = useState<ExtractionStage>('idle');
@@ -151,15 +165,20 @@ export default function AddRecipeScreen() {
   }, [stage]);
 
   const handleExtract = async (inputUrl?: string) => {
-    const urlToProcess = (inputUrl ?? url).trim();
+    const urlValue = inputUrl ?? url ?? '';
+    if (typeof urlValue !== 'string') {
+      Alert.alert('Error', 'Please enter a link');
+      return;
+    }
+    const urlToProcess = urlValue.trim();
     if (!urlToProcess) {
-      Alert.alert('Error', 'Please enter a video URL');
+      Alert.alert('Error', 'Please enter a link');
       return;
     }
 
     const platform = socialService.detectPlatform(urlToProcess);
     if (platform === 'unknown') {
-      Alert.alert('Error', 'Please enter a valid YouTube, TikTok, or Instagram URL');
+      Alert.alert('Error', 'Please enter a valid URL (YouTube, TikTok, Instagram, or a recipe website)');
       return;
     }
 
@@ -206,9 +225,19 @@ export default function AddRecipeScreen() {
 
   useEffect(() => {
     if (!initialUrlParam || !shouldAutoExtract || hasAutoExtracted.current) return;
+    if (typeof initialUrlParam !== 'string' || !initialUrlParam.trim()) return;
     hasAutoExtracted.current = true;
     handleExtract(initialUrlParam);
-  }, [initialUrlParam, shouldAutoExtract, handleExtract]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUrlParam, shouldAutoExtract]);
+
+  useEffect(() => {
+    if (!shouldShowShareFail) return;
+    Alert.alert(
+      'No Link Found',
+      'We couldn’t detect a shareable link. In Instagram, tap “Copy Link” and paste it here.'
+    );
+  }, [shouldShowShareFail]);
 
   const handleManualExtract = async () => {
     if (!manualDescription.trim()) {
@@ -470,7 +499,7 @@ export default function AddRecipeScreen() {
             <View style={styles.extractingInfo}>
               <Text style={styles.extractingTitle}>Cooking up your recipe...</Text>
               <Text style={styles.extractingSubtitle}>
-                Our AI is analyzing the {platformConfig.name} video and identifying ingredients for you.
+                Our AI is analyzing the {detectedPlatform === 'website' ? 'webpage' : `${platformConfig.name} video`} and identifying ingredients for you.
               </Text>
             </View>
           </Animated.View>
@@ -556,7 +585,7 @@ export default function AddRecipeScreen() {
 
           <Text style={styles.title}>Add from {platformConfig.name}</Text>
           <Text style={styles.subtitle}>
-            Paste a {platformConfig.name.toLowerCase()} video URL and we'll extract the recipe automatically.
+            Paste a {detectedPlatform === 'website' ? 'website link' : `${platformConfig.name.toLowerCase()} link`} and we'll extract the recipe automatically.
           </Text>
         </View>
 
@@ -591,7 +620,7 @@ export default function AddRecipeScreen() {
 
         <TouchableOpacity
           style={[styles.extractButton, !url.trim() && styles.extractButtonDisabled]}
-          onPress={handleExtract}
+          onPress={() => handleExtract()}
           disabled={!url.trim()}
           activeOpacity={0.9}
         >
