@@ -1,7 +1,0 @@
-{
-  "name": "ChefCard - Meal Flashcards",
-  "description": "A swipable flashcard interface for discovering recipes based on what's in your fridge, featuring high-quality animations and a sleek mobile-first design.",
-  "requestFramePermissions": [
-    "camera"
-  ]
-}

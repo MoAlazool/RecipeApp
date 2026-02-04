@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   Pressable,
   RefreshControl,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +18,29 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 import type { Conversation } from '@/utils/types';
+
+// ============================================================
+// DESIGN TOKENS — Michelin-Star Luxury
+// ============================================================
+
+const C = {
+  ivory: '#FFFFFF',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+  glass: 'rgba(255, 255, 255, 0.85)',
+  cardBg: 'rgba(26, 21, 16, 0.03)',
+};
+
+const SHADOW_SOFT = {
+  shadowColor: '#1A1510',
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 0.05,
+  shadowRadius: 20,
+  elevation: 6,
+};
 
 // Format time for conversation list
 const formatMessageTime = (dateString?: string): string => {
@@ -50,9 +73,9 @@ const getInitials = (name?: string): string => {
     .slice(0, 2);
 };
 
-// Avatar colors based on user ID
+// Avatar colors — elegant tones
 const AVATAR_COLORS = [
-  '#F2330D', '#3B82F6', '#22C55E', '#A855F7', '#F59E0B', '#EC4899', '#06B6D4', '#8B5CF6',
+  '#C66E4E', '#D4AF37', '#6B8E23', '#8B6914', '#A67B5B', '#8A8578', '#9B7E6D', '#B5838D',
 ];
 
 const getAvatarColor = (userId: string): string => {
@@ -80,6 +103,7 @@ const ConversationItem = ({ conversation, currentUserId, onPress }: Conversation
 
   const unreadCount = currentUserDetails?.unread_count || 0;
   const hasUnread = unreadCount > 0;
+  const isMuted = currentUserDetails?.is_muted ?? false;
 
   // For groups, use conversation ID for color; for DMs, use other user's ID
   const avatarColor = getAvatarColor(isGroup ? conversation.id : (otherParticipant?.user_id || ''));
@@ -98,6 +122,7 @@ const ConversationItem = ({ conversation, currentUserId, onPress }: Conversation
     <Pressable
       style={({ pressed }) => [
         styles.conversationItem,
+        hasUnread && styles.conversationItemUnread,
         pressed && styles.conversationItemPressed,
       ]}
       onPress={onPress}
@@ -105,14 +130,22 @@ const ConversationItem = ({ conversation, currentUserId, onPress }: Conversation
       {/* Avatar */}
       <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
         {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          <Image
+            source={{ uri: avatarUrl }}
+            style={styles.avatarImage}
+            contentFit="cover"
+            transition={150}
+            cachePolicy="memory-disk"
+            recyclingKey={avatarUrl}
+          />
         ) : isGroup ? (
-          <Ionicons name="people" size={22} color="#FFFFFF" />
+          <Ionicons name="people" size={22} color={C.ivory} />
         ) : (
           <Text style={styles.avatarText}>
             {getInitials(displayName)}
           </Text>
         )}
+        {hasUnread && <View style={styles.avatarUnreadDot} />}
       </View>
 
       {/* Content */}
@@ -120,7 +153,7 @@ const ConversationItem = ({ conversation, currentUserId, onPress }: Conversation
         <View style={styles.conversationHeader}>
           <View style={styles.conversationNameRow}>
             {isGroup && (
-              <Ionicons name="people" size={14} color="#9C5749" style={styles.groupIcon} />
+              <Ionicons name="people" size={13} color={C.gold} style={styles.groupIcon} />
             )}
             <Text
               style={[
@@ -131,8 +164,11 @@ const ConversationItem = ({ conversation, currentUserId, onPress }: Conversation
             >
               {displayName}
             </Text>
+            {isMuted && (
+              <Ionicons name="notifications-off" size={14} color={C.muted} style={styles.muteIcon} />
+            )}
           </View>
-          <Text style={styles.conversationTime}>
+          <Text style={[styles.conversationTime, hasUnread && styles.conversationTimeUnread]}>
             {formatMessageTime(conversation.last_message_at)}
           </Text>
         </View>
@@ -156,6 +192,8 @@ const ConversationItem = ({ conversation, currentUserId, onPress }: Conversation
           )}
         </View>
       </View>
+
+      <Ionicons name="chevron-forward" size={18} color={C.hairline} style={styles.chevron} />
     </Pressable>
   );
 };
@@ -233,7 +271,7 @@ export default function MessagesScreen() {
   if (!user) {
     return (
       <TabScreenTransition style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <View>
             <Text style={styles.headerTitle}>Messages</Text>
             <Text style={styles.headerSubtitle}>Sign in to message friends</Text>
@@ -252,7 +290,7 @@ export default function MessagesScreen() {
   return (
     <TabScreenTransition style={styles.container}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Messages</Text>
           <Text style={styles.headerSubtitle}>
@@ -262,20 +300,23 @@ export default function MessagesScreen() {
           </Text>
         </View>
         <View style={styles.headerButtons}>
-          <TouchableOpacity
-            style={styles.newMessageButton}
+          <Pressable
+            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
             onPress={handleCreateGroup}
           >
-            <Ionicons name="people-outline" size={22} color="#F2330D" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.newMessageButton}
+            <Ionicons name="people-outline" size={20} color={C.gold} />
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.headerButton, styles.headerButtonPrimary, pressed && styles.headerButtonPressed]}
             onPress={handleNewMessage}
           >
-            <Ionicons name="create-outline" size={22} color="#F2330D" />
-          </TouchableOpacity>
+            <Ionicons name="create-outline" size={20} color={C.ivory} />
+          </Pressable>
         </View>
       </View>
+
+      {/* Gold hairline */}
+      <View style={styles.headerHairline} />
 
       {/* Conversations List */}
       <FlatList
@@ -284,29 +325,34 @@ export default function MessagesScreen() {
         renderItem={renderConversation}
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: bottomTabBarHeight },
+          { paddingBottom: bottomTabBarHeight + 16 },
           conversations.length === 0 && styles.listContentEmpty,
         ]}
         refreshControl={
           <RefreshControl
             refreshing={isLoading}
             onRefresh={handleRefresh}
-            tintColor="#F2330D"
+            tintColor={C.gold}
           />
         }
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={() => (
-          <EmptyState
-            icon="chatbubbles-outline"
-            title="No conversations yet"
-            subtitle="Start a conversation by finding users to message"
-            action={
-              <TouchableOpacity style={styles.emptyAction} onPress={handleNewMessage}>
-                <Ionicons name="search" size={18} color="#FFFFFF" />
-                <Text style={styles.emptyActionText}>Find Users</Text>
-              </TouchableOpacity>
-            }
-          />
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyIconContainer}>
+              <Ionicons name="chatbubbles-outline" size={48} color={C.gold} />
+            </View>
+            <Text style={styles.emptyTitle}>No conversations yet</Text>
+            <Text style={styles.emptySubtitle}>
+              Start a conversation by finding users to message
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.emptyAction, pressed && styles.emptyActionPressed]}
+              onPress={handleNewMessage}
+            >
+              <Ionicons name="search" size={18} color={C.ivory} />
+              <Text style={styles.emptyActionText}>Find Users</Text>
+            </Pressable>
+          </View>
         )}
       />
     </TabScreenTransition>
@@ -316,87 +362,126 @@ export default function MessagesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: C.ivory,
   },
+
+  // Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    backgroundColor: '#F8F6F5',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    backgroundColor: C.ivory,
   },
   headerTitle: {
-    fontSize: 26,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#1C100D',
+    fontSize: 32,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
     letterSpacing: -0.5,
   },
   headerSubtitle: {
     fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
-    marginTop: 2,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.muted,
+    marginTop: 4,
   },
   headerButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
+    marginTop: 6,
   },
-  newMessageButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: C.cardBg,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
   },
+  headerButtonPrimary: {
+    backgroundColor: C.terracotta,
+    borderWidth: 0,
+    ...SHADOW_SOFT,
+    shadowColor: C.terracotta,
+    shadowOpacity: 0.3,
+  },
+  headerButtonPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.95 }],
+  },
+  headerHairline: {
+    height: 0.5,
+    backgroundColor: 'rgba(212, 175, 55, 0.2)',
+    marginHorizontal: 20,
+  },
+
+  // List
   listContent: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 16,
   },
   listContentEmpty: {
     flex: 1,
   },
+
+  // Conversation item
   conversationItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 8,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+    backgroundColor: C.ivory,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+    ...SHADOW_SOFT,
+  },
+  conversationItemUnread: {
+    backgroundColor: 'rgba(212, 175, 55, 0.04)',
+    borderColor: 'rgba(212, 175, 55, 0.2)',
   },
   conversationItemPressed: {
-    opacity: 0.7,
+    opacity: 0.8,
     transform: [{ scale: 0.98 }],
   },
+
+  // Avatar
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 14,
+    overflow: 'hidden',
+    ...SHADOW_SOFT,
   },
   avatarImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   avatarText: {
     fontSize: 18,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    color: C.ivory,
   },
+  avatarUnreadDot: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: C.gold,
+    borderWidth: 2,
+    borderColor: C.ivory,
+  },
+
+  // Conversation content
   conversationContent: {
     flex: 1,
   },
@@ -404,30 +489,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   conversationNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 8,
+    marginRight: 10,
   },
   groupIcon: {
-    marginRight: 4,
+    marginRight: 6,
+  },
+  muteIcon: {
+    marginLeft: 6,
   },
   conversationName: {
     fontSize: 16,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.charcoal,
     flexShrink: 1,
   },
   conversationNameUnread: {
-    fontFamily: 'NotoSans_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   conversationTime: {
     fontSize: 12,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+  },
+  conversationTimeUnread: {
+    color: C.gold,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   conversationFooter: {
     flexDirection: 'row',
@@ -436,43 +528,87 @@ const styles = StyleSheet.create({
   },
   conversationMessage: {
     fontSize: 14,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
     flex: 1,
-    marginRight: 8,
+    marginRight: 10,
   },
   conversationMessageUnread: {
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.charcoal,
   },
+  chevron: {
+    marginLeft: 4,
+  },
+
+  // Unread badge
   unreadBadge: {
-    backgroundColor: '#F2330D',
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    backgroundColor: C.gold,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
   },
   unreadBadgeText: {
     fontSize: 11,
-    fontFamily: 'NotoSans_700Bold',
-    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.ivory,
+  },
+
+  // Empty state
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    paddingVertical: 60,
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   emptyAction: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F2330D',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 8,
-    marginTop: 16,
+    backgroundColor: C.terracotta,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 28,
+    gap: 10,
+    marginTop: 24,
+    ...SHADOW_SOFT,
+    shadowColor: C.terracotta,
+    shadowOpacity: 0.3,
+  },
+  emptyActionPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.97 }],
   },
   emptyActionText: {
     fontSize: 15,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.ivory,
   },
 });

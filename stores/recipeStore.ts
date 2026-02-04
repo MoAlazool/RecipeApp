@@ -4,13 +4,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { firebaseService } from '@/services/firebase.service';
 import { youtubeService, getYouTubeThumbnail } from '@/services/youtube.service';
 import { socialService } from '@/services/social.service';
+import { aiService } from '@/services/ai.service';
 import type { Recipe, ExtractedRecipe, RecipeSourceType } from '@/utils/types';
+
+// Lazy import to avoid circular dependency
+const getAuthStore = () => require('@/stores/authStore').useAuthStore;
+
+const AI_IMAGE_SOURCE_TYPES: RecipeSourceType[] = ['fridge_scan', 'cookbook_scan'];
 
 interface RecipeState {
   recipes: Recipe[];
   currentRecipe: Recipe | null;
   isLoading: boolean;
   error: string | null;
+  generatingImageIds: string[]; // Track recipes currently generating images
 
   fetchRecipes: () => Promise<void>;
   getRecipe: (id: string) => Promise<Recipe | null>;
@@ -20,6 +27,8 @@ interface RecipeState {
   toggleFavorite: (id: string) => Promise<void>;
   saveRecipeToMyList: (recipe: Recipe) => Promise<Recipe>;
   setCurrentRecipe: (recipe: Recipe | null) => void;
+  generateRecipeImage: (recipeId: string, recipeTitle: string) => Promise<void>;
+  isGeneratingImage: (recipeId: string) => boolean;
   clearError: () => void;
   clearAll: () => void;
 }
@@ -31,6 +40,7 @@ export const useRecipeStore = create<RecipeState>()(
       currentRecipe: null,
       isLoading: false,
       error: null,
+      generatingImageIds: [],
 
       fetchRecipes: async () => {
         try {
@@ -131,6 +141,33 @@ export const useRecipeStore = create<RecipeState>()(
             ...(extractedRecipe.nutrition_estimate?.fat_g && { fat_g: extractedRecipe.nutrition_estimate.fat_g }),
           };
 
+          // Upload base64 data URI to Storage (e.g. from AI-generated preview)
+          if (thumbnailUrl?.startsWith('data:')) {
+            try {
+              const userId = getAuthStore().getState().user?.id;
+              const base64Data = thumbnailUrl.split(',')[1];
+              const storagePath = `recipes/${userId}/${Date.now()}_ai.jpg`;
+              thumbnailUrl = await firebaseService.uploadBase64Image(base64Data, storagePath);
+              recipeData.thumbnail_url = thumbnailUrl;
+            } catch (e) {
+              console.warn('Failed to upload base64 thumbnail:', e);
+              delete recipeData.thumbnail_url;
+            }
+          }
+
+          // Auto-generate AI image for fridge/cookbook recipes before saving
+          if (!thumbnailUrl && AI_IMAGE_SOURCE_TYPES.includes(sourceType)) {
+            try {
+              const base64Image = await aiService.generateRecipeImage(extractedRecipe.title);
+              const userId = getAuthStore().getState().user?.id;
+              const storagePath = `recipes/${userId}/${Date.now()}_ai.jpg`;
+              const downloadUrl = await firebaseService.uploadBase64Image(base64Image, storagePath);
+              recipeData.thumbnail_url = downloadUrl;
+            } catch (e) {
+              console.warn('AI image generation failed, saving without image:', e);
+            }
+          }
+
           const recipe = await firebaseService.createRecipe(recipeData);
 
           set((state) => ({
@@ -171,13 +208,7 @@ export const useRecipeStore = create<RecipeState>()(
         try {
           console.log('[RecipeStore] Starting delete for recipe:', id);
 
-          // Step 1: Delete from Firebase
-          console.log('[RecipeStore] Deleting from Firebase...');
-          await firebaseService.deleteRecipe(id);
-          console.log('[RecipeStore] ✓ Deleted from Firebase');
-
-          // Step 2: Update local app state immediately
-          console.log('[RecipeStore] Removing from local app state...');
+          // Update local state immediately so the UI feels instant
           set((state) => ({
             recipes: state.recipes.filter((r) => r.id !== id),
             currentRecipe:
@@ -185,11 +216,12 @@ export const useRecipeStore = create<RecipeState>()(
           }));
           console.log('[RecipeStore] ✓ Removed from local app state');
 
-          // Step 3: Refresh from database to ensure sync
-          console.log('[RecipeStore] Syncing with Firebase...');
-          await get().fetchRecipes();
-          console.log('[RecipeStore] ✓ Synced with Firebase');
-          console.log('[RecipeStore] Delete completed successfully');
+          // Delete from Firebase in the background
+          firebaseService.deleteRecipe(id).then(() => {
+            console.log('[RecipeStore] ✓ Deleted from Firebase');
+          }).catch((error) => {
+            console.error('[RecipeStore] Firebase delete failed:', error);
+          });
         } catch (error) {
           console.error('[RecipeStore] Delete recipe error:', error);
           throw error;
@@ -209,31 +241,33 @@ export const useRecipeStore = create<RecipeState>()(
 
           // Create a copy of the recipe without the id and user_id
           // The firebaseService.createRecipe will assign the new user_id
-          const recipeCopy: Partial<Recipe> = {
-            title: recipe.title,
-            description: recipe.description,
-            cuisine_type: recipe.cuisine_type,
-            difficulty: recipe.difficulty,
-            prep_time_minutes: recipe.prep_time_minutes,
-            cook_time_minutes: recipe.cook_time_minutes,
-            total_time_minutes: recipe.total_time_minutes,
-            active_time_minutes: recipe.active_time_minutes,
-            original_servings: recipe.original_servings,
-            current_servings: recipe.current_servings,
-            ingredients: recipe.ingredients,
-            steps: recipe.steps,
-            source_url: recipe.source_url,
-            source_type: recipe.source_type,
-            thumbnail_url: recipe.thumbnail_url,
-            video_id: recipe.video_id,
-            calories: recipe.calories,
-            protein_g: recipe.protein_g,
-            carbs_g: recipe.carbs_g,
-            fat_g: recipe.fat_g,
-            // Reset these for the new copy
-            is_favorite: false,
-            times_cooked: 0,
-          };
+          const recipeCopy: Partial<Recipe> = Object.fromEntries(
+            Object.entries({
+              title: recipe.title,
+              description: recipe.description,
+              cuisine_type: recipe.cuisine_type,
+              difficulty: recipe.difficulty,
+              prep_time_minutes: recipe.prep_time_minutes,
+              cook_time_minutes: recipe.cook_time_minutes,
+              total_time_minutes: recipe.total_time_minutes,
+              active_time_minutes: recipe.active_time_minutes,
+              original_servings: recipe.original_servings,
+              current_servings: recipe.current_servings,
+              ingredients: recipe.ingredients,
+              steps: recipe.steps,
+              source_url: recipe.source_url,
+              source_type: recipe.source_type,
+              thumbnail_url: recipe.thumbnail_url,
+              video_id: recipe.video_id,
+              calories: recipe.calories,
+              protein_g: recipe.protein_g,
+              carbs_g: recipe.carbs_g,
+              fat_g: recipe.fat_g,
+              is_favorite: false,
+              times_cooked: 0,
+              original_recipe_id: recipe.id, // Track the original recipe for "already saved" detection
+            }).filter(([, v]) => v !== undefined)
+          );
 
           const savedRecipe = await firebaseService.createRecipe(recipeCopy);
 
@@ -254,6 +288,37 @@ export const useRecipeStore = create<RecipeState>()(
 
       setCurrentRecipe: (recipe: Recipe | null) => {
         set({ currentRecipe: recipe });
+      },
+
+      generateRecipeImage: async (recipeId: string, recipeTitle: string) => {
+        // Check if already generating
+        if (get().generatingImageIds.includes(recipeId)) return;
+
+        // Add to generating list
+        set((state) => ({
+          generatingImageIds: [...state.generatingImageIds, recipeId],
+        }));
+
+        try {
+          const base64Image = await aiService.generateRecipeImage(recipeTitle);
+          const userId = getAuthStore().getState().user?.id;
+          const storagePath = `recipes/${userId}/${recipeId}_ai_${Date.now()}.jpg`;
+          const downloadUrl = await firebaseService.uploadBase64Image(base64Image, storagePath);
+
+          // Update recipe with new image
+          await get().updateRecipe(recipeId, { thumbnail_url: downloadUrl });
+        } catch (error) {
+          console.error('Failed to generate recipe image:', error);
+        } finally {
+          // Remove from generating list
+          set((state) => ({
+            generatingImageIds: state.generatingImageIds.filter((id) => id !== recipeId),
+          }));
+        }
+      },
+
+      isGeneratingImage: (recipeId: string) => {
+        return get().generatingImageIds.includes(recipeId);
       },
 
       clearError: () => set({ error: null }),

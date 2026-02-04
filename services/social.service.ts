@@ -541,7 +541,9 @@ class SocialService {
     // If JSON-LD recipe data was found, format it into text for AI extraction
     if (scrapeResult.recipe_data) {
       try {
+        console.log('[Social] Found JSON-LD recipe data');
         const recipeText = this.formatJsonLdRecipe(scrapeResult.recipe_data);
+        console.log('[Social] Formatted recipe text length:', recipeText.length);
         const recipe = await aiService.extractRecipeFromDescription(recipeText, []);
 
         if (recipe && recipe.title && recipe.ingredients && recipe.ingredients.length > 0) {
@@ -557,7 +559,9 @@ class SocialService {
             extractionMethod: 'description',
           };
         }
-      } catch {
+        console.log('[Social] JSON-LD extraction incomplete, falling back to page text');
+      } catch (e) {
+        console.log('[Social] JSON-LD extraction failed:', e);
         // Fall through to page text
       }
     }
@@ -565,6 +569,7 @@ class SocialService {
     // Fallback: use raw page text
     if (scrapeResult.page_text) {
       updateProgress('Extracting recipe from page content...', 60);
+      console.log('[Social] Using page text, length:', scrapeResult.page_text.length);
 
       try {
         const recipe = await aiService.extractRecipeFromDescription(scrapeResult.page_text, []);
@@ -581,9 +586,13 @@ class SocialService {
             extractionMethod: 'description',
           };
         }
-      } catch {
+        console.log('[Social] Page text extraction incomplete');
+      } catch (e) {
+        console.log('[Social] Page text extraction failed:', e);
         // Fall through to manual input
       }
+    } else {
+      console.log('[Social] No page text available');
     }
 
     return {

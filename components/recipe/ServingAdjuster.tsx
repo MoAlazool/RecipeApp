@@ -22,33 +22,50 @@ export function ServingAdjuster({
     if (servings < 20) onChange(servings + 1);
   };
 
+  const isScaled = servings !== originalServings;
+  const scaleFactor = (servings / originalServings).toFixed(1).replace(/\.0$/, '');
+
   return (
     <View style={styles.container}>
       <View style={styles.leftSection}>
-        <Ionicons name="restaurant-outline" size={22} color="#666" />
-        <Text style={styles.label}>Servings</Text>
+        <View style={styles.iconContainer}>
+          <Ionicons name="people" size={18} color="#F2330D" />
+        </View>
+        <View>
+          <Text style={styles.label}>Servings</Text>
+          {isScaled && (
+            <Text style={styles.originalLabel}>Original: {originalServings}</Text>
+          )}
+        </View>
       </View>
 
-      <View style={styles.controls}>
-        <TouchableOpacity
-          style={[styles.button, styles.buttonMinus]}
-          onPress={decrease}
-          disabled={servings <= 1}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="remove" size={20} color={servings <= 1 ? '#CCC' : '#666'} />
-        </TouchableOpacity>
+      <View style={styles.rightSection}>
+        {isScaled && (
+          <View style={styles.scaleBadge}>
+            <Text style={styles.scaleBadgeText}>{scaleFactor}x</Text>
+          </View>
+        )}
+        <View style={styles.controls}>
+          <TouchableOpacity
+            style={[styles.button, styles.buttonMinus]}
+            onPress={decrease}
+            disabled={servings <= 1}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="remove" size={20} color={servings <= 1 ? '#CCC' : '#666'} />
+          </TouchableOpacity>
 
-        <Text style={styles.value}>{servings}</Text>
+          <Text style={styles.value}>{servings}</Text>
 
-        <TouchableOpacity
-          style={[styles.button, styles.buttonPlus]}
-          onPress={increase}
-          disabled={servings >= 20}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="add" size={20} color={servings >= 20 ? '#CCC' : '#F2330D'} />
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.button, styles.buttonPlus]}
+            onPress={increase}
+            disabled={servings >= 20}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={20} color={servings >= 20 ? '#CCC' : '#F2330D'} />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -70,10 +87,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  iconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: 'rgba(242, 51, 13, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   label: {
     fontSize: 16,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: '#1C100D',
+  },
+  originalLabel: {
+    fontSize: 12,
     fontFamily: 'NotoSans_500Medium',
-    color: '#666',
+    color: '#9C5749',
+    marginTop: 2,
+  },
+  rightSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  scaleBadge: {
+    backgroundColor: 'rgba(242, 51, 13, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  scaleBadgeText: {
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#F2330D',
   },
   controls: {
     flexDirection: 'row',

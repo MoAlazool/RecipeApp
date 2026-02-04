@@ -149,6 +149,13 @@ export const useAuthStore = create<AuthState>()(
                   user.user_metadata?.full_name ||
                   user.user_metadata?.name ||
                   undefined,
+                avatar_url: user.user_metadata?.avatar_url,
+              });
+              profile = await firebaseService.getProfile(user.id);
+            } else if (!profile.avatar_url && user.user_metadata?.avatar_url) {
+              // Update existing profile with avatar if missing
+              await firebaseService.updateProfile(user.id, {
+                avatar_url: user.user_metadata.avatar_url,
               });
               profile = await firebaseService.getProfile(user.id);
             }

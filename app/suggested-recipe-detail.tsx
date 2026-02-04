@@ -59,14 +59,18 @@ export default function SuggestedRecipeDetailScreen() {
         throw new Error('No recipe data provided');
       }
 
-      // Parse the suggested recipe from params
-      const parsed: SuggestedRecipe = JSON.parse(params.recipe);
+      const parsed = JSON.parse(params.recipe);
       setSuggestedRecipe(parsed);
 
-      // Generate full recipe details using AI
-      // Convert preview_steps and basic info to full recipe
-      const fullRecipeData = await aiService.expandRecipeFromSuggestion(parsed);
-      setFullRecipe(fullRecipeData);
+      // If full recipe data is already included (from chatWithChef),
+      // use it directly — no need for a second AI call.
+      if (parsed.ingredients?.length && parsed.steps?.length) {
+        setFullRecipe(parsed as ExtractedRecipe);
+      } else {
+        // Fallback: expand lightweight suggestion via AI
+        const fullRecipeData = await aiService.expandRecipeFromSuggestion(parsed);
+        setFullRecipe(fullRecipeData);
+      }
     } catch (err: any) {
       console.error('Failed to load recipe details:', err);
       setError(err.message || 'Failed to load recipe details');
@@ -96,7 +100,10 @@ export default function SuggestedRecipeDetailScreen() {
         [
           {
             text: 'View Collection',
-            onPress: () => router.push('/(tabs)'),
+            onPress: () => {
+              router.dismissAll();
+              router.replace('/(tabs)');
+            },
           },
           {
             text: 'OK',

@@ -58,6 +58,8 @@
         }
       ],
       "expo-live-activity",
+      "./plugins/withLiveActivities",
+      "./plugins/withShareExtension",
       "./plugins/withNoPushEntitlements",
       "expo-speech-recognition"
     ],

@@ -164,7 +164,7 @@ export default function ProfileScreen() {
   if (!isAuthenticated) {
     return (
       <TabScreenTransition style={styles.authContainer}>
-        <View style={[styles.authContainer, { paddingTop: insets.top }]}>
+        <View style={[styles.authContainer, { paddingTop: insets.top + 8 }]}>
           <Ionicons name="person-circle-outline" size={96} color="#C8B7B2" />
           <Text h4 style={styles.authTitle}>Sign in to sync your recipes</Text>
           <Text style={styles.authSubtitle}>

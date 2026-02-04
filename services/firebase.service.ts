@@ -40,6 +40,7 @@ import {
   deleteObject,
   listAll,
 } from 'firebase/storage';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
@@ -61,6 +62,10 @@ class FirebaseService {
   private auth: Auth;
   private db: Firestore;
   private storage: FirebaseStorage;
+
+  getApp(): FirebaseApp {
+    return this.app;
+  }
 
   constructor() {
     WebBrowser.maybeCompleteAuthSession();
@@ -269,6 +274,13 @@ class FirebaseService {
         const randomPassword = Crypto.randomUUID() + Crypto.randomUUID();
         const userCredential = await signInWithEmailAndPassword(this.auth, userInfo.email, randomPassword);
 
+        // Update avatar if user has a Google picture
+        if (userInfo.picture) {
+          await this.updateProfile(userCredential.user.uid, {
+            avatar_url: userInfo.picture,
+          });
+        }
+
         return {
           user: {
             id: userCredential.user.uid,
@@ -276,6 +288,7 @@ class FirebaseService {
             user_metadata: {
               full_name: userInfo.name,
               name: userInfo.name,
+              avatar_url: userInfo.picture,
             }
           }
         };
@@ -285,11 +298,12 @@ class FirebaseService {
           const randomPassword = Crypto.randomUUID() + Crypto.randomUUID();
           const userCredential = await createUserWithEmailAndPassword(this.auth, userInfo.email, randomPassword);
 
-          // Store the Google user info in the profile
+          // Store the Google user info in the profile, including avatar
           await this.createProfile({
             id: userCredential.user.uid,
             email: userInfo.email,
             full_name: userInfo.name,
+            avatar_url: userInfo.picture, // Save Google profile picture
           });
 
           return {
@@ -299,6 +313,7 @@ class FirebaseService {
               user_metadata: {
                 full_name: userInfo.name,
                 name: userInfo.name,
+                avatar_url: userInfo.picture,
               }
             }
           };
@@ -435,6 +450,9 @@ class FirebaseService {
 
   async updateRecipe(id: string, updates: Partial<Recipe>): Promise<Recipe> {
     try {
+      const session = await this.getSession();
+      if (!session) throw new Error('Not authenticated');
+
       const docRef = doc(this.db, 'recipes', id);
       await updateDoc(docRef, {
         ...updates,
@@ -452,25 +470,22 @@ class FirebaseService {
     try {
       console.log('[Firebase] Deleting recipe:', id);
       const session = await this.getSession();
-      console.log('[Firebase] Session:', session ? 'authenticated' : 'not authenticated');
       if (!session) throw new Error('Not authenticated');
 
-      // Verify ownership before deleting
       const docRef = doc(this.db, 'recipes', id);
+
+      // Verify ownership before attempting delete to give clear error
       const docSnap = await getDoc(docRef);
-
-      console.log('[Firebase] Recipe exists:', docSnap.exists());
       if (!docSnap.exists()) {
-        throw new Error('Recipe not found or already deleted');
+        console.warn('[Firebase] Recipe not found, may already be deleted:', id);
+        return;
+      }
+      const data = docSnap.data();
+      if (data.user_id !== session.user.id) {
+        console.error('[Firebase] Ownership mismatch — doc user_id:', data.user_id, '| auth uid:', session.user.id);
+        throw new Error('You can only delete your own recipes');
       }
 
-      const recipeData = docSnap.data();
-      console.log('[Firebase] Recipe user_id:', recipeData.user_id, 'Current user:', session.user.id);
-      if (recipeData.user_id !== session.user.id) {
-        throw new Error('You do not have permission to delete this recipe');
-      }
-
-      console.log('[Firebase] Calling deleteDoc...');
       await deleteDoc(docRef);
       console.log('[Firebase] Recipe deleted successfully');
     } catch (error) {
@@ -913,10 +928,15 @@ class FirebaseService {
     try {
       const storageRef = ref(this.storage, path);
 
-      // Upload base64 string
-      await uploadString(storageRef, base64Data, 'base64', {
-        contentType,
+      // Write base64 to temp file, then fetch as blob (RN can't create blobs from ArrayBuffer)
+      const tempPath = `${FileSystem.cacheDirectory}upload_${Date.now()}.jpg`;
+      await FileSystem.writeAsStringAsync(tempPath, base64Data, {
+        encoding: FileSystem.EncodingType.Base64,
       });
+      const response = await fetch(tempPath);
+      const blob = await response.blob();
+      await uploadBytes(storageRef, blob, { contentType });
+      FileSystem.deleteAsync(tempPath, { idempotent: true });
 
       // Get download URL
       const downloadUrl = await getDownloadURL(storageRef);

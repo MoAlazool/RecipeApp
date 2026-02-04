@@ -103,13 +103,19 @@ async function mapSuggestedRecipeToFlashcard(
     inStock: recipe.ingredients_you_have?.includes(ing) || false,
   }));
 
-  // Get recipe image with smart fallback
-  const recipeImage = getRecipeImage(
-    recipe.image_url,
-    recipe.title,
-    recipe.cuisine_type,
-    recipe.ingredients_you_have
-  );
+  // Generate AI image for recipe
+  let recipeImage = '';
+  try {
+    const base64 = await aiService.generateRecipeImage(recipe.title);
+    recipeImage = `data:image/png;base64,${base64}`;
+  } catch {
+    recipeImage = getRecipeImage(
+      recipe.image_url,
+      recipe.title,
+      recipe.cuisine_type,
+      recipe.ingredients_you_have
+    );
+  }
 
   return {
     id: `ai-${index + 1}`,
@@ -318,7 +324,7 @@ export default function RecipeResultsFlashcardScreen() {
         params: {
           recipe: JSON.stringify(recipe.originalRecipe),
           imageUrl: recipe.image,
-          sourceType: params.sourceType || 'manual',
+          sourceType: params.sourceType || 'ai_chef',
         },
       });
     }
@@ -331,7 +337,7 @@ export default function RecipeResultsFlashcardScreen() {
     try {
       // Convert suggested recipe to full recipe format
       const fullRecipe = await aiService.expandRecipeFromSuggestion(recipe.originalRecipe);
-      await addRecipe(fullRecipe);
+      await addRecipe(fullRecipe, undefined, undefined, (params.sourceType || 'ai_chef') as any);
 
       // Show success feedback
       Alert.alert('Saved!', `${recipe.name} added to your collection`);

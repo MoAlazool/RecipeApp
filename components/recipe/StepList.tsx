@@ -1,92 +1,297 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, ScrollView, StyleSheet } from 'react-native';
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
-import type { RecipeStep } from '@/utils/types';
+import type { RecipeStep, Ingredient } from '@/utils/types';
+
+// --- Design Tokens ---
+const GOLD = '#D4AF37';
+const CHARCOAL = '#1A1510';
+const MUTED = '#8A8578';
+const HAIRLINE = 'rgba(26, 21, 16, 0.08)';
 
 interface StepListProps {
   steps: RecipeStep[];
+  ingredients?: Ingredient[];
+  /** @deprecated Use `ingredients` instead */
+  ingredientNames?: string[];
 }
 
-export function StepList({ steps }: StepListProps) {
-  return (
-    <View style={styles.container}>
-      {steps.filter(step => step.instruction).map((step, index) => (
-        <View key={index} style={styles.step}>
-          <View style={styles.stepNumber}>
-            <Text style={styles.stepNumberText}>{step.step_number}</Text>
-          </View>
+const formatAmount = (amount?: number): string => {
+  if (!amount) return '';
+  if (amount === Math.floor(amount)) return amount.toString();
+  if (Math.abs(amount - 0.25) < 0.01) return '\u00BC';
+  if (Math.abs(amount - 0.33) < 0.01) return '\u2153';
+  if (Math.abs(amount - 0.5) < 0.01) return '\u00BD';
+  if (Math.abs(amount - 0.67) < 0.01) return '\u2154';
+  if (Math.abs(amount - 0.75) < 0.01) return '\u00BE';
+  return amount.toFixed(1).replace(/\.0$/, '');
+};
+
+interface MatchedIngredient {
+  name: string;
+  label: string; // e.g. "1/2 cup Flour"
+}
+
+export function StepList({ steps, ingredients = [], ingredientNames = [] }: StepListProps) {
+  const filteredSteps = steps.filter(step => step.instruction);
+
+  const grouped = useMemo(() => {
+    const hasGroups = filteredSteps.some(s => s.group);
+    if (!hasGroups) return null;
+    const map = new Map<string, RecipeStep[]>();
+    for (const step of filteredSteps) {
+      const key = step.group || '';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(step);
+    }
+    return map;
+  }, [filteredSteps]);
+
+  // Pre-compute: show ALL ingredients mentioned in each step
+  const stepIngredientMap = useMemo(() => {
+    const map = new Map<number, MatchedIngredient[]>();
+
+    for (const step of filteredSteps) {
+      const lower = step.instruction.toLowerCase();
+      const matched: MatchedIngredient[] = [];
+
+      if (ingredients.length > 0) {
+        for (const ing of ingredients) {
+          const key = ing.name.toLowerCase();
+          if (lower.includes(key)) {
+            const amt = formatAmount(ing.amount);
+            const unit = ing.unit || '';
+            const parts = [amt, unit].filter(Boolean).join(' ');
+            const label = parts ? `${parts} ${ing.name}` : ing.name;
+            matched.push({ name: ing.name, label });
+          }
+        }
+      } else {
+        for (const name of ingredientNames) {
+          const key = name.toLowerCase();
+          if (lower.includes(key)) {
+            matched.push({ name, label: name });
+          }
+        }
+      }
+
+      map.set(step.step_number, matched);
+    }
+    return map;
+  }, [filteredSteps, ingredients, ingredientNames]);
+
+  const renderStep = (step: RecipeStep, index: number, isFirst: boolean) => {
+    const matched = stepIngredientMap.get(step.step_number) || [];
+    const hasMeta = step.duration_minutes || step.temperature;
+
+    return (
+      <View key={index}>
+        {!isFirst && <View style={styles.separator} />}
+        <View style={styles.stepRow}>
+          {/* Editorial step number */}
+          <Text style={styles.stepNumber}>
+            {String(step.step_number).padStart(2, '0')}
+          </Text>
+
           <View style={styles.stepContent}>
+            {/* Instruction */}
             <Text style={styles.instruction}>{step.instruction}</Text>
 
-            <View style={styles.stepMeta}>
-              {step.duration_minutes && (
-                <View style={styles.metaItem}>
-                  <Ionicons name="time-outline" size={14} color="#FF6B35" />
-                  <Text style={styles.metaText}>{step.duration_minutes} min</Text>
-                </View>
-              )}
-              {step.temperature && (
-                <View style={styles.metaItem}>
-                  <Ionicons name="thermometer-outline" size={14} color="#FF6B35" />
-                  <Text style={styles.metaText}>{step.temperature}</Text>
-                </View>
-              )}
-            </View>
+            {/* Time & Temperature */}
+            {hasMeta && (
+              <View style={styles.metaRow}>
+                {step.duration_minutes != null && (
+                  <View style={styles.metaItem}>
+                    <Ionicons name="time-outline" size={15} color={GOLD} />
+                    <Text style={styles.metaText}>
+                      {step.duration_minutes} MINS
+                    </Text>
+                  </View>
+                )}
+                {step.temperature && (
+                  <View style={styles.metaItem}>
+                    <Ionicons name="thermometer-outline" size={15} color={GOLD} />
+                    <Text style={styles.metaText}>
+                      {step.temperature.toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Ingredient Pills — horizontal scroll */}
+            {matched.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.tagScroll}
+                style={styles.tagScrollWrap}
+              >
+                {matched.map((m, i) => (
+                  <View key={i} style={styles.tag}>
+                    <Text style={styles.tagText}>{m.label}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            {/* Chef's Tip */}
+            {step.tip && (
+              <View style={styles.tipContainer}>
+                <View style={styles.tipBorder} />
+                <Text style={styles.tipText}>
+                  <Text style={styles.tipLabel}>Tip: </Text>
+                  {step.tip}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
-      ))}
+      </View>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      {grouped ? (
+        Array.from(grouped).map(([group, groupSteps]) => (
+          <View key={group || '_ungrouped'} style={group ? styles.group : undefined}>
+            {group !== '' && (
+              <View style={styles.groupLabel}>
+                <Ionicons name="restaurant-outline" size={14} color={GOLD} />
+                <Text style={styles.groupLabelText}>{group}</Text>
+              </View>
+            )}
+            {groupSteps.map((step, i) => renderStep(step, i, i === 0))}
+          </View>
+        ))
+      ) : (
+        filteredSteps.map((step, index) => renderStep(step, index, index === 0))
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 8,
+    marginTop: 4,
   },
-  step: {
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: HAIRLINE,
+    marginVertical: 32,
+  },
+
+  // Step layout
+  stepRow: {
     flexDirection: 'row',
-    marginBottom: 20,
+    gap: 16,
   },
   stepNumber: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FF6B35',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  stepNumberText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '700',
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 28,
+    color: '#D1CBC2',
+    width: 40,
+    paddingTop: 2,
+    opacity: 0.7,
   },
   stepContent: {
     flex: 1,
   },
+
+  // Instruction — Sans-serif body
   instruction: {
+    fontFamily: 'PlusJakartaSans_400Regular',
     fontSize: 16,
-    color: '#1A1A2E',
-    lineHeight: 24,
+    color: CHARCOAL,
+    lineHeight: 26,
   },
-  stepMeta: {
+
+  // Time & Temperature
+  metaRow: {
     flexDirection: 'row',
-    marginTop: 10,
+    flexWrap: 'wrap',
+    gap: 22,
+    marginTop: 16,
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF3E0',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginRight: 10,
+    gap: 6,
   },
   metaText: {
-    marginLeft: 4,
+    fontFamily: 'PlusJakartaSans_700Bold',
     fontSize: 12,
-    color: '#FF6B35',
-    fontWeight: '600',
+    color: MUTED,
+    letterSpacing: 1,
+  },
+
+  // Ingredient Pills — horizontal slider
+  tagScrollWrap: {
+    marginTop: 14,
+    marginRight: -24,
+  },
+  tagScroll: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 24,
+  },
+  tag: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: 'rgba(26, 21, 16, 0.05)',
+  },
+  tagText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 13,
+    color: CHARCOAL,
+  },
+
+  // Chef's Tip
+  tipContainer: {
+    flexDirection: 'row',
+    marginTop: 16,
+  },
+  tipBorder: {
+    width: 2.5,
+    borderRadius: 1.5,
+    backgroundColor: GOLD,
+    marginRight: 10,
+  },
+  tipText: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: 12.5,
+    fontStyle: 'italic',
+    color: MUTED,
+    lineHeight: 19,
+  },
+  tipLabel: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontStyle: 'italic',
+    color: MUTED,
+  },
+
+  // Groups
+  group: {
+    marginBottom: 16,
+  },
+  groupLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginBottom: 12,
+  },
+  groupLabelText: {
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: GOLD,
   },
 });

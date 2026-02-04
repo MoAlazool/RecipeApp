@@ -128,7 +128,7 @@ export default function EditProfileScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={[styles.header, { paddingTop: insets.top }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity style={styles.headerButton} onPress={handleCancel}>
           <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>

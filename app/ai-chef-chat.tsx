@@ -170,14 +170,20 @@ export default function AiChefChatModal() {
     }
   };
 
-  const handleViewRecipe = (recipe: any) => {
-    const imageUrl = getRecipeImage(
-      recipe.image_url,
-      recipe.title,
-      recipe.cuisine_type,
-      recipe.ingredients_you_have,
-      recipe.food_keywords
-    );
+  const handleViewRecipe = async (recipe: any) => {
+    let imageUrl = '';
+    try {
+      const base64 = await aiService.generateRecipeImage(recipe.title);
+      imageUrl = `data:image/png;base64,${base64}`;
+    } catch {
+      imageUrl = getRecipeImage(
+        recipe.image_url,
+        recipe.title,
+        recipe.cuisine_type,
+        recipe.ingredients_you_have,
+        recipe.food_keywords
+      );
+    }
 
     router.push({
       pathname: '/suggested-recipe-detail',

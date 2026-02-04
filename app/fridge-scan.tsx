@@ -69,7 +69,7 @@ export default function FridgeScanScreen() {
 
   if (!permission.granted) {
     return (
-      <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
+      <View style={[styles.permissionContainer, { paddingTop: insets.top + 8 }]}>
         <Ionicons name="camera-outline" size={64} color="#C8B7B2" />
         <Text h4 style={styles.permissionTitle}>
           Camera Access Required

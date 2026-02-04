@@ -43,6 +43,7 @@ interface MessagingState {
   ) => Promise<Message | null>;
 
   markAsRead: (conversationId: string) => Promise<void>;
+  deleteMessage: (conversationId: string, messageId: string) => Promise<boolean>;
 
   // Actions - Group Chats
   createGroup: (
@@ -59,6 +60,10 @@ interface MessagingState {
   removeGroupMember: (conversationId: string, memberId: string) => Promise<void>;
   leaveGroup: (conversationId: string) => Promise<void>;
   makeGroupAdmin: (conversationId: string, memberId: string) => Promise<void>;
+
+  // Actions - Mute
+  toggleMuteConversation: (conversationId: string) => Promise<boolean>;
+  isConversationMuted: (conversationId: string) => boolean;
 
   clearError: () => void;
   clearAll: () => void;
@@ -175,7 +180,12 @@ export const useMessagingStore = create<MessagingState>()(
       // ============================================
       fetchMessages: async (conversationId: string) => {
         try {
-          set({ isLoadingMessages: true, error: null });
+          // Only show loading if we don't have cached messages
+          const cachedMessages = get().messages[conversationId];
+          if (!cachedMessages || cachedMessages.length === 0) {
+            set({ isLoadingMessages: true, error: null });
+          }
+
           const messages = await messagingService.getMessages(conversationId);
 
           set((state) => ({
@@ -251,6 +261,8 @@ export const useMessagingStore = create<MessagingState>()(
         try {
           set({ error: null });
 
+          console.log('[MessagingStore] Sending recipe with thumbnail:', recipeData.thumbnail_url);
+
           const message = await messagingService.sendRecipeMessage(recipientId, {
             id: recipeData.id,
             title: recipeData.title,
@@ -289,6 +301,38 @@ export const useMessagingStore = create<MessagingState>()(
           set({ conversations: updatedConversations, unreadCount });
         } catch (error: any) {
           console.error('[MessagingStore] Error marking as read:', error);
+        }
+      },
+
+      deleteMessage: async (conversationId: string, messageId: string) => {
+        try {
+          set({ error: null });
+
+          // Optimistic update - remove message from local state
+          const { messages } = get();
+          const conversationMessages = messages[conversationId] || [];
+          const updatedMessages = conversationMessages.filter(m => m.id !== messageId);
+
+          set((state) => ({
+            messages: { ...state.messages, [conversationId]: updatedMessages },
+          }));
+
+          // Delete from server
+          await messagingService.deleteMessage(conversationId, messageId);
+
+          return true;
+        } catch (error: any) {
+          // Revert optimistic update on error
+          console.error('[MessagingStore] Error deleting message:', error);
+          set({ error: error.message || 'Failed to delete message' });
+
+          // Re-fetch messages to restore state
+          const messages = await messagingService.getMessages(conversationId);
+          set((state) => ({
+            messages: { ...state.messages, [conversationId]: messages },
+          }));
+
+          return false;
         }
       },
 
@@ -404,6 +448,58 @@ export const useMessagingStore = create<MessagingState>()(
       },
 
       // ============================================
+      // MUTE
+      // ============================================
+      toggleMuteConversation: async (conversationId) => {
+        try {
+          set({ error: null });
+          const newMutedStatus = await messagingService.toggleMuteConversation(conversationId);
+
+          // Update local state immediately
+          const { conversations, currentConversation } = get();
+          const userId = messagingService['getCurrentUserId']?.() || null;
+
+          const updateParticipants = (conv: Conversation) => ({
+            ...conv,
+            participant_details: conv.participant_details.map(p => {
+              if (p.user_id === userId) {
+                return { ...p, is_muted: newMutedStatus };
+              }
+              return p;
+            }),
+          });
+
+          const updatedConversations = conversations.map(conv =>
+            conv.id === conversationId ? updateParticipants(conv) : conv
+          );
+
+          set({
+            conversations: updatedConversations,
+            currentConversation: currentConversation?.id === conversationId
+              ? updateParticipants(currentConversation)
+              : currentConversation,
+          });
+
+          return newMutedStatus;
+        } catch (error: any) {
+          set({ error: error.message || 'Failed to toggle mute' });
+          throw error;
+        }
+      },
+
+      isConversationMuted: (conversationId) => {
+        const { conversations } = get();
+        const userId = messagingService['getCurrentUserId']?.() || null;
+        if (!userId) return false;
+
+        const conversation = conversations.find(c => c.id === conversationId);
+        if (!conversation) return false;
+
+        const participant = conversation.participant_details.find(p => p.user_id === userId);
+        return participant?.is_muted ?? false;
+      },
+
+      // ============================================
       // UTILITIES
       // ============================================
       clearError: () => set({ error: null }),
@@ -431,11 +527,21 @@ export const useMessagingStore = create<MessagingState>()(
     {
       name: 'messaging-storage',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({
-        // Only persist essential data
-        conversations: state.conversations,
-        unreadCount: state.unreadCount,
-      }),
+      partialize: (state) => {
+        // Persist last 30 messages per conversation to keep storage small
+        const trimmedMessages: Record<string, Message[]> = {};
+        Object.entries(state.messages).forEach(([convId, msgs]) => {
+          if (msgs && msgs.length > 0) {
+            trimmedMessages[convId] = msgs.slice(-30);
+          }
+        });
+
+        return {
+          conversations: state.conversations,
+          messages: trimmedMessages,
+          unreadCount: state.unreadCount,
+        };
+      },
     }
   )
 );

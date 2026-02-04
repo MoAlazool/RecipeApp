@@ -1,8 +1,44 @@
-import React from 'react';
-import { View, StyleSheet, Image, Pressable } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
+import { Image } from 'expo-image';
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import type { SharedRecipeData } from '@/utils/types';
+
+// Fix Firebase Storage URLs - ensure path is properly encoded
+const fixFirebaseStorageUrl = (url: string | undefined): string | undefined => {
+  if (!url) return undefined;
+
+  // Check if it's a Firebase Storage URL that needs fixing
+  if (url.includes('firebasestorage.googleapis.com/v0/b/') && url.includes('/o/')) {
+    try {
+      const questionIndex = url.indexOf('?');
+      const baseAndPath = questionIndex > -1 ? url.substring(0, questionIndex) : url;
+      const queryString = questionIndex > -1 ? url.substring(questionIndex + 1) : '';
+      const oIndex = baseAndPath.indexOf('/o/');
+
+      if (oIndex !== -1) {
+        const base = baseAndPath.substring(0, oIndex + 3);
+        let path = baseAndPath.substring(oIndex + 3);
+
+        if (path.includes('/')) {
+          try {
+            path = decodeURIComponent(path);
+          } catch {
+            // Already decoded or invalid
+          }
+          path = encodeURIComponent(path);
+        }
+
+        return `${base}${path}${queryString ? '?' + queryString : ''}`;
+      }
+    } catch {
+      // Return original on error
+    }
+  }
+
+  return url;
+};
 
 interface RecipeMessageCardProps {
   recipe: SharedRecipeData;
@@ -29,6 +65,8 @@ export const RecipeMessageCard: React.FC<RecipeMessageCardProps> = ({
   isCompact = false,
 }) => {
   const difficultyConfig = getDifficultyConfig(recipe.difficulty);
+  const [imageError, setImageError] = useState(false);
+  const fixedThumbnailUrl = fixFirebaseStorageUrl(recipe.thumbnail_url);
 
   if (isCompact) {
     // Compact horizontal layout for lists
@@ -40,10 +78,14 @@ export const RecipeMessageCard: React.FC<RecipeMessageCardProps> = ({
         ]}
         onPress={onPress}
       >
-        {recipe.thumbnail_url ? (
+        {fixedThumbnailUrl && !imageError ? (
           <Image
-            source={{ uri: recipe.thumbnail_url }}
+            source={{ uri: fixedThumbnailUrl }}
             style={styles.compactImage}
+            contentFit="cover"
+            transition={200}
+            cachePolicy="memory-disk"
+            onError={() => setImageError(true)}
           />
         ) : (
           <View style={styles.compactImagePlaceholder}>
@@ -83,10 +125,14 @@ export const RecipeMessageCard: React.FC<RecipeMessageCardProps> = ({
     >
       {/* Recipe Image with Overlay */}
       <View style={styles.imageContainer}>
-        {recipe.thumbnail_url ? (
+        {fixedThumbnailUrl && !imageError ? (
           <Image
-            source={{ uri: recipe.thumbnail_url }}
+            source={{ uri: fixedThumbnailUrl }}
             style={styles.image}
+            contentFit="cover"
+            transition={200}
+            cachePolicy="memory-disk"
+            onError={() => setImageError(true)}
           />
         ) : (
           <View style={styles.imagePlaceholder}>
@@ -165,7 +211,6 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
   },
   imagePlaceholder: {
     width: '100%',

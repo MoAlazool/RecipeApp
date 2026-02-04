@@ -5,7 +5,6 @@ import {
   ScrollView,
   Alert,
   Vibration,
-  Image,
   Pressable,
   Modal,
   TouchableWithoutFeedback,
@@ -18,8 +17,12 @@ import { Text } from '@rneui/themed';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import * as Speech from 'expo-speech';
-import { requireOptionalNativeModule } from 'expo-modules-core';
+import { Image } from 'expo-image';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+  VOICE_AVAILABLE,
+} from '@/utils/speechRecognition';
 import { useCookingStore } from '@/stores/cookingStore';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { LiveActivity } from '@/services/liveActivity';
@@ -28,10 +31,6 @@ import {
   cancelNotification,
   scheduleTimerNotification,
 } from '@/services/notifications.service';
-
-// Safe native module loading — returns null in Expo Go (no crash)
-const SpeechRecognition: any = requireOptionalNativeModule('ExpoSpeechRecognition');
-const VOICE_AVAILABLE = !!SpeechRecognition;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
@@ -45,7 +44,6 @@ export default function CookingModeScreen() {
     recipe,
     currentStep,
     timers,
-    isVoiceEnabled,
     startSession,
     endSession,
     nextStep,
@@ -53,7 +51,6 @@ export default function CookingModeScreen() {
     addTimer,
     setTimerNotification,
     removeTimer,
-    toggleVoice,
   } = useCookingStore();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -67,6 +64,12 @@ export default function CookingModeScreen() {
   const introAnim = useRef(new Animated.Value(0)).current;
   const swipeHintAnim = useRef(new Animated.Value(0)).current;
   const listeningRef = useRef(false);
+  const processedCountsRef = useRef<Record<string, number>>({});
+  const isSpeakingRef = useRef(false);
+  const speakingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const waveBars = useRef(
+    Array.from({ length: 5 }, () => new Animated.Value(0.3))
+  ).current;
 
   // Find the timer for the current step
   const currentStepTimer = useMemo(() => {
@@ -129,49 +132,31 @@ export default function CookingModeScreen() {
   useEffect(() => {
     loadRecipe();
     return () => {
-      Speech.stop();
       stopListening();
     };
   }, [id]);
 
-  useEffect(() => {
-    if (recipe && isVoiceEnabled) {
-      speakCurrentStep();
-    }
-  }, [currentStep, recipe]);
-
+  // Dynamic Island: show cooking status throughout the session
   useEffect(() => {
     if (!recipe) return;
 
-    if (!primaryTimer) {
-      LiveActivity.endTimer();
-      return;
-    }
+    const step = recipe.steps[currentStep];
+    const timerEndTimeMs = primaryTimer
+      ? new Date(primaryTimer.started_at).getTime() + primaryTimer.duration_seconds * 1000
+      : undefined;
 
-    const startTimeMs = new Date(primaryTimer.started_at).getTime();
-    const endTimeMs = startTimeMs + primaryTimer.duration_seconds * 1000;
-
-    const labelMatch = primaryTimer.label.match(/\d+/);
-    const parsedStepIndex = labelMatch ? Number(labelMatch[0]) : null;
-    const stepIndex = parsedStepIndex && parsedStepIndex > 0 ? parsedStepIndex : currentStep + 1;
-    const totalSteps = recipe.steps.length;
-    const stepLabel = `STEP ${stepIndex} OF ${totalSteps}`;
-    const stepTitle =
-      recipe.steps[stepIndex - 1]?.instruction ?? primaryTimer.label;
-
-    LiveActivity.startTimer({
-      label: stepTitle,
+    LiveActivity.startCooking({
+      stepInstruction: step?.instruction || `Step ${currentStep + 1}`,
       recipeName: recipe.title,
-      stepLabel,
-      startTimeMs,
-      endTimeMs,
-      key: `${primaryTimer.timer_id}:${primaryTimer.started_at}`,
+      stepNumber: currentStep + 1,
+      totalSteps: recipe.steps.length,
+      timerEndTimeMs,
     });
   }, [
+    currentStep,
     primaryTimer?.timer_id,
     primaryTimer?.started_at,
     primaryTimer?.duration_seconds,
-    currentStep,
     recipe?.steps.length,
     recipe?.title,
   ]);
@@ -207,92 +192,219 @@ export default function CookingModeScreen() {
   }, [showIntro, isLoading, recipe]);
 
   // ============================================
-  // VOICE COMMANDS via native module (safe)
+  // SOUND WAVE ANIMATION
   // ============================================
+  // Wave bars: breathing idle + fast burst when speaking
   useEffect(() => {
-    if (!SpeechRecognition || !isListening) return;
+    if (!isListening) {
+      waveBars.forEach(bar => {
+        bar.stopAnimation();
+        bar.setValue(0.3);
+      });
+      return;
+    }
 
-    const resultSub = SpeechRecognition.addListener('result', (event: any) => {
-      const transcript = event?.results?.[0]?.transcript?.toLowerCase() || '';
-
-      if (transcript.includes('next') || transcript.includes('التالي')) {
-        handleNext();
-        Vibration.vibrate(50);
-      } else if (transcript.includes('back') || transcript.includes('previous') || transcript.includes('السابق')) {
-        handlePrevious();
-        Vibration.vibrate(50);
-      } else if (transcript.includes('repeat') || transcript.includes('اعد')) {
-        speakCurrentStep();
-      } else if (transcript.includes('timer') || transcript.includes('start')) {
-        handleAddTimer();
-        Vibration.vibrate(50);
-      }
-    });
-
-    const endSub = SpeechRecognition.addListener('end', () => {
-      if (listeningRef.current) {
-        setTimeout(() => {
-          try {
-            SpeechRecognition.start({
-              lang: 'en-US',
-              interimResults: false,
-              continuous: true,
-            });
-          } catch {}
-        }, 300);
-      }
-    });
-
-    const errorSub = SpeechRecognition.addListener('error', () => {
-      if (listeningRef.current) {
-        setTimeout(() => {
-          try {
-            SpeechRecognition.start({
-              lang: 'en-US',
-              interimResults: false,
-              continuous: true,
-            });
-          } catch {}
-        }, 1000);
-      }
+    // Smooth breathing animation — each bar on its own rhythm
+    const heights = [0.35, 0.5, 0.65, 0.5, 0.35];
+    waveBars.forEach((bar, i) => {
+      const breathe = () => {
+        if (!listeningRef.current) return;
+        if (isSpeakingRef.current) return;
+        Animated.sequence([
+          Animated.timing(bar, {
+            toValue: heights[i],
+            duration: 700 + i * 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(bar, {
+            toValue: 0.2,
+            duration: 700 + i * 150,
+            useNativeDriver: true,
+          }),
+        ]).start(() => breathe());
+      };
+      setTimeout(breathe, i * 100);
     });
 
     return () => {
-      resultSub.remove();
-      endSub.remove();
-      errorSub.remove();
+      waveBars.forEach(bar => bar.stopAnimation());
     };
-  }, [isListening, currentStep]);
+  }, [isListening]);
+
+  const startWaveBounce = useCallback(() => {
+    waveBars.forEach(bar => bar.stopAnimation());
+    waveBars.forEach((bar, i) => {
+      const bounce = () => {
+        if (!isSpeakingRef.current) return;
+        Animated.sequence([
+          Animated.timing(bar, {
+            toValue: 0.5 + Math.random() * 0.5,
+            duration: 60 + Math.random() * 80,
+            useNativeDriver: true,
+          }),
+          Animated.timing(bar, {
+            toValue: 0.1 + Math.random() * 0.15,
+            duration: 60 + Math.random() * 80,
+            useNativeDriver: true,
+          }),
+        ]).start(() => bounce());
+      };
+      setTimeout(bounce, i * 30);
+    });
+  }, [waveBars]);
+
+  const stopWaveBounce = useCallback(() => {
+    waveBars.forEach(bar => bar.stopAnimation());
+    // Return to breathing idle
+    const heights = [0.35, 0.5, 0.65, 0.5, 0.35];
+    waveBars.forEach((bar, i) => {
+      const breathe = () => {
+        if (!listeningRef.current) return;
+        if (isSpeakingRef.current) return;
+        Animated.sequence([
+          Animated.timing(bar, {
+            toValue: heights[i],
+            duration: 700 + i * 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(bar, {
+            toValue: 0.2,
+            duration: 700 + i * 150,
+            useNativeDriver: true,
+          }),
+        ]).start(() => breathe());
+      };
+      Animated.timing(bar, {
+        toValue: 0.3,
+        duration: 150,
+        useNativeDriver: true,
+      }).start(() => breathe());
+    });
+  }, [waveBars]);
+
+  // ============================================
+  // VOICE COMMANDS (using package hooks)
+  // ============================================
+  useSpeechRecognitionEvent('result', (event: any) => {
+    if (!listeningRef.current) return;
+    const transcript = event?.results?.[0]?.transcript?.toLowerCase()?.trim() || '';
+    if (!transcript) return;
+    console.log('[Voice] Heard:', transcript);
+
+    // Animate wave bars while results are coming in
+    if (!isSpeakingRef.current) {
+      isSpeakingRef.current = true;
+      startWaveBounce();
+    }
+    if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
+    speakingTimeoutRef.current = setTimeout(() => {
+      isSpeakingRef.current = false;
+      stopWaveBounce();
+    }, 500);
+
+    // Split transcript into words and count command occurrences
+    const words = transcript.split(/\s+/);
+    const countMatches = (targets: string[]) =>
+      words.filter(w => targets.some(t => w.includes(t))).length;
+
+    const commands: { key: string; targets: string[]; action: () => void }[] = [
+      { key: 'next', targets: ['next', 'التالي'], action: () => { handleNext(); Vibration.vibrate(50); } },
+      { key: 'back', targets: ['back', 'previous', 'السابق'], action: () => { handlePrevious(); Vibration.vibrate(50); } },
+      { key: 'timer', targets: ['timer'], action: () => { handleAddTimer(); Vibration.vibrate(50); } },
+      { key: 'stop', targets: ['stop', 'أوقف'], action: () => { handleStopTimer(); Vibration.vibrate(50); } },
+    ];
+
+    for (const cmd of commands) {
+      const total = countMatches(cmd.targets);
+      const processed = processedCountsRef.current[cmd.key] || 0;
+      if (total > processed) {
+        console.log(`[Voice] CMD: ${cmd.key} (new: ${total - processed})`);
+        cmd.action();
+        processedCountsRef.current[cmd.key] = total;
+      }
+    }
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    console.log('[Voice] Session ended, listening:', listeningRef.current);
+    if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
+    isSpeakingRef.current = false;
+    stopWaveBounce();
+    processedCountsRef.current = {};
+    if (listeningRef.current && ExpoSpeechRecognitionModule) {
+      setTimeout(() => {
+        try {
+          ExpoSpeechRecognitionModule.start({
+            lang: 'en-US',
+            interimResults: true,
+            continuous: true,
+          });
+        } catch (e) {
+          console.warn('[Voice] Restart failed:', e);
+        }
+      }, 300);
+    }
+  });
+
+  useSpeechRecognitionEvent('error', (event: any) => {
+    console.warn('[Voice] Error:', event?.error || event);
+    processedCountsRef.current = {};
+    if (listeningRef.current && ExpoSpeechRecognitionModule) {
+      setTimeout(() => {
+        try {
+          ExpoSpeechRecognitionModule.start({
+            lang: 'en-US',
+            interimResults: true,
+            continuous: true,
+          });
+        } catch (e) {
+          console.warn('[Voice] Restart after error failed:', e);
+        }
+      }, 1000);
+    }
+  });
 
   const startListening = useCallback(async () => {
-    if (!SpeechRecognition) return;
+    if (!ExpoSpeechRecognitionModule) {
+      console.warn('[Voice] Native module not available');
+      return;
+    }
 
     try {
-      const result = await SpeechRecognition.requestPermissionsAsync();
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      console.log('[Voice] Permission:', result);
       if (!result.granted) {
         Alert.alert('Permission Needed', 'Microphone access is required for voice commands.');
         return;
       }
 
-      SpeechRecognition.start({
-        lang: 'en-US',
-        interimResults: false,
-        continuous: true,
-      });
+      processedCountsRef.current = {};
       listeningRef.current = true;
       setIsListening(true);
-    } catch {
-      // Failed to start
+
+      ExpoSpeechRecognitionModule.start({
+        lang: 'en-US',
+        interimResults: true,
+        continuous: true,
+      });
+      console.log('[Voice] Started listening');
+    } catch (e) {
+      console.error('[Voice] Failed to start:', e);
+      listeningRef.current = false;
+      setIsListening(false);
     }
   }, []);
 
   const stopListening = useCallback(() => {
-    if (!SpeechRecognition) return;
+    if (!ExpoSpeechRecognitionModule) return;
     try {
-      SpeechRecognition.stop();
-    } catch {}
+      ExpoSpeechRecognitionModule.stop();
+    } catch (e) {
+      console.warn('[Voice] Stop failed:', e);
+    }
     listeningRef.current = false;
     setIsListening(false);
+    console.log('[Voice] Stopped');
   }, []);
 
   const loadRecipe = async () => {
@@ -302,18 +414,6 @@ export default function CookingModeScreen() {
       startSession(loadedRecipe);
     }
     setIsLoading(false);
-  };
-
-  const speakCurrentStep = () => {
-    if (!recipe || !isVoiceEnabled) return;
-
-    const step = recipe.steps[currentStep];
-    if (step) {
-      Speech.speak(step.instruction, {
-        language: 'en-US',
-        rate: 0.9,
-      });
-    }
   };
 
   const handleNext = () => {
@@ -327,7 +427,6 @@ export default function CookingModeScreen() {
   };
 
   const handlePrevious = () => {
-    Speech.stop();
     previousStep();
   };
 
@@ -556,8 +655,17 @@ export default function CookingModeScreen() {
         <View style={styles.headerCenter}>
           {isListening ? (
             <Pressable onPress={handleToggleVoiceCommands} style={styles.listeningBadge}>
-              <View style={styles.listeningDot} />
-              <Text style={styles.listeningText}>Listening...</Text>
+              <View style={styles.waveBarsContainer}>
+                {waveBars.map((bar, i) => (
+                  <Animated.View
+                    key={i}
+                    style={[
+                      styles.waveBar,
+                      { transform: [{ scaleY: bar }] },
+                    ]}
+                  />
+                ))}
+              </View>
             </Pressable>
           ) : (
             <Text style={styles.recipeName} numberOfLines={1}>
@@ -634,32 +742,6 @@ export default function CookingModeScreen() {
                         <View style={styles.menuDivider} />
                       </>
                     )}
-
-                    {/* Read Aloud */}
-                    <Pressable
-                      style={styles.menuItem}
-                      onPress={() => {
-                        toggleVoice();
-                        closeMenu();
-                      }}
-                    >
-                      <View style={[styles.menuIconContainer, isVoiceEnabled && styles.menuIconActive]}>
-                        <Ionicons
-                          name={isVoiceEnabled ? 'volume-high' : 'volume-mute'}
-                          size={20}
-                          color={isVoiceEnabled ? '#F2330D' : '#64748B'}
-                        />
-                      </View>
-                      <View style={styles.menuItemText}>
-                        <Text style={styles.menuItemTitle}>Read Aloud</Text>
-                        <Text style={styles.menuItemSubtitle}>
-                          {isVoiceEnabled ? 'Steps read automatically' : 'Read steps out loud'}
-                        </Text>
-                      </View>
-                      <View style={[styles.menuToggle, isVoiceEnabled && styles.menuToggleActive]}>
-                        <View style={[styles.menuToggleKnob, isVoiceEnabled && styles.menuToggleKnobActive]} />
-                      </View>
-                    </Pressable>
 
                     {recipe.source_url && (
                       <>
@@ -856,7 +938,8 @@ export default function CookingModeScreen() {
               <Image
                 source={{ uri: recipe.thumbnail_url }}
                 style={styles.recipeImage}
-                resizeMode="cover"
+                contentFit="cover"
+                transition={300}
               />
               <View style={styles.imageGradient} />
               {recipe.source_url ? (
@@ -879,6 +962,27 @@ export default function CookingModeScreen() {
             </View>
 
             <Text style={styles.stepInstruction}>{step.instruction}</Text>
+
+            {recipe.ingredients?.length > 0 && (() => {
+              const instructionLower = step.instruction.toLowerCase();
+              const matched = recipe.ingredients.filter((ing: any) =>
+                ing.name && instructionLower.includes(ing.name.toLowerCase())
+              );
+              if (matched.length === 0) return null;
+              return (
+                <View style={styles.ingredientsUsedContainer}>
+                  <Text style={styles.ingredientsUsedLabel}>INGREDIENTS</Text>
+                  {matched.map((ing: any, i: number) => (
+                    <View key={i} style={styles.ingredientChip}>
+                      <Ionicons name="leaf-outline" size={13} color="#556B2F" />
+                      <Text style={styles.ingredientChipText}>
+                        {`${ing.amount ?? ''} ${ing.unit ?? ''} ${ing.name}`.trim()}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })()}
 
             {step.temperature && (
               <View style={styles.tipContainer}>
@@ -1032,25 +1136,24 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   listeningBadge: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
     backgroundColor: 'rgba(242, 51, 13, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 20,
   },
-  listeningDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#F2330D',
+  waveBarsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    height: 20,
   },
-  listeningText: {
-    fontSize: 11,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#F2330D',
-    letterSpacing: 0.5,
+  waveBar: {
+    width: 3,
+    height: 20,
+    borderRadius: 1.5,
+    backgroundColor: '#F2330D',
   },
   // Content
   content: {
@@ -1168,6 +1271,39 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     marginBottom: 20,
     paddingRight: 40,
+  },
+  // Ingredients Used
+  ingredientsUsedContainer: {
+    gap: 8,
+    marginBottom: 20,
+    backgroundColor: '#F8F6F5',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#F0E6E2',
+  },
+  ingredientsUsedLabel: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    color: '#9C5749',
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  ingredientChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(85, 107, 47, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(85, 107, 47, 0.15)',
+  },
+  ingredientChipText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: '#556B2F',
   },
   // Tip
   tipContainer: {

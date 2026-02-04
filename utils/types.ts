@@ -85,6 +85,7 @@ export interface Recipe {
   user_notes?: string;
   user_rating?: number;
   user_modifications?: RecipeModification[];
+  original_recipe_id?: string; // ID of the original recipe if this was saved from another user
   
   // AI processing
   transcript?: string;
@@ -94,7 +95,7 @@ export interface Recipe {
   updated_at: string;
 }
 
-export type RecipeSourceType = 'youtube' | 'manual' | 'fridge_scan' | 'tiktok' | 'instagram' | 'website';
+export type RecipeSourceType = 'youtube' | 'manual' | 'fridge_scan' | 'cookbook_scan' | 'tiktok' | 'instagram' | 'website' | 'ai_chef';
 
 export type RecipeDifficulty = 'beginner' | 'intermediate' | 'advanced';
 
@@ -106,6 +107,7 @@ export interface Ingredient {
   notes?: string;
   checked?: boolean;
   is_optional?: boolean;
+  group?: string;
 }
 
 export type IngredientUnit = 
@@ -132,6 +134,8 @@ export interface RecipeStep {
   timer_id?: string;
   image_url?: string;
   completed?: boolean;
+  group?: string;
+  tip?: string;
 }
 
 export interface RecipeModification {
@@ -439,6 +443,8 @@ export interface ConversationParticipant {
   last_read_at?: string;
   joined_at?: string;
   role?: 'admin' | 'member';
+  is_muted?: boolean;
+  muted_at?: string | null;
 }
 
 export interface Message {

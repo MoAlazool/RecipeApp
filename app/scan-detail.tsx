@@ -79,7 +79,7 @@ export default function ScanDetailScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
         <View style={styles.loadingContainer}>
           <ScanSweep />
           <ActivityIndicator size="large" color="#F2330D" />
@@ -91,7 +91,7 @@ export default function ScanDetailScreen() {
 
   if (!scan) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={64} color="#C8B7B2" />
           <Text style={styles.errorTitle}>Scan Not Found</Text>
@@ -115,7 +115,7 @@ export default function ScanDetailScreen() {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable style={styles.headerButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#1C100D" />
         </Pressable>

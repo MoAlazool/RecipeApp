@@ -6,9 +6,9 @@ import {
   RefreshControl,
   TouchableOpacity,
   TextInput,
-  ImageBackground,
   Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Text, Button } from '@rneui/themed';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -172,12 +172,15 @@ export default function RecipesScreen() {
           <Text style={styles.quickTitle}>Scan Fridge</Text>
           <Text style={styles.quickSubtitle}>Cook with what you have</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.quickCard} onPress={scrollToAllRecipes}>
-          <View style={styles.quickIconAccent}>
-            <Ionicons name="bookmark" size={22} color="#F59E0B" />
+        <TouchableOpacity
+          style={styles.quickCard}
+          onPress={() => router.push('/cookbook-scan')}
+        >
+          <View style={[styles.quickIconSecondary, { backgroundColor: 'rgba(242, 51, 13, 0.12)' }]}>
+            <Ionicons name="book" size={22} color="#F2330D" />
           </View>
-          <Text style={styles.quickTitle}>Browse Saved</Text>
-          <Text style={styles.quickSubtitle}>Your personal cookbook</Text>
+          <Text style={styles.quickTitle}>Scan Cookbook</Text>
+          <Text style={styles.quickSubtitle}>Extract from pages</Text>
         </TouchableOpacity>
       </View>
 
@@ -201,11 +204,13 @@ export default function RecipesScreen() {
               onPress={() => router.push(`/recipe/${item.id}`)}
               activeOpacity={0.95}
             >
-              <ImageBackground
-                source={{ uri: item.thumbnail_url || 'https://via.placeholder.com/300x200' }}
-                style={styles.recentImage}
-                imageStyle={styles.recentImageRadius}
-              >
+              <View style={[styles.recentImage, styles.recentImageRadius]}>
+                <Image
+                  source={{ uri: item.thumbnail_url || 'https://via.placeholder.com/300x200' }}
+                  style={StyleSheet.absoluteFillObject}
+                  contentFit="cover"
+                  transition={300}
+                />
                 <View style={styles.recentOverlay} />
                 <TouchableOpacity style={styles.favoriteButton}>
                   <Ionicons
@@ -220,7 +225,7 @@ export default function RecipesScreen() {
                     {item.total_time_minutes || 15} min
                   </Text>
                 </View>
-              </ImageBackground>
+              </View>
               <View style={styles.recentBody}>
                 <View style={styles.recentTags}>
                   {item.difficulty ? (
@@ -586,6 +591,7 @@ const styles = StyleSheet.create({
   recentImage: {
     height: 176,
     justifyContent: 'flex-end',
+    overflow: 'hidden',
   },
   favoriteButton: {
     position: 'absolute',

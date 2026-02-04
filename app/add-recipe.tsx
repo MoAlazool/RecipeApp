@@ -344,7 +344,7 @@ export default function AddRecipeScreen() {
   // Extracted recipe preview
   if (stage === 'extracted' && extractedRecipe) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
         <RecipePreview
           recipe={extractedRecipe}
           onSave={handleSave}

@@ -8,19 +8,43 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useMessagingStore } from '@/stores/messagingStore';
 import { useAuthStore } from '@/stores/authStore';
 import type { Conversation, ConversationParticipant } from '@/utils/types';
 
-// Avatar colors based on user ID
+// ============================================================
+// DESIGN TOKENS — Michelin-Star Luxury
+// ============================================================
+
+const C = {
+  ivory: '#FFFFFF',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+  glass: 'rgba(255, 255, 255, 0.85)',
+  cardBg: 'rgba(26, 21, 16, 0.03)',
+};
+
+const SHADOW_SOFT = {
+  shadowColor: '#1A1510',
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 0.05,
+  shadowRadius: 20,
+  elevation: 6,
+};
+
+// Avatar colors — elegant tones
 const AVATAR_COLORS = [
-  '#F2330D', '#3B82F6', '#22C55E', '#A855F7', '#F59E0B', '#EC4899', '#06B6D4', '#8B5CF6',
+  '#C66E4E', '#D4AF37', '#6B8E23', '#8B6914', '#A67B5B', '#8A8578', '#9B7E6D', '#B5838D',
 ];
 
 const getAvatarColor = (id: string): string => {
@@ -57,8 +81,10 @@ const MemberItem = ({
 }: MemberItemProps) => {
   const avatarColor = getAvatarColor(participant.user_id);
 
-  const handleLongPress = () => {
+  const showOptionsMenu = () => {
     if (!canManage || isCurrentUser) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const options = [];
     if (!isAdmin) {
@@ -75,16 +101,12 @@ const MemberItem = ({
   };
 
   return (
-    <TouchableOpacity
-      style={styles.memberItem}
-      onLongPress={handleLongPress}
-      activeOpacity={canManage && !isCurrentUser ? 0.7 : 1}
-    >
+    <View style={styles.memberItem}>
       <View style={[styles.memberAvatar, { backgroundColor: avatarColor }]}>
         {participant.avatar_url ? (
           <Image source={{ uri: participant.avatar_url }} style={styles.memberAvatarImage} />
         ) : (
-          <Text style={styles.memberAvatarText}>{getInitials(participant.full_name)}</Text>
+          <Text style={styles.memberAvatarText}>{getInitials(participant.full_name || '')}</Text>
         )}
       </View>
       <View style={styles.memberInfo}>
@@ -104,9 +126,15 @@ const MemberItem = ({
         )}
       </View>
       {canManage && !isCurrentUser && (
-        <Ionicons name="ellipsis-vertical" size={18} color="#9C5749" />
+        <Pressable
+          style={({ pressed }) => [styles.memberOptionsButton, pressed && styles.memberOptionsButtonPressed]}
+          onPress={showOptionsMenu}
+          hitSlop={12}
+        >
+          <Ionicons name="ellipsis-vertical" size={20} color={C.muted} />
+        </Pressable>
       )}
-    </TouchableOpacity>
+    </View>
   );
 };
 
@@ -135,29 +163,23 @@ export default function GroupSettingsScreen() {
   // Check if current user is admin
   const isAdmin = conversation?.admin_ids?.includes(user?.id || '') ?? false;
 
-  useEffect(() => {
-    const loadConversation = async () => {
-      if (!groupId) return;
+  // Helper to refresh conversation data
+  const refreshConversation = useCallback(async () => {
+    if (!groupId) return;
+    const conv = await getConversation(groupId);
+    if (conv) {
+      setConversation(conv);
+      setEditName(conv.group_name || '');
+      setEditDescription(conv.group_description || '');
+    }
+  }, [groupId, getConversation]);
 
-      // Try to use currentConversation first
-      if (currentConversation?.id === groupId) {
-        setConversation(currentConversation);
-        setEditName(currentConversation.group_name || '');
-        setEditDescription(currentConversation.group_description || '');
-        return;
-      }
-
-      // Otherwise fetch it
-      const conv = await getConversation(groupId);
-      if (conv) {
-        setConversation(conv);
-        setEditName(conv.group_name || '');
-        setEditDescription(conv.group_description || '');
-      }
-    };
-
-    loadConversation();
-  }, [groupId, currentConversation]);
+  // Reload conversation data whenever screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      refreshConversation();
+    }, [refreshConversation])
+  );
 
   const handleSaveChanges = useCallback(async () => {
     if (!conversation || !isAdmin) return;
@@ -171,20 +193,16 @@ export default function GroupSettingsScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setIsEditing(false);
 
-      // Update local state
-      setConversation(prev => prev ? {
-        ...prev,
-        group_name: editName.trim(),
-        group_description: editDescription.trim(),
-      } : null);
-    } catch (error) {
+      // Refresh to get latest data from server
+      await refreshConversation();
+    } catch (error: any) {
       console.error('Error updating group:', error);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Error', 'Failed to update group info');
+      Alert.alert('Error', error.message || 'Failed to update group info');
     } finally {
       setIsSaving(false);
     }
-  }, [conversation, editName, editDescription, isAdmin, updateGroupInfo]);
+  }, [conversation, editName, editDescription, isAdmin, updateGroupInfo, refreshConversation]);
 
   const handleRemoveMember = useCallback(async (memberId: string, memberName: string) => {
     if (!conversation || !isAdmin) return;
@@ -202,21 +220,17 @@ export default function GroupSettingsScreen() {
               await removeGroupMember(conversation.id, memberId);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-              // Update local state
-              setConversation(prev => prev ? {
-                ...prev,
-                participants: prev.participants.filter(id => id !== memberId),
-                participant_details: prev.participant_details.filter(p => p.user_id !== memberId),
-              } : null);
-            } catch (error) {
+              // Refresh to get latest data from server
+              await refreshConversation();
+            } catch (error: any) {
               console.error('Error removing member:', error);
-              Alert.alert('Error', 'Failed to remove member');
+              Alert.alert('Error', error.message || 'Failed to remove member');
             }
           },
         },
       ]
     );
-  }, [conversation, isAdmin, removeGroupMember]);
+  }, [conversation, isAdmin, removeGroupMember, refreshConversation]);
 
   const handleMakeAdmin = useCallback(async (memberId: string, memberName: string) => {
     if (!conversation || !isAdmin) return;
@@ -233,20 +247,17 @@ export default function GroupSettingsScreen() {
               await makeGroupAdmin(conversation.id, memberId);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-              // Update local state
-              setConversation(prev => prev ? {
-                ...prev,
-                admin_ids: [...(prev.admin_ids || []), memberId],
-              } : null);
-            } catch (error) {
+              // Refresh to get latest data from server
+              await refreshConversation();
+            } catch (error: any) {
               console.error('Error making admin:', error);
-              Alert.alert('Error', 'Failed to make admin');
+              Alert.alert('Error', error.message || 'Failed to make admin');
             }
           },
         },
       ]
     );
-  }, [conversation, isAdmin, makeGroupAdmin]);
+  }, [conversation, isAdmin, makeGroupAdmin, refreshConversation]);
 
   const handleLeaveGroup = useCallback(async () => {
     if (!conversation) return;
@@ -296,7 +307,7 @@ export default function GroupSettingsScreen() {
   if (!conversation) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color="#F2330D" />
+        <ActivityIndicator size="large" color={C.gold} />
       </View>
     );
   }
@@ -304,30 +315,30 @@ export default function GroupSettingsScreen() {
   const avatarColor = getAvatarColor(conversation.id);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} color="#1C100D" />
+          <Ionicons name="chevron-back" size={22} color={C.charcoal} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Group Info</Text>
         {isAdmin && !isEditing && (
-          <TouchableOpacity style={styles.editButton} onPress={() => setIsEditing(true)}>
+          <Pressable style={({ pressed }) => [styles.editButton, pressed && styles.pressed]} onPress={() => setIsEditing(true)}>
             <Text style={styles.editButtonText}>Edit</Text>
-          </TouchableOpacity>
+          </Pressable>
         )}
         {isEditing && (
-          <TouchableOpacity
-            style={styles.editButton}
+          <Pressable
+            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
             onPress={handleSaveChanges}
             disabled={isSaving}
           >
             {isSaving ? (
-              <ActivityIndicator size="small" color="#F2330D" />
+              <ActivityIndicator size="small" color={C.gold} />
             ) : (
               <Text style={styles.editButtonText}>Save</Text>
             )}
-          </TouchableOpacity>
+          </Pressable>
         )}
         {!isAdmin && <View style={styles.editButton} />}
       </View>
@@ -342,7 +353,7 @@ export default function GroupSettingsScreen() {
                 style={styles.groupAvatarImage}
               />
             ) : (
-              <Ionicons name="people" size={48} color="#FFFFFF" />
+              <Ionicons name="people" size={48} color={C.ivory} />
             )}
           </View>
 
@@ -352,7 +363,7 @@ export default function GroupSettingsScreen() {
               value={editName}
               onChangeText={setEditName}
               placeholder="Group name"
-              placeholderTextColor="#C8B7B2"
+              placeholderTextColor={C.muted}
               maxLength={50}
             />
           ) : (
@@ -369,7 +380,7 @@ export default function GroupSettingsScreen() {
               value={editDescription}
               onChangeText={setEditDescription}
               placeholder="Add a group description..."
-              placeholderTextColor="#C8B7B2"
+              placeholderTextColor={C.muted}
               multiline
               maxLength={200}
             />
@@ -383,10 +394,10 @@ export default function GroupSettingsScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Members</Text>
             {isAdmin && (
-              <TouchableOpacity style={styles.addMemberButton} onPress={handleAddMembers}>
-                <Ionicons name="person-add" size={18} color="#F2330D" />
+              <Pressable style={({ pressed }) => [styles.addMemberButton, pressed && styles.pressed]} onPress={handleAddMembers}>
+                <Ionicons name="person-add" size={18} color={C.gold} />
                 <Text style={styles.addMemberText}>Add</Text>
-              </TouchableOpacity>
+              </Pressable>
             )}
           </View>
 
@@ -405,20 +416,20 @@ export default function GroupSettingsScreen() {
 
         {/* Actions */}
         <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.dangerButton}
+          <Pressable
+            style={({ pressed }) => [styles.dangerButton, pressed && styles.dangerButtonPressed]}
             onPress={handleLeaveGroup}
             disabled={isLeaving}
           >
             {isLeaving ? (
-              <ActivityIndicator size="small" color="#F44336" />
+              <ActivityIndicator size="small" color={C.terracotta} />
             ) : (
               <>
-                <Ionicons name="exit-outline" size={20} color="#F44336" />
+                <Ionicons name="exit-outline" size={20} color={C.terracotta} />
                 <Text style={styles.dangerButtonText}>Leave Group</Text>
               </>
             )}
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         <View style={{ height: insets.bottom + 20 }} />
@@ -430,161 +441,192 @@ export default function GroupSettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: C.ivory,
   },
   loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  pressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
+  },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    backgroundColor: C.ivory,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(212, 175, 55, 0.18)',
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: C.cardBg,
   },
   headerTitle: {
     fontSize: 18,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    letterSpacing: -0.3,
   },
   editButton: {
-    width: 60,
-    alignItems: 'flex-end',
-    paddingRight: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: C.cardBg,
   },
   editButtonText: {
-    fontSize: 15,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#F2330D',
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.gold,
   },
   content: {
     flex: 1,
   },
+
+  // Group header
   groupHeader: {
     alignItems: 'center',
-    paddingVertical: 24,
+    paddingVertical: 32,
     paddingHorizontal: 24,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 16,
+    backgroundColor: C.ivory,
+    marginBottom: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.hairline,
   },
   groupAvatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
+    ...SHADOW_SOFT,
   },
   groupAvatarImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
   },
   groupName: {
-    fontSize: 24,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    fontSize: 26,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
+    letterSpacing: -0.5,
   },
   groupNameInput: {
-    fontSize: 24,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    fontSize: 26,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
     borderBottomWidth: 2,
-    borderBottomColor: '#F2330D',
-    paddingBottom: 4,
+    borderBottomColor: C.gold,
+    paddingBottom: 6,
     minWidth: 200,
+    letterSpacing: -0.5,
   },
   groupMemberCount: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
-    marginBottom: 12,
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.muted,
+    marginBottom: 14,
+    letterSpacing: 0.3,
   },
   groupDescription: {
     fontSize: 14,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#6E4A42',
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
   },
   groupDescriptionInput: {
     fontSize: 14,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.charcoal,
     textAlign: 'center',
-    lineHeight: 20,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
-    borderRadius: 8,
-    padding: 12,
+    lineHeight: 22,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+    borderRadius: 16,
+    padding: 16,
     minWidth: 280,
-    minHeight: 60,
-    backgroundColor: '#F8F6F5',
+    minHeight: 70,
+    backgroundColor: C.cardBg,
   },
+
+  // Section
   section: {
-    backgroundColor: '#FFFFFF',
-    marginBottom: 16,
+    backgroundColor: C.ivory,
+    marginBottom: 12,
     paddingVertical: 8,
+    borderTopWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: C.hairline,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#1C100D',
+    fontSize: 18,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    letterSpacing: -0.3,
   },
   addMemberButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
   },
   addMemberText: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#F2330D',
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.gold,
   },
+
+  // Member item
   memberItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
   },
   memberAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 14,
+    ...SHADOW_SOFT,
   },
   memberAvatarImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   memberAvatarText: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    color: C.ivory,
   },
   memberInfo: {
     flex: 1,
@@ -592,43 +634,65 @@ const styles = StyleSheet.create({
   memberNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   memberName: {
     fontSize: 15,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.charcoal,
   },
   memberUsername: {
     fontSize: 13,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
-    marginTop: 1,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+    marginTop: 3,
+  },
+  memberOptionsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.cardBg,
+  },
+  memberOptionsButtonPressed: {
+    backgroundColor: 'rgba(26, 21, 16, 0.08)',
+    transform: [{ scale: 0.95 }],
   },
   adminBadge: {
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   adminBadgeText: {
     fontSize: 10,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#F2330D',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.gold,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
+
+  // Danger button
   dangerButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    marginHorizontal: 16,
+    gap: 10,
+    paddingVertical: 16,
+    marginHorizontal: 20,
+    borderRadius: 28,
+    backgroundColor: 'rgba(198, 110, 78, 0.08)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(198, 110, 78, 0.2)',
+  },
+  dangerButtonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
   dangerButtonText: {
     fontSize: 15,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#F44336',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.terracotta,
   },
 });

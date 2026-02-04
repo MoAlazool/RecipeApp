@@ -64,18 +64,13 @@ import WidgetKit
       let computedHeight: CGFloat? = {
         if let percent = attributes.imageHeightPercent {
           let clamped = min(max(percent, 0), 100) / 100.0
-          // Use the row height as a base. Fallback to default when row height is not measured yet.
           let base = (containerHeight ?? defaultHeight)
           return base * clamped
         } else if let size = attributes.imageHeight {
           return CGFloat(size)
         } else if hasWidthConstraint {
-          // Mimic CSS: when only width is set, keep height automatic to preserve aspect ratio
           return nil
         } else {
-          // Mimic CSS: this works against CSS but provides a better default behavior.
-          // When no width/height is set, use a default size (64pt)
-          // Width will adjust automatically base on aspect ratio
           return defaultHeight
         }
       }()
@@ -88,7 +83,7 @@ import WidgetKit
         } else if let size = attributes.imageWidth {
           return CGFloat(size)
         } else {
-          return nil // Keep aspect fit based on height
+          return nil
         }
       }()
 
@@ -107,7 +102,6 @@ import WidgetKit
             Image.dynamic(assetNameOrPath: imageName).renderingMode(.original).frame(width: computedWidth, height: computedHeight)
           case "scale-down":
             if let uiImage = UIImage.dynamic(assetNameOrPath: imageName) {
-              // Determine the target box. When width/height are nil, we use image's intrinsic dimension for comparison.
               let targetHeight = computedHeight ?? uiImage.size.height
               let targetWidth = computedWidth ?? uiImage.size.width
               let shouldScaleDown = uiImage.size.height > targetHeight || uiImage.size.width > targetWidth
@@ -181,63 +175,70 @@ import WidgetKit
           ?? defaultPadding
       )
 
-      VStack(alignment: .leading) {
-        let position = attributes.imagePosition ?? "right"
-        let isStretch = position.contains("Stretch")
-        let isLeftImage = position.hasPrefix("left")
-        let hasImage = contentState.imageName != nil
-        let effectiveStretch = isStretch && hasImage
+      let parts = (contentState.subtitle ?? "").components(separatedBy: "||")
+      let recipeName = parts.first ?? ""
+      let stepInfo = parts.count > 1 ? parts[1] : ""
+      let nums = stepInfo.components(separatedBy: CharacterSet.decimalDigits.inverted)
+        .compactMap { Int($0) }
+      let step = nums.count > 0 ? nums[0] : 1
+      let total = nums.count > 1 ? nums[1] : 1
 
-        HStack(alignment: .center) {
-          if hasImage, isLeftImage {
-            if let imageName = contentState.imageName {
-              alignedImage(imageName: imageName)
-            }
+      VStack(alignment: .leading, spacing: 16) {
+        // Top row: cooking icon + recipe name + step badge
+        HStack {
+          HStack(spacing: 8) {
+            Text("🧑‍🍳")
+              .font(.system(size: 16))
+            Text(recipeName.uppercased())
+              .font(.system(size: 14, weight: .bold))
+              .foregroundColor(Color(hex: "#9C5749"))
+              .kerning(1)
+              .lineLimit(1)
           }
 
-          VStack(alignment: .leading, spacing: 2) {
-            Text(contentState.title)
-              .font(.title2)
-              .fontWeight(.semibold)
-              .modifier(ConditionalForegroundViewModifier(color: attributes.titleColor))
+          Spacer()
 
-            if let subtitle = contentState.subtitle {
-              Text(subtitle)
-                .font(.title3)
-                .modifier(ConditionalForegroundViewModifier(color: attributes.subtitleColor))
-            }
+          Text("STEP \(step) OF \(total)")
+            .font(.system(size: 15, weight: .heavy, design: .rounded))
+            .foregroundColor(Color(hex: "#F2330D"))
+        }
 
-            if effectiveStretch {
-              if let date = contentState.timerEndDateInMilliseconds {
-                ProgressView(timerInterval: Date.toTimerInterval(miliseconds: date))
-                  .tint(progressViewTint)
-                  .modifier(ConditionalForegroundViewModifier(color: attributes.progressViewLabelColor))
-              } else if let progress = contentState.progress {
-                ProgressView(value: progress)
-                  .tint(progressViewTint)
-                  .modifier(ConditionalForegroundViewModifier(color: attributes.progressViewLabelColor))
-              }
-            }
-          }.layoutPriority(1)
-
-          if hasImage, !isLeftImage { // right side (default)
-            Spacer()
-            if let imageName = contentState.imageName {
-              alignedImage(imageName: imageName)
+        // Step progress bar segments
+        if total > 0 {
+          HStack(spacing: 5) {
+            ForEach(0..<total, id: \.self) { i in
+              Capsule()
+                .fill(i < step
+                  ? Color(hex: "#F2330D")
+                  : Color(hex: "#F2330D").opacity(0.15))
+                .frame(height: 7)
             }
           }
         }
 
-        if !effectiveStretch {
-          if let date = contentState.timerEndDateInMilliseconds {
-            ProgressView(timerInterval: Date.toTimerInterval(miliseconds: date))
-              .tint(progressViewTint)
-              .modifier(ConditionalForegroundViewModifier(color: attributes.progressViewLabelColor))
-          } else if let progress = contentState.progress {
-            ProgressView(value: progress)
-              .tint(progressViewTint)
-              .modifier(ConditionalForegroundViewModifier(color: attributes.progressViewLabelColor))
+        // Timer card (only when active)
+        if let date = contentState.timerEndDateInMilliseconds {
+          HStack(spacing: 0) {
+            // Timer icon
+            Image(systemName: "timer")
+              .font(.system(size: 18, weight: .semibold))
+              .foregroundColor(.white)
+              .padding(.leading, 16)
+
+            Spacer()
+
+            // Countdown
+            Text(timerInterval: Date.toTimerInterval(miliseconds: date))
+              .font(.system(size: 32, weight: .heavy, design: .rounded))
+              .monospacedDigit()
+              .foregroundColor(.white)
+              .padding(.trailing, 16)
           }
+          .frame(height: 56)
+          .background(
+            RoundedRectangle(cornerRadius: 18)
+              .fill(Color(hex: "#F2330D"))
+          )
         }
       }
       .padding(EdgeInsets(top: top, leading: leading, bottom: bottom, trailing: trailing))

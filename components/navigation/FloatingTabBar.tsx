@@ -29,13 +29,12 @@ const BAR_RADIUS = 37;
 // Tab configuration (5 items - includes messages)
 const TAB_CONFIG: Record<string, { label: string; icon: IconName; iconActive: IconName }> = {
   index: { label: 'Recipes', icon: 'book-outline', iconActive: 'book' },
-  'ai-chef': { label: 'AI Chef', icon: 'sparkles-outline', iconActive: 'sparkles' },
   messages: { label: 'Messages', icon: 'chatbubble-outline', iconActive: 'chatbubble' },
   shopping: { label: 'Shopping', icon: 'cart-outline', iconActive: 'cart' },
   profile: { label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 };
 
-const TAB_ORDER = ['index', 'ai-chef', 'messages', 'shopping', 'profile'];
+const TAB_ORDER = ['index', 'messages', 'shopping', 'profile'];
 
 interface FloatingTabBarProps extends BottomTabBarProps {
   primaryColor?: string;

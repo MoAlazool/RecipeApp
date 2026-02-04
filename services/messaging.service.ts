@@ -9,6 +9,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   writeBatch,
   query,
   where,
@@ -43,6 +44,9 @@ const firebaseConfig = {
 
 class MessagingService {
   private db: Firestore;
+  // Cache user profiles for faster loading (5 minute TTL)
+  private profileCache: Map<string, { profile: { full_name?: string; username?: string; avatar_url?: string }; timestamp: number }> = new Map();
+  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   constructor() {
     // Use existing Firebase app or initialize new one
@@ -128,12 +132,13 @@ class MessagingService {
    * Enrich conversations with user profile data
    */
   private async enrichConversationsWithProfiles(conversations: Conversation[]): Promise<Conversation[]> {
-    // Collect all unique user IDs that need profile data
+    // Only fetch profiles for users missing avatar_url (use cache for speed)
     const userIdsNeedingProfiles = new Set<string>();
 
     for (const conv of conversations) {
       for (const participant of conv.participant_details) {
-        if (!participant.full_name) {
+        // Fetch if missing name OR avatar
+        if (!participant.full_name || !participant.avatar_url) {
           userIdsNeedingProfiles.add(participant.user_id);
         }
       }
@@ -143,7 +148,7 @@ class MessagingService {
       return conversations;
     }
 
-    // Fetch all needed profiles
+    // Fetch profiles in parallel (uses cache internally)
     const profilePromises = Array.from(userIdsNeedingProfiles).map(async (userId) => {
       const profile = await this.getUserProfileData(userId);
       return { userId, profile };
@@ -156,16 +161,14 @@ class MessagingService {
     return conversations.map(conv => ({
       ...conv,
       participant_details: conv.participant_details.map(participant => {
-        if (!participant.full_name) {
-          const profile = profileMap.get(participant.user_id);
-          if (profile) {
-            return {
-              ...participant,
-              full_name: profile.full_name,
-              username: profile.username,
-              avatar_url: profile.avatar_url,
-            };
-          }
+        const profile = profileMap.get(participant.user_id);
+        if (profile) {
+          return {
+            ...participant,
+            full_name: profile.full_name || participant.full_name,
+            username: profile.username || participant.username,
+            avatar_url: profile.avatar_url || participant.avatar_url,
+          };
         }
         return participant;
       }),
@@ -207,28 +210,49 @@ class MessagingService {
   }
 
   /**
-   * Fetch user profile data for participant details
+   * Fetch user profile data for participant details (with caching)
    */
   private async getUserProfileData(userId: string): Promise<{
     full_name?: string;
     username?: string;
     avatar_url?: string;
   }> {
+    // Check cache first
+    const cached = this.profileCache.get(userId);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.profile;
+    }
+
     try {
       const userRef = doc(this.db, 'users', userId);
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         const data = userSnap.data();
-        return {
+        const profile = {
           full_name: data.full_name,
           username: data.username,
-          avatar_url: data.avatar_url,
+          // Check both avatar_url and photoURL (Firebase Auth default field)
+          avatar_url: data.avatar_url || data.photoURL,
         };
+        // Cache the result
+        this.profileCache.set(userId, { profile, timestamp: Date.now() });
+        return profile;
       }
     } catch (error) {
       console.error('[Messaging] Error fetching user profile:', error);
     }
     return {};
+  }
+
+  /**
+   * Clear profile cache (call when user updates their profile)
+   */
+  clearProfileCache(userId?: string) {
+    if (userId) {
+      this.profileCache.delete(userId);
+    } else {
+      this.profileCache.clear();
+    }
   }
 
   async getOrCreateConversation(otherUserId: string): Promise<Conversation> {
@@ -411,11 +435,24 @@ class MessagingService {
         throw new Error('Only admins can update group info');
       }
 
-      const conversationRef = doc(this.db, 'conversations', conversationId);
-      await updateDoc(conversationRef, {
-        ...updates,
+      // Build update object, filtering out undefined values (Firestore doesn't allow undefined)
+      const updateData: Record<string, any> = {
         updated_at: new Date().toISOString(),
-      });
+      };
+
+      if (updates.group_name !== undefined) {
+        updateData.group_name = updates.group_name;
+      }
+      if (updates.group_description !== undefined) {
+        // Use empty string or the actual value, but never undefined
+        updateData.group_description = updates.group_description || '';
+      }
+      if (updates.group_avatar_url !== undefined) {
+        updateData.group_avatar_url = updates.group_avatar_url;
+      }
+
+      const conversationRef = doc(this.db, 'conversations', conversationId);
+      await updateDoc(conversationRef, updateData);
 
       // Send system message about update
       if (updates.group_name) {
@@ -527,8 +564,10 @@ class MessagingService {
       );
       const updatedAdminIds = conversation.admin_ids?.filter(id => id !== memberIdToRemove) || [];
 
-      if (updatedParticipants.length < 2) {
-        throw new Error('A group must have at least 2 members');
+      // If no members left, delete the group entirely
+      if (updatedParticipants.length === 0) {
+        await this.deleteConversation(conversationId);
+        return;
       }
 
       const conversationRef = doc(this.db, 'conversations', conversationId);
@@ -902,6 +941,65 @@ class MessagingService {
     });
   }
 
+  /**
+   * Delete a message (only the sender can delete their own messages)
+   */
+  async deleteMessage(conversationId: string, messageId: string): Promise<void> {
+    try {
+      const userId = this.requireAuth();
+
+      // Get the message to verify ownership
+      const messageRef = doc(this.db, 'conversations', conversationId, 'messages', messageId);
+      const messageSnap = await getDoc(messageRef);
+
+      if (!messageSnap.exists()) {
+        throw new Error('Message not found');
+      }
+
+      const messageData = messageSnap.data() as Message;
+
+      // Only the sender can delete their own message
+      if (messageData.sender_id !== userId) {
+        throw new Error('You can only delete your own messages');
+      }
+
+      // Delete the message
+      await deleteDoc(messageRef);
+
+      // If this was the last message, update conversation's last_message
+      const messagesRef = collection(this.db, 'conversations', conversationId, 'messages');
+      const q = query(messagesRef, orderBy('created_at', 'desc'), firestoreLimit(1));
+      const latestMessageSnap = await getDocs(q);
+
+      const conversationRef = doc(this.db, 'conversations', conversationId);
+
+      if (latestMessageSnap.empty) {
+        // No more messages, clear last_message
+        await updateDoc(conversationRef, {
+          last_message: null,
+          last_message_at: null,
+          last_message_sender_id: null,
+          updated_at: new Date().toISOString(),
+        });
+      } else {
+        // Update to the new last message
+        const latestMessage = latestMessageSnap.docs[0].data() as Message;
+        await updateDoc(conversationRef, {
+          last_message: latestMessage.message_type === 'recipe'
+            ? `Shared a recipe: ${latestMessage.recipe_data?.title}`
+            : latestMessage.content,
+          last_message_at: latestMessage.created_at,
+          last_message_sender_id: latestMessage.sender_id,
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      console.log('[Messaging] Message deleted:', messageId);
+    } catch (error) {
+      this.handleError(error);
+    }
+  }
+
   async markAsRead(conversationId: string, messageIds?: string[]): Promise<void> {
     try {
       const userId = this.requireAuth();
@@ -937,6 +1035,75 @@ class MessagingService {
       }
     } catch (error) {
       this.handleError(error);
+    }
+  }
+
+  // ============================================
+  // MUTE NOTIFICATIONS
+  // ============================================
+
+  /**
+   * Toggle mute status for a conversation
+   */
+  async toggleMuteConversation(conversationId: string): Promise<boolean> {
+    try {
+      const userId = this.requireAuth();
+      const conversation = await this.getConversation(conversationId);
+
+      if (!conversation) {
+        throw new Error('Conversation not found');
+      }
+
+      // Check if user is a participant
+      if (!conversation.participants.includes(userId)) {
+        throw new Error('You are not a member of this conversation');
+      }
+
+      const now = new Date().toISOString();
+
+      // Find current mute status and toggle it
+      const updatedParticipants = conversation.participant_details.map(p => {
+        if (p.user_id === userId) {
+          const newMutedStatus = !p.is_muted;
+          return {
+            ...p,
+            is_muted: newMutedStatus,
+            muted_at: newMutedStatus ? now : null,
+          };
+        }
+        return p;
+      });
+
+      const conversationRef = doc(this.db, 'conversations', conversationId);
+      await updateDoc(conversationRef, {
+        participant_details: updatedParticipants,
+        updated_at: now,
+      });
+
+      // Return the new muted status
+      const currentUser = updatedParticipants.find(p => p.user_id === userId);
+      return currentUser?.is_muted ?? false;
+    } catch (error) {
+      this.handleError(error);
+    }
+  }
+
+  /**
+   * Check if current user has muted a conversation
+   */
+  async isConversationMuted(conversationId: string): Promise<boolean> {
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) return false;
+
+      const conversation = await this.getConversation(conversationId);
+      if (!conversation) return false;
+
+      const participant = conversation.participant_details.find(p => p.user_id === userId);
+      return participant?.is_muted ?? false;
+    } catch (error) {
+      console.error('[Messaging] Error checking mute status:', error);
+      return false;
     }
   }
 

@@ -9,52 +9,63 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Pressable,
 } from 'react-native';
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
-import { useShoppingStore, COMMON_INGREDIENTS, CATEGORY_ICONS } from '@/stores/shoppingStore';
-import type { IngredientCategory, IngredientUnit } from '@/utils/types';
+import { Image as ExpoImage } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useShoppingStore, COMMON_INGREDIENTS } from '@/stores/shoppingStore';
+import type { IngredientUnit } from '@/utils/types';
+import { getIngredientImage } from '@/utils/ingredientImages';
+import { getIngredientEmoji, CATEGORY_BG_COLORS } from '@/utils/ingredientEmojis';
+
+// ============================================================
+// DESIGN TOKENS — Matching Shopping List
+// ============================================================
+
+const C = {
+  ivory: '#FFFFFF',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.08)',
+  cardBg: '#F5F3EE',
+  background: '#FAFAF8',
+};
 
 interface AddItemModalProps {
   visible: boolean;
   onClose: () => void;
 }
 
-const CATEGORIES: { key: IngredientCategory; label: string }[] = [
-  { key: 'produce', label: 'Produce' },
-  { key: 'meat', label: 'Meat' },
-  { key: 'dairy', label: 'Dairy' },
-  { key: 'pantry', label: 'Pantry' },
-  { key: 'spices', label: 'Spices' },
-  { key: 'frozen', label: 'Frozen' },
-  { key: 'beverage', label: 'Drinks' },
-  { key: 'condiment', label: 'Condiments' },
-  { key: 'other', label: 'Other' },
-];
-
-const UNIT_OPTIONS: { label: string; value?: IngredientUnit }[] = [
-  { label: 'None' },
+const UNITS: { label: string; value?: IngredientUnit }[] = [
+  { label: '—' },
   { label: 'pcs', value: 'piece' },
   { label: 'kg', value: 'kg' },
   { label: 'g', value: 'g' },
-  { label: 'lb', value: 'lb' },
-  { label: 'oz', value: 'oz' },
-  { label: 'L', value: 'l' },
-  { label: 'ml', value: 'ml' },
   { label: 'cup', value: 'cup' },
   { label: 'tbsp', value: 'tbsp' },
   { label: 'tsp', value: 'tsp' },
+  { label: 'ml', value: 'ml' },
 ];
 
+// Get visual for ingredient
+const getVisual = (name: string, category?: string) => {
+  const image = getIngredientImage(name);
+  const emoji = getIngredientEmoji(name);
+  const bgColor = category ? (CATEGORY_BG_COLORS[category] || C.cardBg) : C.cardBg;
+  return { image, emoji, bgColor };
+};
+
 export function AddItemModal({ visible, onClose }: AddItemModalProps) {
+  const insets = useSafeAreaInsets();
   const { addItem } = useShoppingStore();
 
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [unit, setUnit] = useState<IngredientUnit | undefined>(undefined);
-  const [category, setCategory] = useState<IngredientCategory>('other');
-  const [isUrgent, setIsUrgent] = useState(false);
-  const [notes, setNotes] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(true);
 
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -76,256 +87,139 @@ export function AddItemModal({ visible, onClose }: AddItemModalProps) {
 
   const handleAdd = () => {
     if (!name.trim()) return;
-
     addItem({
       name: name.trim(),
       amount: amount ? parseFloat(amount) : undefined,
       unit,
-      category,
-      is_urgent: isUrgent,
-      notes: notes.trim() || undefined,
+      category: 'other',
     });
-
-    // Reset form
-    setName('');
-    setAmount('');
-    setUnit(undefined);
-    setCategory('other');
-    setIsUrgent(false);
-    setNotes('');
-    setShowSuggestions(true);
-
+    resetForm();
     onClose();
   };
 
-  const handleQuickAdd = (ingredient: { name: string; category: IngredientCategory }) => {
-    addItem({
-      name: ingredient.name,
-      category: ingredient.category,
-    });
+  const resetForm = () => {
+    setName('');
+    setAmount('');
+    setUnit(undefined);
+    setShowSuggestions(true);
   };
 
   const filteredSuggestions = COMMON_INGREDIENTS.filter(
     (ing) => name && ing.name.toLowerCase().includes(name.toLowerCase())
-  ).slice(0, 5);
+  ).slice(0, 4);
 
   return (
-    <Modal
-      visible={visible}
-      animationType="fade"
-      transparent
-      onRequestClose={onClose}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.overlay}
-      >
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.overlay}>
         <TouchableOpacity style={styles.backdrop} onPress={onClose} activeOpacity={1} />
 
         <Animated.View
           style={[
             styles.container,
-            {
-              transform: [
-                {
-                  translateY: slideAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [300, 0],
-                  }),
-                },
-              ],
-            },
+            { paddingBottom: insets.bottom + 20 },
+            { transform: [{ translateY: slideAnim.interpolate({ inputRange: [0, 1], outputRange: [400, 0] }) }] },
           ]}
         >
+          {/* Handle */}
+          <View style={styles.handle} />
+
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Add Item</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#9C5749" />
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={20} color={C.muted} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-            {/* Item Name Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Item Name</Text>
-              <View style={styles.nameInputContainer}>
-                <TextInput
-                  ref={inputRef}
-                  style={styles.nameInput}
-                  placeholder="What do you need?"
-                  value={name}
-                  onChangeText={(text) => {
-                    setName(text);
-                    setShowSuggestions(true);
-                  }}
-                  placeholderTextColor="#C8B7B2"
-                />
-                {isUrgent && (
-                  <View style={styles.urgentBadge}>
-                    <Ionicons name="alert-circle" size={16} color="#F2330D" />
-                  </View>
-                )}
-              </View>
-
-              {/* Autocomplete Suggestions */}
-              {showSuggestions && filteredSuggestions.length > 0 && (
-                <View style={styles.suggestions}>
-                  {filteredSuggestions.map((suggestion) => (
-                    <TouchableOpacity
-                      key={suggestion.name}
-                      style={styles.suggestionItem}
-                      onPress={() => {
-                        setName(suggestion.name);
-                        setCategory(suggestion.category);
-                        setShowSuggestions(false);
-                      }}
-                    >
-                      <Ionicons
-                        name={CATEGORY_ICONS[suggestion.category] as any}
-                        size={16}
-                        color="#9C5749"
-                      />
-                      <Text style={styles.suggestionText}>{suggestion.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {/* Name Input */}
+            <View style={styles.inputContainer}>
+              <TextInput
+                ref={inputRef}
+                style={styles.mainInput}
+                placeholder="What do you need?"
+                placeholderTextColor={C.muted}
+                value={name}
+                onChangeText={(text) => { setName(text); setShowSuggestions(true); }}
+              />
             </View>
 
-            {/* Amount & Unit Row */}
-            <View style={styles.row}>
-              <View style={[styles.inputGroup, { flex: 1, marginRight: 12 }]}>
-                <Text style={styles.label}>Amount</Text>
+            {/* Suggestions */}
+            {showSuggestions && filteredSuggestions.length > 0 && (
+              <View style={styles.suggestions}>
+                {filteredSuggestions.map((s, index) => {
+                  const { image, emoji, bgColor } = getVisual(s.name, s.category);
+                  return (
+                    <Pressable
+                      key={s.name}
+                      style={[
+                        styles.suggestionItem,
+                        index === filteredSuggestions.length - 1 && { borderBottomWidth: 0 },
+                      ]}
+                      onPress={() => { setName(s.name); setShowSuggestions(false); }}
+                    >
+                      <View style={[styles.suggestionThumb, !image && { backgroundColor: bgColor }]}>
+                        {image ? (
+                          <ExpoImage source={image} style={styles.suggestionImage} contentFit="cover" />
+                        ) : (
+                          <Text style={styles.suggestionEmoji}>{emoji}</Text>
+                        )}
+                      </View>
+                      <Text style={styles.suggestionText}>{s.name}</Text>
+                      <Ionicons name="chevron-forward" size={16} color={C.muted} />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Quantity Row */}
+            <View style={styles.quantitySection}>
+              <Text style={styles.sectionLabel}>Quantity (optional)</Text>
+              <View style={styles.quantityRow}>
                 <TextInput
-                  style={styles.input}
+                  style={styles.amountInput}
                   placeholder="1"
+                  placeholderTextColor={C.muted}
                   value={amount}
                   onChangeText={setAmount}
                   keyboardType="decimal-pad"
-                  placeholderTextColor="#C8B7B2"
                 />
-              </View>
-
-              <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.label}>Unit</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   style={styles.unitScroll}
+                  contentContainerStyle={styles.unitScrollContent}
                 >
-                  {UNIT_OPTIONS.map((option) => (
-                    <TouchableOpacity
-                      key={option.label}
-                      style={[styles.unitChip, unit === option.value && styles.unitChipSelected]}
-                      onPress={() => setUnit(option.value)}
+                  {UNITS.map((u) => (
+                    <Pressable
+                      key={u.label}
+                      style={[styles.unitChip, unit === u.value && styles.unitChipActive]}
+                      onPress={() => setUnit(u.value)}
                     >
-                      <Text
-                        style={[styles.unitText, unit === option.value && styles.unitTextSelected]}
-                      >
-                        {option.label}
+                      <Text style={[styles.unitText, unit === u.value && styles.unitTextActive]}>
+                        {u.label}
                       </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   ))}
                 </ScrollView>
               </View>
             </View>
-
-            {/* Category Selection */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Category</Text>
-              <View style={styles.categoryGrid}>
-                {CATEGORIES.map((cat) => (
-                  <TouchableOpacity
-                    key={cat.key}
-                    style={[
-                      styles.categoryChip,
-                      category === cat.key && styles.categoryChipSelected,
-                    ]}
-                    onPress={() => setCategory(cat.key)}
-                  >
-                    <Ionicons
-                      name={CATEGORY_ICONS[cat.key] as any}
-                      size={18}
-                      color={category === cat.key ? '#FFFFFF' : '#9C5749'}
-                    />
-                    <Text
-                      style={[
-                        styles.categoryText,
-                        category === cat.key && styles.categoryTextSelected,
-                      ]}
-                    >
-                      {cat.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Options Row */}
-            <View style={styles.optionsRow}>
-              <TouchableOpacity
-                style={[styles.optionButton, isUrgent && styles.optionButtonActive]}
-                onPress={() => setIsUrgent(!isUrgent)}
-              >
-                <Ionicons
-                  name="alert-circle"
-                  size={20}
-                  color={isUrgent ? '#F2330D' : '#9C5749'}
-                />
-                <Text style={[styles.optionText, isUrgent && styles.optionTextActive]}>
-                  Urgent
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Notes */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Notes (optional)</Text>
-              <TextInput
-                style={[styles.input, styles.notesInput]}
-                placeholder="Brand preference, specific type, etc."
-                value={notes}
-                onChangeText={setNotes}
-                multiline
-                numberOfLines={2}
-                placeholderTextColor="#C8B7B2"
-              />
-            </View>
-
-            {/* Quick Add Section */}
-            <View style={styles.quickAddSection}>
-              <Text style={styles.quickAddTitle}>Quick Add</Text>
-              <View style={styles.quickAddGrid}>
-                {COMMON_INGREDIENTS.slice(0, 8).map((ing) => (
-                  <TouchableOpacity
-                    key={ing.name}
-                    style={styles.quickAddChip}
-                    onPress={() => handleQuickAdd(ing)}
-                  >
-                    <Ionicons
-                      name={CATEGORY_ICONS[ing.category] as any}
-                      size={14}
-                      color="#9C5749"
-                    />
-                    <Text style={styles.quickAddText}>{ing.name}</Text>
-                    <Ionicons name="add" size={14} color="#F2330D" />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
           </ScrollView>
 
-          {/* Add Button */}
+          {/* Footer */}
           <View style={styles.footer}>
-            <TouchableOpacity
-              style={[styles.addButton, !name.trim() && styles.addButtonDisabled]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.addBtn,
+                !name.trim() && styles.addBtnDisabled,
+                pressed && name.trim() && { transform: [{ scale: 0.98 }], opacity: 0.9 },
+              ]}
               onPress={handleAdd}
               disabled={!name.trim()}
             >
-              <Ionicons name="add" size={22} color="#FFFFFF" />
-              <Text style={styles.addButtonText}>Add to List</Text>
-            </TouchableOpacity>
+              <Text style={styles.addBtnText}>Add to List</Text>
+            </Pressable>
           </View>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -340,222 +234,172 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(28, 16, 13, 0.5)',
+    backgroundColor: 'rgba(26, 21, 16, 0.4)',
   },
   container: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '90%',
+    backgroundColor: C.ivory,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
   },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(26, 21, 16, 0.12)',
+    alignSelf: 'center',
+    marginTop: 12,
+  },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingHorizontal: 24,
+    paddingTop: 16,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F7F1EE',
   },
   title: {
-    fontSize: 20,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    fontSize: 22,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
   },
-  closeButton: {
-    padding: 4,
-  },
-  content: {
-    padding: 20,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#1C100D',
-    marginBottom: 8,
-  },
-  nameInputContainer: {
-    flexDirection: 'row',
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: C.cardBg,
     alignItems: 'center',
-    backgroundColor: '#F7F1EE',
-    borderRadius: 12,
+    justifyContent: 'center',
+  },
+
+  // Content
+  content: {
+    paddingHorizontal: 24,
+  },
+
+  // Main Input
+  inputContainer: {
+    marginBottom: 12,
+  },
+  mainInput: {
+    fontSize: 17,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.charcoal,
+    backgroundColor: C.cardBg,
+    borderRadius: 14,
     paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  nameInput: {
-    flex: 1,
-    height: 52,
-    fontSize: 16,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
-  },
-  urgentBadge: {
-    marginLeft: 8,
-  },
+
+  // Suggestions
   suggestions: {
-    marginTop: 8,
-    backgroundColor: '#F7F1EE',
-    borderRadius: 12,
+    marginBottom: 16,
+    backgroundColor: C.cardBg,
+    borderRadius: 14,
     overflow: 'hidden',
   },
   suggestionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    gap: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E8D3CE',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.hairline,
+  },
+  suggestionThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  suggestionImage: {
+    width: '100%',
+    height: '100%',
+  },
+  suggestionEmoji: {
+    fontSize: 18,
   },
   suggestionText: {
+    flex: 1,
     fontSize: 15,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.charcoal,
   },
-  row: {
+
+  // Quantity
+  quantitySection: {
+    marginBottom: 20,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.muted,
+    marginBottom: 10,
+  },
+  quantityRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
-  input: {
-    backgroundColor: '#F7F1EE',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 52,
+  amountInput: {
+    width: 64,
     fontSize: 16,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.charcoal,
+    backgroundColor: C.cardBg,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    textAlign: 'center',
   },
   unitScroll: {
-    maxHeight: 44,
+    flex: 1,
+  },
+  unitScrollContent: {
+    gap: 8,
   },
   unitChip: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#F7F1EE',
-    marginRight: 8,
+    backgroundColor: C.cardBg,
   },
-  unitChipSelected: {
-    backgroundColor: '#F2330D',
+  unitChipActive: {
+    backgroundColor: C.charcoal,
   },
   unitText: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
-  },
-  unitTextSelected: {
-    color: '#FFFFFF',
-  },
-  categoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  categoryChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: '#F7F1EE',
-  },
-  categoryChipSelected: {
-    backgroundColor: '#F2330D',
-  },
-  categoryText: {
     fontSize: 13,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.muted,
   },
-  categoryTextSelected: {
-    color: '#FFFFFF',
+  unitTextActive: {
+    color: C.ivory,
   },
-  optionsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  optionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#F7F1EE',
-  },
-  optionButtonActive: {
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
-  },
-  optionText: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
-  },
-  optionTextActive: {
-    color: '#F2330D',
-  },
-  notesInput: {
-    height: 80,
-    textAlignVertical: 'top',
-    paddingTop: 14,
-  },
-  quickAddSection: {
-    marginTop: 8,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#F7F1EE',
-  },
-  quickAddTitle: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#9C5749',
-    marginBottom: 12,
-  },
-  quickAddGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  quickAddChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#F7F1EE',
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
-  },
-  quickAddText: {
-    fontSize: 13,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
-  },
+
+  // Footer
   footer: {
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    borderTopWidth: 1,
-    borderTopColor: '#F7F1EE',
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.hairline,
   },
-  addButton: {
-    flexDirection: 'row',
+  addBtn: {
+    backgroundColor: C.terracotta,
+    borderRadius: 20,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#F2330D',
-    borderRadius: 14,
-    height: 56,
   },
-  addButtonDisabled: {
-    backgroundColor: 'rgba(242, 51, 13, 0.4)',
+  addBtnDisabled: {
+    backgroundColor: 'rgba(198, 110, 78, 0.35)',
   },
-  addButtonText: {
-    fontSize: 16,
+  addBtnText: {
+    fontSize: 15,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    color: C.ivory,
   },
 });

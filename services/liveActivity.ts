@@ -48,6 +48,52 @@ let activeKey: string | null = null;
 let lastState: LiveActivityState | null = null;
 
 export const LiveActivity = {
+  async startCooking(params: {
+    stepInstruction: string;
+    recipeName: string;
+    stepNumber: number;
+    totalSteps: number;
+    timerEndTimeMs?: number;
+  }): Promise<boolean> {
+    if (!isSupported()) return false;
+
+    const stepLabel = `STEP ${params.stepNumber} OF ${params.totalSteps}`;
+    const state: any = {
+      title: params.stepInstruction,
+      subtitle: buildSubtitle(params.recipeName, stepLabel),
+      progress: params.stepNumber / params.totalSteps,
+    };
+
+    if (params.timerEndTimeMs) {
+      state.progressBar = { date: params.timerEndTimeMs };
+    }
+
+    lastState = state;
+
+    if (activeActivityId) {
+      try {
+        await LiveActivityModule.updateActivity(activeActivityId, state);
+        return true;
+      } catch {
+        // Fall through to start new activity
+      }
+    }
+
+    try {
+      const activityId = LiveActivityModule.startActivity(state, TIMER_CONFIG);
+      if (activityId) {
+        activeActivityId = activityId;
+        activeKey = 'cooking';
+        return true;
+      }
+      return false;
+    } catch {
+      activeActivityId = null;
+      activeKey = null;
+      return false;
+    }
+  },
+
   async startTimer(params: {
     label: string;
     recipeName?: string;

@@ -19,7 +19,6 @@ export default function TabLayout() {
       )}
     >
       <Tabs.Screen name="index" />
-      <Tabs.Screen name="ai-chef" />
       <Tabs.Screen name="messages" />
       <Tabs.Screen name="shopping" />
       <Tabs.Screen name="profile" />

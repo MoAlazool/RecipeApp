@@ -7,21 +7,52 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Image,
   Pressable,
   ActivityIndicator,
   Alert,
-  ActionSheetIOS,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { BlurView } from 'expo-blur';
+import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
+import {
+  Menu,
+  MenuOptions,
+  MenuOption,
+  MenuTrigger,
+  renderers,
+} from 'react-native-popup-menu';
 import { useMessagingStore } from '@/stores/messagingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { firebaseService } from '@/services/firebase.service';
 import type { Message, Conversation, ConversationParticipant } from '@/utils/types';
+
+// ============================================================
+// DESIGN TOKENS — Michelin-Star Luxury
+// ============================================================
+
+const C = {
+  ivory: '#FFFFFF',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+  glass: 'rgba(255, 255, 255, 0.85)',
+  cardBg: 'rgba(26, 21, 16, 0.03)',
+};
+
+const SHADOW_SOFT = {
+  shadowColor: '#1A1510',
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 0.05,
+  shadowRadius: 20,
+  elevation: 6,
+};
 
 // Format time for messages
 const formatMessageTime = (dateString: string): string => {
@@ -62,9 +93,9 @@ const getInitials = (name?: string): string => {
     .slice(0, 2);
 };
 
-// Avatar colors based on user ID
+// Avatar colors based on user ID — elegant tones
 const AVATAR_COLORS = [
-  '#F2330D', '#3B82F6', '#22C55E', '#A855F7', '#F59E0B', '#EC4899', '#06B6D4', '#8B5CF6',
+  '#C66E4E', '#D4AF37', '#6B8E23', '#8B6914', '#A67B5B', '#8A8578', '#9B7E6D', '#B5838D',
 ];
 
 const getAvatarColor = (userId: string): string => {
@@ -77,12 +108,88 @@ interface MessageBubbleProps {
   isOwn: boolean;
   showAvatar: boolean;
   senderName?: string;
+  senderAvatar?: string;
   isGroup?: boolean;
   onRecipePress?: (recipeId: string) => void;
+  onDeletePress?: (messageId: string) => void;
 }
 
-const MessageBubble = ({ message, isOwn, showAvatar, senderName, isGroup, onRecipePress }: MessageBubbleProps) => {
+// Fix Firebase Storage URLs - ensure path is properly encoded
+const fixFirebaseStorageUrl = (url: string | undefined): string | undefined => {
+  if (!url) return undefined;
+
+  // Check if it's a Firebase Storage URL that needs fixing
+  if (url.includes('firebasestorage.googleapis.com/v0/b/') && url.includes('/o/')) {
+    try {
+      // Extract parts of the URL
+      const questionIndex = url.indexOf('?');
+      const baseAndPath = questionIndex > -1 ? url.substring(0, questionIndex) : url;
+      const queryString = questionIndex > -1 ? url.substring(questionIndex + 1) : '';
+      const oIndex = baseAndPath.indexOf('/o/');
+
+      if (oIndex !== -1) {
+        const base = baseAndPath.substring(0, oIndex + 3); // includes '/o/'
+        let path = baseAndPath.substring(oIndex + 3);
+
+        // Check if path contains unencoded slashes (needs encoding)
+        if (path.includes('/')) {
+          // Decode first (in case of partial encoding), then re-encode
+          try {
+            path = decodeURIComponent(path);
+          } catch {
+            // Already decoded or invalid, use as-is
+          }
+          path = encodeURIComponent(path);
+        }
+
+        const fixedUrl = `${base}${path}${queryString ? '?' + queryString : ''}`;
+        return fixedUrl;
+      }
+    } catch (e) {
+      // URL fixing failed, return original
+    }
+  }
+
+  return url;
+};
+
+const MessageBubble = ({ message, isOwn, showAvatar, senderName, senderAvatar, isGroup, onRecipePress, onDeletePress }: MessageBubbleProps) => {
   const avatarColor = getAvatarColor(message.sender_id);
+  const [imageError, setImageError] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
+
+  const handleLongPress = () => {
+    if (!isOwn) return; // Only allow deleting own messages
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Delete Message'],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: 1,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            onDeletePress?.(message.id);
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        'Delete Message',
+        'Are you sure you want to delete this message?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => onDeletePress?.(message.id),
+          },
+        ]
+      );
+    }
+  };
 
   // System message (for group events)
   if (message.message_type === 'system') {
@@ -98,11 +205,11 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, isGroup, onReci
     const getDifficultyConfig = (difficulty?: string) => {
       switch (difficulty) {
         case 'beginner':
-          return { label: 'Easy', color: '#22C55E', bg: 'rgba(34, 197, 94, 0.1)' };
+          return { label: 'Easy', color: '#6B8E23', bg: 'rgba(107, 142, 35, 0.1)' };
         case 'intermediate':
-          return { label: 'Medium', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.1)' };
+          return { label: 'Medium', color: C.gold, bg: 'rgba(212, 175, 55, 0.1)' };
         case 'advanced':
-          return { label: 'Hard', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.1)' };
+          return { label: 'Hard', color: C.terracotta, bg: 'rgba(198, 110, 78, 0.1)' };
         default:
           return null;
       }
@@ -112,8 +219,18 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, isGroup, onReci
     return (
       <View style={[styles.messageContainer, isOwn && styles.messageContainerOwn]}>
         {!isOwn && showAvatar && (
-          <View style={[styles.avatarSmall, { backgroundColor: avatarColor }]}>
-            <Text style={styles.avatarSmallText}>{getInitials(senderName)}</Text>
+          <View style={[styles.avatarSmall, { backgroundColor: avatarColor, overflow: 'hidden' }]}>
+            {senderAvatar && !avatarError ? (
+              <Image
+                source={{ uri: senderAvatar }}
+                style={styles.avatarSmallImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                onError={() => setAvatarError(true)}
+              />
+            ) : (
+              <Text style={styles.avatarSmallText}>{getInitials(senderName)}</Text>
+            )}
           </View>
         )}
         {!isOwn && !showAvatar && <View style={styles.avatarSmallPlaceholder} />}
@@ -129,17 +246,23 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, isGroup, onReci
               pressed && styles.recipeCardPressed,
             ]}
             onPress={() => onRecipePress?.(message.recipe_data!.id)}
+            onLongPress={isOwn ? handleLongPress : undefined}
+            delayLongPress={500}
           >
             {/* Recipe Image with Overlay */}
             <View style={styles.recipeImageContainer}>
-              {message.recipe_data.thumbnail_url ? (
+              {message.recipe_data.thumbnail_url && message.recipe_data.thumbnail_url.length > 0 && !imageError ? (
                 <Image
-                  source={{ uri: message.recipe_data.thumbnail_url }}
+                  source={{ uri: fixFirebaseStorageUrl(message.recipe_data.thumbnail_url) }}
                   style={styles.recipeCardImage}
+                  contentFit="cover"
+                  transition={200}
+                  cachePolicy="memory-disk"
+                  onError={() => setImageError(true)}
                 />
               ) : (
                 <View style={styles.recipeCardImagePlaceholder}>
-                  <Ionicons name="restaurant" size={32} color="#E8D3CE" />
+                  <Ionicons name="restaurant" size={32} color={C.gold} />
                 </View>
               )}
               {/* Gradient Overlay */}
@@ -147,14 +270,14 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, isGroup, onReci
 
               {/* Recipe Badge */}
               <View style={styles.recipeBadge}>
-                <Ionicons name="restaurant" size={10} color="#FFFFFF" />
+                <Ionicons name="restaurant" size={10} color={C.ivory} />
                 <Text style={styles.recipeBadgeText}>Recipe</Text>
               </View>
 
               {/* Time Badge on Image */}
               {message.recipe_data.total_time_minutes && (
                 <View style={styles.recipeTimeBadge}>
-                  <Ionicons name="time" size={12} color="#FFFFFF" />
+                  <Ionicons name="time" size={12} color={C.ivory} />
                   <Text style={styles.recipeTimeBadgeText}>
                     {message.recipe_data.total_time_minutes} min
                   </Text>
@@ -183,7 +306,7 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, isGroup, onReci
               <View style={styles.recipeCardAction}>
                 <Text style={styles.recipeCardActionText}>Tap to view recipe</Text>
                 <View style={styles.recipeCardActionIcon}>
-                  <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+                  <Ionicons name="arrow-forward" size={14} color={C.ivory} />
                 </View>
               </View>
             </View>
@@ -200,8 +323,18 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, isGroup, onReci
   return (
     <View style={[styles.messageContainer, isOwn && styles.messageContainerOwn]}>
       {!isOwn && showAvatar && (
-        <View style={[styles.avatarSmall, { backgroundColor: avatarColor }]}>
-          <Text style={styles.avatarSmallText}>{getInitials(senderName)}</Text>
+        <View style={[styles.avatarSmall, { backgroundColor: avatarColor, overflow: 'hidden' }]}>
+          {senderAvatar && !avatarError ? (
+            <Image
+              source={{ uri: senderAvatar }}
+              style={styles.avatarSmallImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              onError={() => setAvatarError(true)}
+            />
+          ) : (
+            <Text style={styles.avatarSmallText}>{getInitials(senderName)}</Text>
+          )}
         </View>
       )}
       {!isOwn && !showAvatar && <View style={styles.avatarSmallPlaceholder} />}
@@ -211,16 +344,21 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, isGroup, onReci
         {isGroup && !isOwn && showAvatar && (
           <Text style={styles.senderName}>{senderName}</Text>
         )}
-        <View
-          style={[
-            styles.messageBubble,
-            isOwn ? styles.messageBubbleOwn : styles.messageBubbleOther,
-          ]}
+        <Pressable
+          onLongPress={isOwn ? handleLongPress : undefined}
+          delayLongPress={500}
         >
-          <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>
-            {message.content}
-          </Text>
-        </View>
+          <View
+            style={[
+              styles.messageBubble,
+              isOwn ? styles.messageBubbleOwn : styles.messageBubbleOther,
+            ]}
+          >
+            <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>
+              {message.content}
+            </Text>
+          </View>
+        </Pressable>
         <Text style={[styles.messageTime, isOwn && styles.messageTimeOwn]}>
           {formatMessageTime(message.created_at)}
         </Text>
@@ -242,6 +380,7 @@ export default function ChatScreen() {
   const { user } = useAuthStore();
   const {
     messages,
+    conversations,
     currentConversation,
     isLoadingMessages,
     getOrCreateConversation,
@@ -252,7 +391,10 @@ export default function ChatScreen() {
     sendMessage,
     sendMessageToConversation,
     markAsRead,
+    deleteMessage,
     setCurrentConversation,
+    toggleMuteConversation,
+    isConversationMuted,
   } = useMessagingStore();
 
   const [messageText, setMessageText] = useState('');
@@ -263,19 +405,64 @@ export default function ChatScreen() {
     avatar_url?: string;
   } | null>(null);
 
-  // Check if this is a group conversation
-  const isGroup = currentConversation?.is_group ?? false;
+  // Generate conversation ID for DMs (same logic as service)
+  const expectedConversationId = useMemo(() => {
+    if (conversationIdParam) return conversationIdParam;
+    if (userId && user?.id) {
+      const sorted = [user.id, userId].sort();
+      return `${sorted[0]}_${sorted[1]}`;
+    }
+    return null;
+  }, [conversationIdParam, userId, user?.id]);
 
-  // Build a map of participant IDs to names for group chats
-  const participantNames = useMemo(() => {
+  // Get cached conversation and user info immediately from conversations list
+  const cachedConversation = useMemo(() => {
+    if (!expectedConversationId) return null;
+    return conversations.find(c => c.id === expectedConversationId) || null;
+  }, [conversations, expectedConversationId]);
+
+  // Get cached other user info from conversation
+  const cachedOtherUser = useMemo(() => {
+    if (!userId || !user?.id) return null;
+    if (cachedConversation && !cachedConversation.is_group) {
+      const other = cachedConversation.participant_details.find(p => p.user_id === userId);
+      if (other) {
+        return {
+          id: other.user_id,
+          full_name: other.full_name,
+          avatar_url: other.avatar_url,
+        };
+      }
+    }
+    return null;
+  }, [cachedConversation, userId, user?.id]);
+
+  // Use cached data if available, fall back to fetched data
+  const effectiveOtherUser = otherUser || cachedOtherUser;
+  const effectiveConversation = currentConversation || cachedConversation;
+
+  // Check if this is a group conversation
+  const isGroup = effectiveConversation?.is_group ?? false;
+
+  // Build maps of participant IDs to names and avatars for group chats
+  const { participantNames, participantAvatars } = useMemo(() => {
     const names: Record<string, string> = {};
-    if (currentConversation?.participant_details) {
-      currentConversation.participant_details.forEach((p) => {
+    const avatars: Record<string, string | undefined> = {};
+    if (effectiveConversation?.participant_details) {
+      effectiveConversation.participant_details.forEach((p) => {
         names[p.user_id] = p.full_name || p.username || 'Unknown';
+        avatars[p.user_id] = p.avatar_url;
       });
     }
-    return names;
-  }, [currentConversation]);
+    return { participantNames: names, participantAvatars: avatars };
+  }, [effectiveConversation]);
+
+  // Check if conversation is muted
+  const isMuted = useMemo(() => {
+    const convId = effectiveConversation?.id || expectedConversationId;
+    if (!convId) return false;
+    return isConversationMuted(convId);
+  }, [effectiveConversation, expectedConversationId, isConversationMuted, conversations]);
 
   // Initialize conversation
   useEffect(() => {
@@ -301,6 +488,7 @@ export default function ChatScreen() {
             setOtherUser({
               id: profile.id,
               full_name: profile.full_name,
+              avatar_url: profile.avatar_url,
             });
           }
         }
@@ -331,11 +519,29 @@ export default function ChatScreen() {
     };
   }, [userId, conversationIdParam, user]);
 
-  // Get messages for current conversation
+  // Refresh conversation data when screen comes into focus (to get latest member info)
+  useFocusEffect(
+    useCallback(() => {
+      const refreshConversation = async () => {
+        const convId = conversationIdParam || expectedConversationId;
+        if (!convId) return;
+
+        const conversation = await getConversation(convId);
+        if (conversation) {
+          setCurrentConversation(conversation);
+        }
+      };
+
+      refreshConversation();
+    }, [conversationIdParam, expectedConversationId, getConversation, setCurrentConversation])
+  );
+
+  // Get messages for current conversation (use expectedConversationId for immediate cache access)
   const conversationMessages = useMemo(() => {
-    if (!currentConversation) return [];
-    return messages[currentConversation.id] || [];
-  }, [messages, currentConversation]);
+    const convId = currentConversation?.id || expectedConversationId;
+    if (!convId) return [];
+    return messages[convId] || [];
+  }, [messages, currentConversation, expectedConversationId]);
 
   // Group messages by date
   const groupedMessages = useMemo(() => {
@@ -372,7 +578,7 @@ export default function ChatScreen() {
   }, [groupedMessages]);
 
   const handleSend = useCallback(async () => {
-    if (!messageText.trim() || isSending || !currentConversation) return;
+    if (!messageText.trim() || isSending) return;
 
     const text = messageText.trim();
     setMessageText('');
@@ -381,9 +587,9 @@ export default function ChatScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      if (isGroup) {
+      if (isGroup && effectiveConversation) {
         // Group chat - send to conversation
-        await sendMessageToConversation(currentConversation.id, text);
+        await sendMessageToConversation(effectiveConversation.id, text);
       } else if (userId) {
         // DM - send to user
         await sendMessage(userId, text);
@@ -399,11 +605,23 @@ export default function ChatScreen() {
     } finally {
       setIsSending(false);
     }
-  }, [messageText, userId, currentConversation, isGroup, sendMessage, sendMessageToConversation, isSending]);
+  }, [messageText, userId, effectiveConversation, isGroup, sendMessage, sendMessageToConversation, isSending]);
 
   const handleRecipePress = useCallback((recipeId: string) => {
     router.push(`/recipe/${recipeId}`);
   }, [router]);
+
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    const convId = effectiveConversation?.id || expectedConversationId;
+    if (!convId) return;
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    const success = await deleteMessage(convId, messageId);
+
+    if (!success) {
+      Alert.alert('Error', 'Failed to delete message. Please try again.');
+    }
+  }, [effectiveConversation, expectedConversationId, deleteMessage]);
 
   const renderItem = useCallback(({ item }: { item: typeof flattenedData[number] }) => {
     if (item.type === 'date') {
@@ -416,10 +634,13 @@ export default function ChatScreen() {
       );
     }
 
-    // Get sender name - for groups use participantNames map, for DMs use otherUser
+    // Get sender name and avatar - for groups use participant maps, for DMs use otherUser
     const senderName = isGroup
       ? participantNames[item.message.sender_id]
-      : otherUser?.full_name;
+      : effectiveOtherUser?.full_name;
+    const senderAvatar = isGroup
+      ? participantAvatars[item.message.sender_id]
+      : effectiveOtherUser?.avatar_url;
 
     return (
       <MessageBubble
@@ -427,31 +648,36 @@ export default function ChatScreen() {
         isOwn={item.message.sender_id === user?.id}
         showAvatar={item.showAvatar}
         senderName={senderName}
+        senderAvatar={senderAvatar}
         isGroup={isGroup}
         onRecipePress={handleRecipePress}
+        onDeletePress={handleDeleteMessage}
       />
     );
-  }, [user, otherUser, isGroup, participantNames, handleRecipePress]);
+  }, [user, otherUser, isGroup, participantNames, participantAvatars, effectiveOtherUser, handleRecipePress, handleDeleteMessage]);
 
-  // Get display name and avatar for header
+  // Get display name and avatar for header (use effective data for instant display)
   const headerTitle = isGroup
-    ? currentConversation?.group_name || 'Group Chat'
-    : otherUser?.full_name || 'Loading...';
+    ? effectiveConversation?.group_name || 'Group Chat'
+    : effectiveOtherUser?.full_name || 'Chat';
 
   const headerSubtitle = isGroup
-    ? `${currentConversation?.participants.length || 0} members`
+    ? `${effectiveConversation?.participants.length || 0} members`
     : undefined;
 
-  const avatarColor = getAvatarColor(isGroup ? (currentConversation?.id || '') : (userId || ''));
+  const avatarColor = getAvatarColor(isGroup ? (effectiveConversation?.id || '') : (userId || ''));
 
   const handleSettingsPress = () => {
-    if (isGroup && currentConversation) {
-      router.push(`/group-settings/${currentConversation.id}` as any);
+    if (isGroup && effectiveConversation) {
+      router.push(`/group-settings/${effectiveConversation.id}` as any);
     }
   };
 
   // Delete/Clear conversation
   const handleDeleteConversation = useCallback(() => {
+    const convId = effectiveConversation?.id || expectedConversationId;
+    if (!convId) return;
+
     Alert.alert(
       'Delete Conversation',
       isGroup
@@ -467,13 +693,11 @@ export default function ChatScreen() {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
               const { messagingService } = await import('@/services/messaging.service');
 
-              if (currentConversation) {
-                // Delete the conversation
-                await messagingService.deleteConversation(currentConversation.id);
+              // Delete the conversation
+              await messagingService.deleteConversation(convId);
 
-                // Go back to messages list
-                router.replace('/(tabs)/messages' as any);
-              }
+              // Go back to messages list
+              router.replace('/(tabs)/messages' as any);
             } catch (error) {
               console.error('Error deleting conversation:', error);
               Alert.alert('Error', 'Failed to delete conversation. Please try again.');
@@ -482,7 +706,7 @@ export default function ChatScreen() {
         },
       ]
     );
-  }, [currentConversation, isGroup, router]);
+  }, [effectiveConversation, expectedConversationId, isGroup, router]);
 
   // View user profile (for DMs)
   const handleViewProfile = useCallback(() => {
@@ -491,30 +715,24 @@ export default function ChatScreen() {
     }
   }, [userId, isGroup, router]);
 
-  // Mute conversation
-  const handleMuteConversation = useCallback(() => {
-    Alert.alert(
-      'Mute Conversation',
-      'Mute notifications from this conversation?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Mute',
-          onPress: () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            // TODO: Implement mute functionality
-            Alert.alert('Muted', 'You will no longer receive notifications from this conversation.');
-          },
-        },
-      ]
-    );
-  }, []);
+  // Mute/Unmute conversation
+  const handleMuteConversation = useCallback(async () => {
+    const convId = effectiveConversation?.id || expectedConversationId;
+    if (!convId) return;
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await toggleMuteConversation(convId);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to update notification settings');
+    }
+  }, [effectiveConversation, expectedConversationId, toggleMuteConversation]);
 
   // Block user (for DMs)
   const handleBlockUser = useCallback(() => {
     Alert.alert(
       'Block User',
-      `Are you sure you want to block ${otherUser?.full_name || 'this user'}? They won't be able to send you messages.`,
+      `Are you sure you want to block ${effectiveOtherUser?.full_name || 'this user'}? They won't be able to send you messages.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -531,74 +749,6 @@ export default function ChatScreen() {
     );
   }, [otherUser, router]);
 
-  // Show more options menu
-  const handleMoreOptions = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    if (Platform.OS === 'ios') {
-      const options = isGroup
-        ? ['Cancel', 'Mute Notifications', 'Delete Conversation']
-        : ['Cancel', 'View Profile', 'Mute Notifications', 'Block User', 'Delete Conversation'];
-
-      const destructiveButtonIndex = isGroup ? 2 : 4;
-      const cancelButtonIndex = 0;
-
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex,
-          destructiveButtonIndex,
-        },
-        (buttonIndex) => {
-          if (isGroup) {
-            switch (buttonIndex) {
-              case 1:
-                handleMuteConversation();
-                break;
-              case 2:
-                handleDeleteConversation();
-                break;
-            }
-          } else {
-            switch (buttonIndex) {
-              case 1:
-                handleViewProfile();
-                break;
-              case 2:
-                handleMuteConversation();
-                break;
-              case 3:
-                handleBlockUser();
-                break;
-              case 4:
-                handleDeleteConversation();
-                break;
-            }
-          }
-        }
-      );
-    } else {
-      // Android - use Alert with buttons
-      Alert.alert(
-        'Options',
-        'What would you like to do?',
-        isGroup
-          ? [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Mute Notifications', onPress: handleMuteConversation },
-              { text: 'Delete Conversation', style: 'destructive', onPress: handleDeleteConversation },
-            ]
-          : [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'View Profile', onPress: handleViewProfile },
-              { text: 'Mute Notifications', onPress: handleMuteConversation },
-              { text: 'Block User', onPress: handleBlockUser },
-              { text: 'Delete Conversation', style: 'destructive', onPress: handleDeleteConversation },
-            ]
-      );
-    }
-  }, [isGroup, handleDeleteConversation, handleViewProfile, handleMuteConversation, handleBlockUser]);
-
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -606,12 +756,12 @@ export default function ChatScreen() {
       keyboardVerticalOffset={0}
     >
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="chevron-back" size={24} color="#1C100D" />
+          <Ionicons name="chevron-back" size={22} color={C.charcoal} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -619,31 +769,42 @@ export default function ChatScreen() {
           onPress={isGroup ? handleSettingsPress : undefined}
           activeOpacity={isGroup ? 0.7 : 1}
         >
-          <View style={[styles.headerAvatar, { backgroundColor: avatarColor }]}>
+          <View style={[styles.headerAvatar, { backgroundColor: avatarColor, overflow: 'hidden' }]}>
             {isGroup ? (
-              currentConversation?.group_avatar_url ? (
+              effectiveConversation?.group_avatar_url ? (
                 <Image
-                  source={{ uri: currentConversation.group_avatar_url }}
+                  source={{ uri: effectiveConversation.group_avatar_url }}
                   style={styles.headerAvatarImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={150}
                 />
               ) : (
-                <Ionicons name="people" size={18} color="#FFFFFF" />
+                <Ionicons name="people" size={18} color={C.ivory} />
               )
-            ) : otherUser?.avatar_url ? (
+            ) : effectiveOtherUser?.avatar_url ? (
               <Image
-                source={{ uri: otherUser.avatar_url }}
+                source={{ uri: effectiveOtherUser.avatar_url }}
                 style={styles.headerAvatarImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={150}
               />
             ) : (
               <Text style={styles.headerAvatarText}>
-                {getInitials(otherUser?.full_name)}
+                {getInitials(effectiveOtherUser?.full_name)}
               </Text>
             )}
           </View>
           <View style={styles.headerInfo}>
-            <Text style={styles.headerName} numberOfLines={1}>
-              {headerTitle}
-            </Text>
+            <View style={styles.headerNameRow}>
+              <Text style={styles.headerName} numberOfLines={1}>
+                {headerTitle}
+              </Text>
+              {isMuted && (
+                <Ionicons name="notifications-off" size={14} color={C.muted} style={styles.headerMuteIcon} />
+              )}
+            </View>
             {headerSubtitle && (
               <Text style={styles.headerSubtitle}>{headerSubtitle}</Text>
             )}
@@ -653,12 +814,51 @@ export default function ChatScreen() {
         <View style={styles.headerActions}>
           {isGroup && (
             <TouchableOpacity style={styles.headerAction} onPress={handleSettingsPress}>
-              <Ionicons name="settings-outline" size={22} color="#1C100D" />
+              <Ionicons name="settings-outline" size={22} color={C.charcoal} />
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={styles.headerAction} onPress={handleMoreOptions}>
-            <Ionicons name="ellipsis-horizontal" size={22} color="#1C100D" />
-          </TouchableOpacity>
+          <Menu renderer={renderers.Popover} rendererProps={{ placement: 'bottom', anchorStyle: { opacity: 0 } }}>
+            <MenuTrigger customStyles={{ triggerWrapper: styles.headerAction }}>
+              <Ionicons name="ellipsis-vertical" size={20} color={C.charcoal} />
+            </MenuTrigger>
+            <MenuOptions customStyles={menuOptionsStyles}>
+              <GlassView
+                glassEffectStyle="clear"
+                isInteractive={true}
+                tintColor="rgba(255, 255, 255, 0.8)"
+                style={styles.menuGlassContainer}
+              >
+                {!isGroup && (
+                  <MenuOption onSelect={handleViewProfile}>
+                    <View style={styles.menuOption}>
+                      <Ionicons name="person-outline" size={20} color={C.charcoal} />
+                      <Text style={styles.menuOptionText}>View Profile</Text>
+                    </View>
+                  </MenuOption>
+                )}
+                <MenuOption onSelect={handleMuteConversation}>
+                  <View style={styles.menuOption}>
+                    <Ionicons name={isMuted ? "notifications-outline" : "notifications-off-outline"} size={20} color={C.charcoal} />
+                    <Text style={styles.menuOptionText}>{isMuted ? 'Unmute Notifications' : 'Mute Notifications'}</Text>
+                  </View>
+                </MenuOption>
+                {!isGroup && (
+                  <MenuOption onSelect={handleBlockUser}>
+                    <View style={styles.menuOption}>
+                      <Ionicons name="ban-outline" size={20} color={C.charcoal} />
+                      <Text style={styles.menuOptionText}>Block User</Text>
+                    </View>
+                  </MenuOption>
+                )}
+                <MenuOption onSelect={handleDeleteConversation}>
+                  <View style={[styles.menuOption, styles.menuOptionDestructive]}>
+                    <Ionicons name="trash-outline" size={20} color="#DC2626" />
+                    <Text style={[styles.menuOptionText, styles.menuOptionTextDestructive]}>Delete Conversation</Text>
+                  </View>
+                </MenuOption>
+              </GlassView>
+            </MenuOptions>
+          </Menu>
         </View>
       </View>
 
@@ -677,25 +877,31 @@ export default function ChatScreen() {
         }}
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
-            <View style={[styles.emptyAvatar, { backgroundColor: avatarColor }]}>
-              {isGroup ? (
-                <Ionicons name="people" size={36} color="#FFFFFF" />
-              ) : (
-                <Text style={styles.emptyAvatarText}>
-                  {getInitials(otherUser?.full_name)}
+            {isLoadingMessages ? (
+              <ActivityIndicator size="large" color={C.gold} />
+            ) : (
+              <>
+                <View style={[styles.emptyAvatar, { backgroundColor: avatarColor }]}>
+                  {isGroup ? (
+                    <Ionicons name="people" size={36} color={C.ivory} />
+                  ) : (
+                    <Text style={styles.emptyAvatarText}>
+                      {getInitials(effectiveOtherUser?.full_name)}
+                    </Text>
+                  )}
+                </View>
+                <Text style={styles.emptyTitle}>
+                  {isGroup
+                    ? effectiveConversation?.group_name || 'New Group'
+                    : effectiveOtherUser?.full_name || 'New Conversation'}
                 </Text>
-              )}
-            </View>
-            <Text style={styles.emptyTitle}>
-              {isGroup
-                ? currentConversation?.group_name || 'New Group'
-                : otherUser?.full_name || 'New Conversation'}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {isGroup
-                ? 'Start the group conversation!'
-                : 'Send a message to start the conversation'}
-            </Text>
+                <Text style={styles.emptySubtitle}>
+                  {isGroup
+                    ? 'Start the group conversation!'
+                    : 'Send a message to start the conversation'}
+                </Text>
+              </>
+            )}
           </View>
         )}
       />
@@ -706,7 +912,7 @@ export default function ChatScreen() {
           <TextInput
             style={styles.input}
             placeholder="Type a message..."
-            placeholderTextColor="#9C5749"
+            placeholderTextColor={C.muted}
             value={messageText}
             onChangeText={setMessageText}
             multiline
@@ -722,9 +928,9 @@ export default function ChatScreen() {
             disabled={!messageText.trim() || isSending}
           >
             {isSending ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color={C.ivory} />
             ) : (
-              <Ionicons name="send" size={18} color="#FFFFFF" />
+              <Ionicons name="send" size={18} color={C.ivory} />
             )}
           </TouchableOpacity>
         </View>
@@ -733,201 +939,280 @@ export default function ChatScreen() {
   );
 }
 
+// Menu popup styles
+const menuOptionsStyles = {
+  optionsContainer: {
+    backgroundColor: 'transparent',
+    padding: 0,
+    borderRadius: 0,
+  },
+};
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: C.ivory,
   },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingBottom: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    paddingHorizontal: 12,
+    paddingBottom: 14,
+    backgroundColor: C.ivory,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(212, 175, 55, 0.18)',
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: C.cardBg,
   },
   headerUser: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 4,
+    marginLeft: 12,
   },
   headerAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
+    ...SHADOW_SOFT,
   },
   headerAvatarImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   headerAvatarText: {
     fontSize: 14,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    color: C.ivory,
   },
   headerInfo: {
     flex: 1,
   },
+  headerNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerMuteIcon: {
+    marginLeft: 6,
+  },
   headerName: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#1C100D',
+    fontSize: 17,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    letterSpacing: -0.3,
   },
   headerSubtitle: {
     fontSize: 12,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
-    marginTop: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.muted,
+    marginTop: 2,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
   },
   headerAction: {
     width: 40,
     height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: C.cardBg,
   },
-  messagesList: {
-    paddingHorizontal: 8,
+  menuGlassContainer: {
+    borderRadius: 16,
+    paddingVertical: 8,
+    minWidth: 220,
+    backgroundColor: '#FFFFFF',
+  },
+  menuOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  menuOptionText: {
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.charcoal,
+  },
+  menuOptionDestructive: {
+    borderTopWidth: 0.5,
+    borderTopColor: C.hairline,
+    marginTop: 4,
+    paddingTop: 16,
+  },
+  menuOptionTextDestructive: {
+    color: '#DC2626',
+  },
+
+  // Messages list
+  messagesList: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     flexGrow: 1,
   },
+
+  // Date separator
   dateSeparator: {
     alignItems: 'center',
-    marginVertical: 20,
+    marginVertical: 24,
   },
   dateLine: {
     display: 'none',
   },
   dateText: {
-    fontSize: 12,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
-    backgroundColor: 'rgba(156, 87, 73, 0.08)',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 12,
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.muted,
+    backgroundColor: C.cardBg,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    letterSpacing: 0.5,
     overflow: 'hidden',
+    textTransform: 'uppercase',
   },
+
+  // System message
   systemMessageRow: {
     alignItems: 'center',
-    marginVertical: 8,
-    paddingHorizontal: 16,
+    marginVertical: 12,
+    paddingHorizontal: 20,
   },
   systemMessageText: {
     fontSize: 12,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.muted,
     textAlign: 'center',
-    backgroundColor: 'rgba(156, 87, 73, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 14,
     overflow: 'hidden',
   },
+
+  // Message container
   messageContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginBottom: 2,
-    paddingHorizontal: 4,
+    marginBottom: 4,
+    paddingHorizontal: 0,
   },
   messageContainerOwn: {
     flexDirection: 'row-reverse',
   },
+
+  // Avatar
   avatarSmall: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginRight: 10,
     marginBottom: 4,
+    ...SHADOW_SOFT,
   },
   avatarSmallPlaceholder: {
-    width: 32,
-    marginRight: 8,
+    width: 34,
+    marginRight: 10,
   },
   avatarSmallText: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    color: C.ivory,
   },
+  avatarSmallImage: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+  },
+
+  // Message content
   messageContentWrapper: {
-    maxWidth: '80%',
+    maxWidth: '78%',
     alignItems: 'flex-start',
   },
   messageContentWrapperOwn: {
     alignItems: 'flex-end',
   },
   senderName: {
-    fontSize: 12,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#9C5749',
-    marginBottom: 4,
-    marginLeft: 12,
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.gold,
+    marginBottom: 5,
+    marginLeft: 14,
+    letterSpacing: 0.3,
   },
+
+  // Message bubble
   messageBubble: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 22,
   },
   messageBubbleOwn: {
-    backgroundColor: '#F2330D',
+    backgroundColor: C.terracotta,
     borderBottomRightRadius: 6,
+    shadowColor: C.terracotta,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 4,
   },
   messageBubbleOther: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.ivory,
     borderBottomLeftRadius: 6,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+    ...SHADOW_SOFT,
   },
   messageText: {
     fontSize: 15,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#1C100D',
-    lineHeight: 20,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.charcoal,
+    lineHeight: 22,
   },
   messageTextOwn: {
-    color: '#FFFFFF',
+    color: C.ivory,
   },
   messageTime: {
-    fontSize: 11,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
-    marginTop: 4,
-    marginLeft: 12,
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.muted,
+    marginTop: 6,
+    marginLeft: 14,
+    letterSpacing: 0.3,
   },
   messageTimeOwn: {
     marginLeft: 0,
-    marginRight: 12,
+    marginRight: 14,
   },
+
+  // Recipe card
   recipeCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    backgroundColor: C.ivory,
+    borderRadius: 24,
     overflow: 'hidden',
-    width: 240,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 5,
+    width: 260,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+    ...SHADOW_SOFT,
   },
   recipeCardPressed: {
     opacity: 0.95,
@@ -935,83 +1220,83 @@ const styles = StyleSheet.create({
   },
   recipeImageContainer: {
     position: 'relative',
-    height: 130,
+    height: 140,
   },
   recipeCardImage: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
   },
   recipeCardImagePlaceholder: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#F2EEEC',
+    backgroundColor: C.cardBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   recipeImageOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
   },
   recipeBadge: {
     position: 'absolute',
-    top: 10,
-    left: 10,
+    top: 12,
+    left: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#F2330D',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
+    gap: 5,
+    backgroundColor: C.gold,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   recipeBadgeText: {
-    fontSize: 10,
-    fontFamily: 'NotoSans_700Bold',
-    color: '#FFFFFF',
+    fontSize: 9,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.ivory,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   recipeTimeBadge: {
     position: 'absolute',
-    bottom: 10,
-    right: 10,
+    bottom: 12,
+    right: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
+    gap: 5,
+    backgroundColor: 'rgba(26, 21, 16, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   recipeTimeBadgeText: {
     fontSize: 11,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.ivory,
   },
   recipeCardContent: {
-    padding: 14,
+    padding: 16,
   },
   recipeCardTitle: {
-    fontSize: 15,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
-    lineHeight: 20,
-    marginBottom: 10,
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    lineHeight: 22,
+    marginBottom: 12,
+    letterSpacing: -0.3,
   },
   recipeCardMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 14,
   },
   recipeDifficultyBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
   },
   recipeDifficultyDot: {
     width: 6,
@@ -1020,7 +1305,7 @@ const styles = StyleSheet.create({
   },
   recipeDifficultyText: {
     fontSize: 11,
-    fontFamily: 'NotoSans_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   recipeCardAction: {
     flexDirection: 'row',
@@ -1029,89 +1314,103 @@ const styles = StyleSheet.create({
   },
   recipeCardActionText: {
     fontSize: 12,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.muted,
   },
   recipeCardActionIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#F2330D',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: C.terracotta,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: C.terracotta,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
+
+  // Input container
   inputContainer: {
-    backgroundColor: '#FFFFFF',
-    paddingTop: 12,
-    paddingHorizontal: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.06)',
+    backgroundColor: C.ivory,
+    paddingTop: 14,
+    paddingHorizontal: 16,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(212, 175, 55, 0.18)',
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 10,
+    gap: 12,
   },
   input: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 12,
-    fontSize: 16,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#1C100D',
+    backgroundColor: C.cardBg,
+    borderRadius: 26,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 14,
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.charcoal,
     maxHeight: 120,
-    minHeight: 48,
+    minHeight: 52,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
   },
   sendButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#F2330D',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: C.terracotta,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowColor: C.terracotta,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
   },
   sendButtonDisabled: {
-    backgroundColor: '#E8D3CE',
+    backgroundColor: 'rgba(26, 21, 16, 0.08)',
     shadowOpacity: 0,
     elevation: 0,
   },
+
+  // Empty state
   emptyContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
+    paddingVertical: 80,
   },
   emptyAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
+    ...SHADOW_SOFT,
   },
   emptyAvatarText: {
-    fontSize: 28,
+    fontSize: 32,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    color: C.ivory,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
-    marginBottom: 4,
+    fontSize: 22,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    marginBottom: 8,
+    letterSpacing: -0.3,
   },
   emptySubtitle: {
     fontSize: 14,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
     textAlign: 'center',
+    lineHeight: 20,
   },
 });

@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity, ImageBackground } from 'react-native';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { Image } from 'expo-image';
 import { Text, Button } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import type { Recipe } from '@/utils/types';
@@ -26,11 +27,13 @@ export function RecipeCard({ recipe, onPress, onCook }: RecipeCardProps) {
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.9}>
-      <ImageBackground
-        source={{ uri: recipe.thumbnail_url || 'https://via.placeholder.com/400x200' }}
-        style={styles.image}
-        imageStyle={styles.imageStyle}
-      >
+      <View style={[styles.image, styles.imageStyle]}>
+        <Image
+          source={{ uri: recipe.thumbnail_url || 'https://via.placeholder.com/400x200' }}
+          style={StyleSheet.absoluteFillObject}
+          contentFit="cover"
+          transition={300}
+        />
         <View style={styles.overlay}>
           {recipe.is_favorite && (
             <View style={styles.favoriteIcon}>
@@ -42,7 +45,7 @@ export function RecipeCard({ recipe, onPress, onCook }: RecipeCardProps) {
             <Text style={styles.timeText}>{recipe.total_time_minutes} min</Text>
           </View>
         </View>
-      </ImageBackground>
+      </View>
 
       <View style={styles.content}>
         <Text style={styles.title} numberOfLines={2}>
@@ -101,6 +104,7 @@ const styles = StyleSheet.create({
   },
   image: {
     height: 160,
+    overflow: 'hidden',
   },
   imageStyle: {
     borderTopLeftRadius: 16,

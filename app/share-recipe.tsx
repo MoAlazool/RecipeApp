@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
-  FlatList,
   StyleSheet,
   TouchableOpacity,
   TextInput,
@@ -20,6 +19,21 @@ import { useMessagingStore } from '@/stores/messagingStore';
 import { useAuthStore } from '@/stores/authStore';
 import type { UserProfile, Conversation } from '@/utils/types';
 
+// ============================================================
+// DESIGN TOKENS — Michelin-Star Luxury
+// ============================================================
+
+const C = {
+  ivory: '#F9F7F2',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  goldTint: 'rgba(212, 175, 55, 0.10)',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+  glass: 'rgba(249, 247, 242, 0.85)',
+  cardBg: 'rgba(26, 21, 16, 0.03)',
+};
+
 // Get initials from name
 const getInitials = (name?: string): string => {
   if (!name) return '?';
@@ -31,9 +45,9 @@ const getInitials = (name?: string): string => {
     .slice(0, 2);
 };
 
-// Avatar colors based on user ID
+// Warm avatar palette matching luxury feel
 const AVATAR_COLORS = [
-  '#F2330D', '#3B82F6', '#22C55E', '#A855F7', '#F59E0B', '#EC4899', '#06B6D4', '#8B5CF6',
+  '#C66E4E', '#D4AF37', '#8A8578', '#6B8E7B', '#A67B5B', '#9B7CB8', '#5C8A9E', '#B8836A',
 ];
 
 const getAvatarColor = (userId: string): string => {
@@ -67,7 +81,7 @@ const ShareItem = ({ id, name, username, avatarUrl, isGroup, onPress, isSending 
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
         ) : isGroup ? (
-          <Ionicons name="people" size={20} color="#FFFFFF" />
+          <Ionicons name="people" size={18} color="#FFFFFF" />
         ) : (
           <Text style={styles.avatarText}>{getInitials(name)}</Text>
         )}
@@ -85,10 +99,10 @@ const ShareItem = ({ id, name, username, avatarUrl, isGroup, onPress, isSending 
       </View>
 
       {isSending ? (
-        <ActivityIndicator size="small" color="#F2330D" />
+        <ActivityIndicator size="small" color={C.gold} />
       ) : (
         <View style={styles.sendIcon}>
-          <Ionicons name="send" size={18} color="#FFFFFF" />
+          <Ionicons name="paper-plane" size={15} color="#FFFFFF" />
         </View>
       )}
     </Pressable>
@@ -96,7 +110,7 @@ const ShareItem = ({ id, name, username, avatarUrl, isGroup, onPress, isSending 
 };
 
 export default function ShareRecipeScreen() {
-  const { recipeId, recipeTitle, recipeThumbnail, recipeTime, recipeDifficulty } =
+  const { recipeId, recipeTitle, recipeThumbnail: encodedThumbnail, recipeTime, recipeDifficulty } =
     useLocalSearchParams<{
       recipeId: string;
       recipeTitle: string;
@@ -104,6 +118,9 @@ export default function ShareRecipeScreen() {
       recipeTime?: string;
       recipeDifficulty?: string;
     }>();
+
+  // Decode the thumbnail URL (was encoded to preserve special characters in route params)
+  const recipeThumbnail = encodedThumbnail ? decodeURIComponent(encodedThumbnail) : undefined;
 
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -144,7 +161,7 @@ export default function ShareRecipeScreen() {
         return {
           id: otherParticipant?.user_id || '',
           name: otherParticipant?.full_name || 'Unknown',
-          subtitle: otherParticipant?.username ? `@${otherParticipant.username}` : undefined,
+          subtitle: otherParticipant?.username ? `${otherParticipant.username}` : undefined,
           avatarUrl: otherParticipant?.avatar_url,
           lastMessageAt: conv.last_message_at,
           isGroup: false,
@@ -188,7 +205,7 @@ export default function ShareRecipeScreen() {
       result.push({ title: 'Groups', data: groupChats });
     }
     if (recentDMs.length > 0) {
-      result.push({ title: 'Direct Messages', data: recentDMs });
+      result.push({ title: 'Recents', data: recentDMs });
     }
     return result;
   }, [groupChats, recentDMs]);
@@ -212,7 +229,6 @@ export default function ShareRecipeScreen() {
     setIsSearching(true);
     try {
       const results = await userService.searchUsers(searchQuery);
-      // Filter out users already in recent DMs
       const recentUserIds = new Set(recentDMs.map(c => c.id));
       setSearchResults(results.filter(u => !recentUserIds.has(u.id)));
     } catch (error) {
@@ -241,8 +257,6 @@ export default function ShareRecipeScreen() {
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // Navigate to the chat with this user
       router.replace(`/chat/${userId}` as any);
     } catch (error) {
       console.error('Error sharing recipe:', error);
@@ -261,7 +275,6 @@ export default function ShareRecipeScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      // Send recipe message to group conversation
       const { messagingService } = await import('@/services/messaging.service');
       await messagingService.sendMessageToConversation(
         conversationId,
@@ -277,8 +290,6 @@ export default function ShareRecipeScreen() {
       );
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // Navigate to the group chat
       router.replace({
         pathname: '/chat/[userId]' as any,
         params: { userId: 'group', conversationId },
@@ -291,7 +302,6 @@ export default function ShareRecipeScreen() {
     }
   }, [recipeId, recipeTitle, recipeThumbnail, recipeTime, recipeDifficulty, router, sendingToId]);
 
-  // Handle share based on type
   const handleShare = useCallback((id: string, isGroup: boolean) => {
     if (isGroup) {
       handleShareToGroup(id);
@@ -302,99 +312,141 @@ export default function ShareRecipeScreen() {
 
   const isSearchMode = searchQuery.trim().length > 0;
 
+  // Filter local groups + DMs by search query
+  const filteredSections = useMemo(() => {
+    if (!isSearchMode) return [];
+    const q = searchQuery.trim().toLowerCase();
+    const result = [];
+
+    const matchedGroups = groupChats.filter(g =>
+      g.name.toLowerCase().includes(q) || g.subtitle?.toLowerCase().includes(q)
+    );
+    if (matchedGroups.length > 0) {
+      result.push({ title: 'Groups', data: matchedGroups });
+    }
+
+    const matchedDMs = recentDMs.filter(d =>
+      d.name.toLowerCase().includes(q) || d.subtitle?.toLowerCase().includes(q)
+    );
+    if (matchedDMs.length > 0) {
+      result.push({ title: 'Recents', data: matchedDMs });
+    }
+
+    if (searchResults.length > 0) {
+      result.push({
+        title: 'People',
+        data: searchResults.map(u => ({
+          id: u.id,
+          name: u.full_name || 'Unknown',
+          subtitle: u.username,
+          avatarUrl: u.avatar_url,
+          isGroup: false,
+          lastMessageAt: null,
+        })),
+      });
+    }
+
+    return result;
+  }, [isSearchMode, searchQuery, groupChats, recentDMs, searchResults]);
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="close" size={24} color="#1C100D" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Share Recipe</Text>
-        <View style={styles.headerPlaceholder} />
+        <Text style={styles.headerTitle}>Send Recipe</Text>
       </View>
 
-      {/* Recipe Preview */}
-      <View style={styles.recipePreview}>
-        {recipeThumbnail && (
-          <Image source={{ uri: recipeThumbnail }} style={styles.recipeImage} />
+      {/* Recipe Preview Card */}
+      <View style={styles.previewCard}>
+        {recipeThumbnail ? (
+          <Image source={{ uri: recipeThumbnail }} style={styles.previewImage} />
+        ) : (
+          <View style={[styles.previewImage, styles.previewImagePlaceholder]}>
+            <Ionicons name="restaurant" size={22} color={C.gold} />
+          </View>
         )}
-        <View style={styles.recipeInfo}>
-          <Text style={styles.recipeTitle} numberOfLines={2}>
-            {recipeTitle}
-          </Text>
-          {recipeTime && (
-            <View style={styles.recipeMeta}>
-              <Ionicons name="time-outline" size={14} color="#9C5749" />
-              <Text style={styles.recipeMetaText}>{recipeTime} min</Text>
-            </View>
-          )}
+        <View style={styles.previewInfo}>
+          <Text style={styles.previewTitle} numberOfLines={2}>{recipeTitle}</Text>
+          <View style={styles.previewMeta}>
+            {recipeTime && (
+              <View style={styles.previewBadge}>
+                <Ionicons name="time-outline" size={12} color={C.gold} />
+                <Text style={styles.previewBadgeText}>{recipeTime}m</Text>
+              </View>
+            )}
+            {recipeDifficulty && (
+              <View style={styles.previewBadge}>
+                <Ionicons name="speedometer-outline" size={12} color={C.gold} />
+                <Text style={styles.previewBadgeText}>{recipeDifficulty}</Text>
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
-      {/* Search Input */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchInput}>
-          <Ionicons name="search" size={20} color="#9C5749" />
+      {/* Search */}
+      <View style={styles.searchWrap}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={18} color={C.muted} />
           <TextInput
-            style={styles.searchTextInput}
-            placeholder="Search for someone else..."
-            placeholderTextColor="#9C5749"
+            style={styles.searchInput}
+            placeholder="Search people or groups..."
+            placeholderTextColor={C.muted}
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoCapitalize="none"
             returnKeyType="search"
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={20} color="#9C5749" />
-            </TouchableOpacity>
+            <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={18} color={C.muted} />
+            </Pressable>
           )}
         </View>
       </View>
 
       {/* Content */}
       {isLoadingConversations && !isSearchMode ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#F2330D" />
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={C.gold} />
         </View>
       ) : isSearchMode ? (
-        // Search Results
-        isSearching ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#F2330D" />
+        isSearching && filteredSections.length === 0 ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={C.gold} />
           </View>
-        ) : (
-          <FlatList
-            data={searchResults}
+        ) : filteredSections.length > 0 ? (
+          <SectionList
+            sections={filteredSections}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <ShareItem
                 id={item.id}
-                name={item.full_name || 'Unknown'}
-                username={item.username}
-                avatarUrl={item.avatar_url}
-                onPress={() => handleShare(item.id, false)}
+                name={item.name}
+                username={item.subtitle}
+                avatarUrl={item.avatarUrl}
+                isGroup={item.isGroup}
+                onPress={() => handleShare(item.id, item.isGroup)}
                 isSending={sendingToId === item.id}
               />
             )}
-            contentContainerStyle={[
-              styles.listContent,
-              searchResults.length === 0 && styles.listContentEmpty,
-            ]}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={() => (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="person-outline" size={48} color="#E8D3CE" />
-                <Text style={styles.emptyText}>No users found</Text>
-              </View>
+            renderSectionHeader={({ section: { title } }) => (
+              <Text style={styles.sectionTitle}>{title}</Text>
             )}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            stickySectionHeadersEnabled={false}
+            ListFooterComponent={isSearching ? (
+              <ActivityIndicator size="small" color={C.gold} style={{ marginTop: 12 }} />
+            ) : null}
           />
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="search-outline" size={44} color="rgba(26, 21, 16, 0.15)" />
+            <Text style={styles.emptyText}>No results found</Text>
+          </View>
         )
       ) : sections.length > 0 ? (
-        // Groups and DMs with SectionList
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.id}
@@ -417,12 +469,10 @@ export default function ShareRecipeScreen() {
           stickySectionHeadersEnabled={false}
         />
       ) : (
-        // Empty state
-        <View style={styles.hintContainer}>
-          <Ionicons name="chatbubbles-outline" size={48} color="#E8D3CE" />
-          <Text style={styles.hintText}>
-            No recent conversations yet.{'\n'}Search for a user to share this recipe.
-          </Text>
+        <View style={styles.emptyContainer}>
+          <Ionicons name="chatbubbles-outline" size={44} color="rgba(26, 21, 16, 0.15)" />
+          <Text style={styles.emptyText}>No recent conversations</Text>
+          <Text style={styles.emptySubtext}>Search for someone to share this recipe with</Text>
         </View>
       )}
     </View>
@@ -432,168 +482,178 @@ export default function ShareRecipeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: C.ivory,
   },
+
+  // Header
   header: {
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  headerTitle: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 18,
+    color: C.charcoal,
+  },
+
+  // Recipe Preview
+  previewCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginTop: 6,
+    marginBottom: 20,
+    padding: 12,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+    shadowColor: '#1A1510',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.04,
+    shadowRadius: 16,
+    elevation: 3,
   },
-  closeButton: {
-    width: 40,
-    height: 40,
+  previewImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+  },
+  previewImagePlaceholder: {
+    backgroundColor: C.goldTint,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+  previewInfo: {
+    flex: 1,
+    marginLeft: 14,
   },
-  headerPlaceholder: {
-    width: 40,
+  previewTitle: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 15,
+    color: C.charcoal,
+    lineHeight: 20,
   },
-  recipePreview: {
+  previewMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 16,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
+    gap: 10,
+    marginTop: 6,
   },
-  recipeImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 12,
-    marginRight: 12,
-  },
-  recipeInfo: {
-    flex: 1,
-  },
-  recipeTitle: {
-    fontSize: 15,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#1C100D',
-    marginBottom: 4,
-  },
-  recipeMeta: {
+  previewBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: C.goldTint,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
   },
-  recipeMetaText: {
-    fontSize: 13,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
+  previewBadgeText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: C.gold,
+    textTransform: 'capitalize',
   },
-  searchContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+
+  // Search
+  searchWrap: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
-  searchInput: {
+  searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: C.cardBg,
+    borderRadius: 16,
     paddingHorizontal: 14,
     gap: 10,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
   },
-  searchTextInput: {
+  searchInput: {
     flex: 1,
-    height: 48,
+    height: 46,
+    fontFamily: 'PlusJakartaSans_400Regular',
     fontSize: 15,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#1C100D',
+    color: C.charcoal,
   },
+
+  // Section Headers
   sectionTitle: {
-    fontSize: 13,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#9C5749',
-    marginBottom: 12,
-    marginTop: 8,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 11,
+    color: C.muted,
+    letterSpacing: 1,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    backgroundColor: '#F8F6F5',
-    paddingVertical: 4,
+    marginBottom: 10,
+    marginTop: 8,
   },
+
+  // List
   listContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingBottom: 24,
   },
   listContentEmpty: {
     flex: 1,
   },
+
+  // User Row
   userItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 8,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.hairline,
   },
   userItemPressed: {
-    opacity: 0.7,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.5,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 14,
   },
   avatarImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
   },
   avatarText: {
-    fontSize: 16,
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 15,
     color: '#FFFFFF',
   },
   userContent: {
     flex: 1,
   },
   userName: {
-    fontSize: 16,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 15,
+    color: C.charcoal,
   },
   userUsername: {
-    fontSize: 13,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
-    marginTop: 1,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: 12,
+    color: C.muted,
+    marginTop: 2,
   },
   sendIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F2330D',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: C.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loadingContainer: {
+
+  // States
+  centerContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -603,26 +663,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 60,
+    paddingHorizontal: 40,
   },
   emptyText: {
-    fontSize: 16,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
-    marginTop: 12,
-  },
-  hintContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 40,
-    paddingVertical: 60,
-  },
-  hintText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     fontSize: 15,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
+    color: C.charcoal,
+    marginTop: 14,
+  },
+  emptySubtext: {
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: 13,
+    color: C.muted,
     textAlign: 'center',
-    marginTop: 16,
-    lineHeight: 22,
+    marginTop: 6,
+    lineHeight: 19,
   },
 });

@@ -37,7 +37,6 @@ interface FloatingBottomNavProps {
 
 const DEFAULT_ITEMS: NavItem[] = [
   { key: 'recipes', label: 'Recipes', icon: 'home-outline', iconActive: 'home' },
-  { key: 'ai-chef', label: 'AI Chef', icon: 'sparkles-outline', iconActive: 'sparkles' },
   { key: 'shopping', label: 'Shopping', icon: 'cart-outline', iconActive: 'cart' },
   { key: 'profile', label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 ];

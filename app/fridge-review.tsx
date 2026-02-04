@@ -378,7 +378,7 @@ export default function FridgeReviewScreen() {
 
     router.push({
       pathname: '/recipe-results',
-      params: { ingredients: JSON.stringify(selectedItems) },
+      params: { ingredients: JSON.stringify(selectedItems), sourceType: 'fridge_scan' },
     });
   };
 

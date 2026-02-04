@@ -3,7 +3,8 @@
 // ============================================
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { AI_PROMPTS, parseAIResponse } from '../utils/prompts';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system/legacy';
 import type {
   ExtractedRecipe,
   SuggestedRecipe,
@@ -12,6 +13,746 @@ import type {
   VoiceCommand,
   Ingredient
 } from '../utils/types';
+
+// ============================================
+// HELPER: Parse JSON Response Safely
+// ============================================
+const parseAIResponse = (response: string, silent: boolean = false): any => {
+  try {
+    let cleaned = response.trim();
+    cleaned = cleaned.replace(/^```json\s*/i, '');
+    cleaned = cleaned.replace(/^```\s*/i, '');
+    cleaned = cleaned.replace(/```\s*$/i, '');
+
+    try {
+      return JSON.parse(cleaned);
+    } catch (error) {
+      const start = cleaned.indexOf('{');
+      if (start === -1) {
+        throw error;
+      }
+
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      let end = -1;
+
+      for (let i = start; i < cleaned.length; i += 1) {
+        const char = cleaned[i];
+
+        if (escape) {
+          escape = false;
+          continue;
+        }
+
+        if (char === '\\') {
+          if (inString) {
+            escape = true;
+          }
+          continue;
+        }
+
+        if (char === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        if (inString) {
+          continue;
+        }
+
+        if (char === '{') {
+          depth += 1;
+        } else if (char === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            end = i;
+          }
+        }
+      }
+
+      if (end === -1) {
+        throw error;
+      }
+
+      const recovered = cleaned.slice(start, end + 1);
+      return JSON.parse(recovered);
+    }
+  } catch (error) {
+    if (!silent) {
+      console.error('Failed to parse AI response:', error);
+      console.error('Raw response:', response);
+    }
+    throw new Error('Invalid JSON response from AI');
+  }
+};
+
+// ============================================
+// AI PROMPTS
+// ============================================
+const AI_PROMPTS = {
+
+  extractRecipe: (transcript: string, userPreferences?: any) => {
+    const preferencesText = userPreferences
+      ? `\nUser preferences: ${JSON.stringify(userPreferences)}`
+      : '';
+
+    return `You are a professional recipe analyzer. Extract a structured recipe from the following video transcript.
+
+${preferencesText}
+
+TRANSCRIPT:
+${transcript}
+
+Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
+{
+  "title": "Short recipe name (2-5 words max)",
+  "description": "One short sentence max 15 words",
+  "cuisine_type": "Italian/Mexican/Asian/etc or null",
+  "difficulty": "beginner/intermediate/advanced",
+  "prep_time_minutes": number (total hands-on prep before cooking starts),
+  "cook_time_minutes": number (SUM of all step durations that involve heat/cooking/baking/simmering/resting),
+  "total_time_minutes": number (prep_time + cook_time combined),
+  "active_time_minutes": number (time actively doing something, not waiting),
+  "servings": number,
+  "ingredients": [
+    {
+      "name": "ingredient name (lowercase, singular)",
+      "amount": number or null,
+      "unit": "cup/tbsp/tsp/gram/piece/etc or null",
+      "category": "produce/meat/dairy/pantry/spices/frozen/other",
+      "notes": "optional preparation notes"
+    }
+  ],
+  "steps": [
+    {
+      "step_number": number,
+      "instruction": "clear, concise instruction",
+      "duration_minutes": number or null,
+      "temperature": "350F/180C/etc or null",
+      "tip": "short pro chef tip for THIS step — sensory cues, heat tricks, or plating advice (or null if not needed)"
+    }
+  ],
+  "nutrition_estimate": {
+    "calories": number (REQUIRED - always estimate),
+    "protein_g": number (REQUIRED - always estimate),
+    "carbs_g": number (REQUIRED - always estimate),
+    "fat_g": number (REQUIRED - always estimate)
+  },
+  "tips": ["helpful tip 1", "helpful tip 2"] or []
+}
+
+RULES:
+1. Ingredient amounts must be numbers (use decimals like 0.5 for "half")
+2. Convert all measurements to standard units
+3. Group similar ingredients (e.g., "2 cloves garlic, minced" = {name: "garlic", amount: 2, unit: "clove", notes: "minced"})
+4. Extract ALL timings mentioned (prep, cook, rest, marinate, etc)
+5. Active time = time actually doing something (not waiting for oven)
+6. Difficulty: beginner (5 steps or less, basic techniques), intermediate (6-10 steps or special equipment), advanced (11+ steps or complex techniques)
+7. Category ingredients correctly for shopping list grouping
+8. NUTRITION IS REQUIRED: Always estimate calories, protein, carbs, and fat based on ingredients - never leave null
+9. Extract any temperature settings mentioned
+10. Step tips must be PRO CHEF advice: sensory cues ("listen for the sizzle"), heat management ("lower heat if edges brown too fast"), texture tests ("should jiggle slightly in center"), or plating ideas. NEVER just repeat the instruction. Set tip to null if no useful pro insight exists for that step.
+
+CRITICAL - STEP WRITING RULES:
+- Each step = ONE single action. Max 1 sentence, under 20 words.
+- Do NOT mention ingredient amounts in step text — amounts are displayed separately.
+- Just use ingredient names: "Season chicken with salt and pepper" NOT "Season 2 chicken breasts with 1 tsp salt and ½ tsp pepper"
+- If a step has multiple actions, SPLIT into separate steps.
+- Start each step with a strong verb: Dice, Sauté, Fold, Whisk, Roast, etc.
+- Bad: "Take the chicken out of the fridge, pat it dry with paper towels, and then season it generously on both sides with salt and pepper." (too long, multiple actions)
+- Good: Step 1 "Pat chicken dry with paper towels." Step 2 "Season both sides with salt and pepper."
+
+CRITICAL - STEP TIMING RULES:
+- duration_minutes should ONLY be set for steps that require WAITING or PASSIVE COOKING time:
+  ✓ "Bake for 25 minutes" → duration_minutes: 25
+  ✓ "Simmer for 15 minutes" → duration_minutes: 15
+  ✓ "Let rest for 10 minutes" → duration_minutes: 10
+  ✓ "Marinate for 30 minutes" → duration_minutes: 30
+  ✓ "Boil until tender, about 12 minutes" → duration_minutes: 12
+
+- duration_minutes should be NULL for active cooking steps:
+  ✗ "Chop the onions" → duration_minutes: null (no waiting)
+  ✗ "Mix all ingredients together" → duration_minutes: null (active work)
+  ✗ "Season with salt and pepper" → duration_minutes: null (instant)
+  ✗ "Add the garlic and sauté until fragrant" → duration_minutes: null (quick active cooking)
+  ✗ "Preheat oven to 350F" → duration_minutes: null (background task)
+
+- Only include times that are SPECIFICALLY mentioned or clearly implied by the cooking method
+
+CRITICAL - TIME ACCURACY:
+- cook_time_minutes MUST equal the sum of all duration_minutes from the steps (every step that involves heat, baking, simmering, boiling, frying, resting, marinating)
+- prep_time_minutes = estimate of hands-on chopping/mixing time BEFORE cooking starts (analyze the ingredients: more ingredients = more prep)
+- total_time_minutes = prep_time_minutes + cook_time_minutes
+- If a step says "cook 5 min each side" thats 10 min total. If "bake 25-30 min" use 28. Be precise, never guess round numbers.
+- Example: sauté onions 5min + simmer sauce 20min + bake 25min = cook_time_minutes: 50
+
+Be accurate and thorough. This data will be used for cooking guidance.`;
+  },
+
+  suggestRecipesFromFridge: (ingredients: string[], userPreferences?: any) => {
+    const preferencesText = userPreferences
+      ? `\nUser dietary restrictions: ${userPreferences.dietary_restrictions?.join(', ') || 'none'}
+User cooking style: ${userPreferences.cooking_style || 'any'}
+Servings needed: ${userPreferences.default_servings || 2}
+Maximum time: ${userPreferences.max_time_minutes ? userPreferences.max_time_minutes + ' minutes' : 'any'}
+${userPreferences.meal_type ? `(${userPreferences.meal_type} recipes should prioritize ${
+  userPreferences.meal_type === 'breakfast' ? '5-15 minute quick prep' :
+  userPreferences.meal_type === 'lunch' ? '15-30 minute moderate prep' :
+  '30-60 minute fuller cooking'
+})` : ''}
+Difficulty limit: ${userPreferences.difficulty_level || 'any'}
+Meal type: ${userPreferences.meal_type || 'any'}`
+      : '';
+
+    return `You are a creative chef helping someone cook with what they have.
+
+AVAILABLE INGREDIENTS:
+${ingredients.join(', ')}
+${preferencesText}
+
+Suggest 3-5 recipes that can be made with MOST of these ingredients. It's okay if 1-2 common pantry items are missing (salt, pepper, oil, etc).
+
+Return ONLY valid JSON (no markdown, no backticks) with this structure:
+{
+  "recipes": [
+    {
+      "title": "Short recipe name (2-5 words max)",
+      "description": "One short sentence max 15 words",
+      "cuisine_type": "Italian/Mexican/etc",
+      "difficulty": "beginner/intermediate/advanced",
+      "total_time_minutes": number,
+      "servings": number,
+      "calories_per_serving": number (REQUIRED - always estimate),
+      "match_score": number (0-100, how well it matches available ingredients),
+      "ingredients_you_have": ["ingredient1", "ingredient2"],
+      "ingredients_you_need": ["ingredient3"] or [],
+      "preview_steps": ["Step 1", "Step 2", "Step 3"] (first 3 steps only, keep concise),
+      "image_url": "https://example.com/image.jpg" or null (optional - provide ONLY if you have a reliable direct image URL, otherwise leave as null)
+    }
+  ]
+}
+
+CRITICAL RULES:
+1. Keep descriptions brief (max 2 sentences)
+2. Keep preview_steps concise (each step should be 1-2 sentences)
+3. Prioritize recipes with 80%+ match (few missing ingredients)
+4. VARIETY IS ESSENTIAL: Ensure recipes are DISTINCTLY DIFFERENT from each other:
+   - Different cooking methods (baked, fried, grilled, raw, steamed, sautéed, etc.)
+   - Different cuisine types (Italian, Mexican, Asian, American, Middle Eastern, Mediterranean, etc.)
+   - Different flavor profiles (savory, sweet, spicy, tangy, umami, mild, bold)
+   - Different textures (crispy, creamy, crunchy, soft, chewy, tender)
+   - Different preparation styles (one-pan, multi-step, quick assembly, slow-cooked, no-cook)
+   - Mix of: light meals, hearty meals, comfort food, healthy options, budget-friendly, gourmet
+4.5. MEAL-SPECIFIC VARIETY:
+   ${userPreferences?.meal_type === 'breakfast' ? `
+   - Balance: sweet vs. savory options
+   - Protein sources: eggs-based, dairy-based, plant-based
+   - Temperature: hot dishes vs. cold/room-temp options
+   - Prep style: cooked vs. assembled (overnight oats, smoothies)
+   ` : ''}
+   ${userPreferences?.meal_type === 'lunch' ? `
+   - Format: hot vs. cold meals
+   - Eating style: fork meals vs. handheld (wraps, sandwiches)
+   - Heartiness: light (salads) vs. substantial (grain bowls)
+   - Cuisine rotation: Asian bowls, Mediterranean wraps, American sandwiches, etc.
+   ` : ''}
+   ${userPreferences?.meal_type === 'dinner' ? `
+   - Cooking method: oven-based, stovetop, slow-cooker, grilled
+   - Meal structure: one-pot dishes vs. protein+sides
+   - Cultural variety: Italian pasta, Asian stir-fry, American comfort, Mexican casserole
+   - Richness: light proteins (fish) vs. hearty (beef/pork)
+   ` : ''}
+5. MEAL TYPE ENFORCEMENT:
+   ${userPreferences?.meal_type ? `
+   ⚠️ CRITICAL: ALL recipes MUST be appropriate for ${userPreferences.meal_type.toUpperCase()}
+
+   ${userPreferences.meal_type === 'breakfast' ? `
+   BREAKFAST REQUIREMENTS:
+   - Prep time: 5-20 minutes maximum (morning time constraints)
+   - Serving size: 1-2 portions (individual servings)
+   - Ingredient types: Emphasize eggs, dairy, bread/grains, fruits, quick proteins
+   - Cooking methods: Quick (scrambled, toasted, blended, assembled, microwaved)
+   - Temperature: Typically served warm OR cold/room-temp (smoothies, overnight oats)
+   - Examples: Scrambled eggs, avocado toast, smoothie bowls, pancakes, oatmeal, breakfast burritos, yogurt parfaits
+   - REJECT: Heavy pastas, slow-cooked stews, elaborate multi-course meals, dinner-style proteins
+   ` : ''}
+
+   ${userPreferences.meal_type === 'lunch' ? `
+   LUNCH REQUIREMENTS:
+   - Prep time: 15-35 minutes maximum (midday efficiency)
+   - Serving size: 2-4 portions (individual or small group)
+   - Ingredient types: Balanced proteins + vegetables + grains, portable options
+   - Cooking methods: One-pan, assembled, light sautéing, fresh/raw components
+   - Temperature: Can be served cold, room-temp, or warm (must be portable-friendly)
+   - Examples: Grain bowls, wraps, sandwiches, salads with protein, light pasta, stir-fries, soups
+   - REJECT: Heavy casseroles, elaborate roasts, breakfast-only foods (pancakes, cereal)
+   ` : ''}
+
+   ${userPreferences.meal_type === 'dinner' ? `
+   DINNER REQUIREMENTS:
+   - Prep time: 30-60 minutes acceptable (evening leisure time)
+   - Serving size: 4+ portions (family/sharing focus)
+   - Ingredient types: Substantial proteins (chicken, beef, fish), hearty vegetables, complex carbs
+   - Cooking methods: Roasting, braising, baking, grilling, simmering (full cooking techniques)
+   - Temperature: Typically served warm/hot (comfort and presentation focused)
+   - Examples: Roasted chicken, pasta dishes, casseroles, stews, curries, grilled proteins with sides
+   - REJECT: Quick breakfast items (toast, cereal), ultra-light salads, grab-and-go wraps
+   ` : ''}
+
+   - If ingredients don't naturally fit this meal type, adapt cooking method/presentation to match
+   - STRICTLY REJECT any recipe that violates time, serving, or meal-appropriateness constraints
+   ` : '- Include recipes suitable for any meal time'}
+6. Respect dietary restrictions STRICTLY
+7. Match cooking style preference when possible
+8. STRICTLY respect the maximum time limit if specified
+9. STRICTLY respect the difficulty limit if specified
+10. Be creative but practical
+11. Missing ingredients should be common and easy to get
+
+Sort recipes by match_score (highest first).`;
+  },
+
+  suggestSubstitution: (ingredient: string, recipeContext: string) => {
+    return `You are a culinary expert helping with ingredient substitutions.
+
+MISSING INGREDIENT: ${ingredient}
+RECIPE CONTEXT: ${recipeContext}
+
+Suggest the BEST substitute that:
+1. Won't significantly change the recipe outcome
+2. Is commonly available
+3. Has similar properties (texture, flavor, function)
+
+Return ONLY valid JSON:
+{
+  "substitutes": [
+    {
+      "ingredient": "substitute name",
+      "ratio": "1:1 or different ratio",
+      "notes": "how it will affect the recipe",
+      "confidence": "high/medium/low"
+    }
+  ],
+  "recipe_adjustments": "any changes needed to steps" or null
+}
+
+If no good substitute exists, suggest simplified alternatives or return empty array.`;
+  },
+
+  scaleRecipe: (originalServings: number, newServings: number, ingredients: any[]) => {
+    return `Scale this recipe from ${originalServings} servings to ${newServings} servings.
+
+ORIGINAL INGREDIENTS:
+${JSON.stringify(ingredients, null, 2)}
+
+Return ONLY valid JSON with scaled amounts:
+{
+  "ingredients": [
+    {
+      "name": "same as original",
+      "amount": scaled_number,
+      "unit": "same as original or converted if needed",
+      "category": "same as original",
+      "notes": "conversion notes if amount changed significantly"
+    }
+  ],
+  "notes": "any important notes about scaling (e.g., 'Don't scale salt 1:1, adjust to taste')"
+}
+
+RULES:
+1. Scale proportionally but intelligently
+2. Round to practical numbers (e.g., 2.7 eggs → 3 eggs)
+3. Don't scale spices/seasonings linearly (use judgment)
+4. Convert units if result is awkward (e.g., 0.125 cup → 2 tbsp)
+5. Note if something shouldn't scale perfectly`;
+  },
+
+  analyzeFridgeImage: () => {
+    return `Analyze this fridge/pantry photo and identify ALL visible cooking ingredients with their QUANTITIES.
+
+Return JSON: {"items":[{"n":"name","c":"category","q":"quantity estimate"}],"count":N}
+
+Categories: produce/meat/dairy/pantry/spices/condiment/beverage/other
+
+CRITICAL QUANTITY RULES:
+- ALWAYS estimate the quantity/amount you see
+- For countable items: use numbers (e.g., "3", "5", "8-10")
+- For liquids: estimate volume (e.g., "1 bottle", "half carton", "500ml")
+- For produce: count individual items (e.g., "4 apples", "6 tomatoes", "2 bunches")
+- For packaged items: note package size if visible (e.g., "1 lb bag", "500g package")
+- For partial amounts: use descriptive terms (e.g., "half", "quarter", "about 1/3")
+- If uncertain about exact count: use ranges (e.g., "5-7", "about 10")
+
+OTHER RULES:
+- Include ALL visible items, not just a few
+- Be specific: "roma tomatoes" not just "tomatoes"
+- Group identical items with total quantity: "6 eggs" not separate entries
+- Include beverages useful for cooking (milk, wine, juice)
+- Count carefully - accuracy in quantity is ESSENTIAL
+
+Examples:
+✓ {"n":"eggs","c":"dairy","q":"8"}
+✓ {"n":"roma tomatoes","c":"produce","q":"5"}
+✓ {"n":"milk","c":"dairy","q":"1 carton (about 1L)"}
+✓ {"n":"apples","c":"produce","q":"4-5"}
+✓ {"n":"bell peppers","c":"produce","q":"3 (1 red, 2 green)"}
+✗ {"n":"eggs","c":"dairy","q":"some"} - TOO VAGUE
+✗ {"n":"tomatoes","c":"produce","q":"1"} - NOT SPECIFIC ENOUGH
+
+If unclear image: {"items":[],"count":0,"err":"unclear"}`;
+  },
+
+  parseVoiceCommand: (command: string, context: any) => {
+    return `Parse this voice command during cooking.
+
+COMMAND: "${command}"
+CURRENT STEP: ${context.currentStep}
+TOTAL STEPS: ${context.totalSteps}
+
+Return ONLY valid JSON:
+{
+  "action": "next_step/previous_step/repeat_step/set_timer/pause_timer/cancel_timer/read_ingredients/help/unknown",
+  "parameters": {
+    "step_number": number or null,
+    "timer_minutes": number or null,
+    "timer_label": string or null
+  },
+  "confidence": "high/medium/low"
+}
+
+Common commands:
+- "next" / "التالي" → next_step
+- "repeat" / "كرر" → repeat_step
+- "back" / "رجوع" → previous_step
+- "timer 10 minutes" / "ضبط مؤقت 10 دقائق" → set_timer
+- "stop timer" / "إيقاف المؤقت" → cancel_timer
+- "what's next" / "إيش الخطوة الجاية" → next_step
+- "ingredients" / "المكونات" → read_ingredients
+
+Be flexible with natural language variations.`;
+  },
+
+  estimateNutrition: (ingredients: any[], servings: number) => {
+    return `Estimate nutritional information PER SERVING for this recipe.
+
+INGREDIENTS:
+${JSON.stringify(ingredients, null, 2)}
+
+SERVINGS: ${servings}
+
+Return ONLY valid JSON:
+{
+  "per_serving": {
+    "calories": number,
+    "protein_g": number,
+    "carbs_g": number,
+    "fat_g": number,
+    "fiber_g": number,
+    "sugar_g": number,
+    "sodium_mg": number
+  },
+  "total": {
+    "calories": number,
+    "protein_g": number,
+    "carbs_g": number,
+    "fat_g": number
+  },
+  "confidence": "high/medium/low",
+  "notes": "any significant nutritional highlights"
+}
+
+Use standard nutritional databases and cooking knowledge. Be conservative with estimates.`;
+  },
+
+  extractRecipeFromDescription: (description: string, hashtags: string[]) => {
+    const hashtagsText = hashtags.length > 0
+      ? `\nHASHTAGS: ${hashtags.join(', ')}`
+      : '';
+
+    return `You are a professional recipe analyzer. Extract a structured recipe from this social media video description/caption.
+
+DESCRIPTION:
+${description}
+${hashtagsText}
+
+The description may be informal, use abbreviations, or be incomplete. Use your cooking knowledge to fill in reasonable details while staying true to what's written.
+
+Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
+{
+  "title": "Short recipe name (2-5 words max, infer if not explicit)",
+  "description": "One short sentence max 15 words",
+  "cuisine_type": "Italian/Mexican/Asian/etc or null",
+  "difficulty": "beginner/intermediate/advanced",
+  "prep_time_minutes": number (hands-on prep time before cooking),
+  "cook_time_minutes": number (SUM of all step durations with heat/cooking/baking/resting),
+  "total_time_minutes": number (prep + cook combined),
+  "active_time_minutes": number,
+  "servings": number (default to 2-4 if not specified),
+  "ingredients": [
+    {
+      "name": "ingredient name (lowercase, singular)",
+      "amount": number or null,
+      "unit": "cup/tbsp/tsp/gram/piece/etc or null",
+      "category": "produce/meat/dairy/pantry/spices/frozen/other",
+      "notes": "optional preparation notes"
+    }
+  ],
+  "steps": [
+    {
+      "step_number": number,
+      "instruction": "clear, concise instruction",
+      "duration_minutes": number or null,
+      "temperature": "350F/180C/etc or null",
+      "tip": "short pro chef tip for THIS step — sensory cues, heat tricks, or plating advice (or null if not needed)"
+    }
+  ],
+  "nutrition_estimate": {
+    "calories": number (REQUIRED - always estimate),
+    "protein_g": number (REQUIRED - always estimate),
+    "carbs_g": number (REQUIRED - always estimate),
+    "fat_g": number (REQUIRED - always estimate)
+  },
+  "tips": ["helpful tip"] or []
+}
+
+RULES:
+1. If ingredients are mentioned without amounts, estimate reasonable amounts
+2. If steps aren't clear, infer logical cooking steps based on the ingredients
+3. Use hashtags as hints for cuisine type and dish type
+4. Be creative but practical - the recipe should be cookable
+5. If the description is too vague, return partial data with what you can extract
+6. Ingredient amounts must be numbers (use decimals like 0.5 for "half")
+7. Category ingredients correctly for shopping list grouping
+8. NUTRITION IS REQUIRED: Always estimate calories, protein, carbs, and fat - never leave null
+
+STEP WRITING RULES:
+- Each step = ONE single action. Max 1 sentence, under 20 words.
+- Do NOT put ingredient amounts in step text — they are shown separately.
+- Use ingredient names only: "Sauté onion and garlic until fragrant" NOT "Sauté 1 diced onion and 3 cloves of minced garlic in 2 tbsp olive oil until fragrant"
+- If a step has multiple actions, split into separate steps.
+- Start with a strong verb: Dice, Sauté, Fold, Whisk, Roast, etc.
+
+STEP TIMING RULES:
+- duration_minutes ONLY for steps requiring WAITING (baking, simmering, resting, marinating)
+- duration_minutes = null for active steps (chopping, mixing, seasoning, sautéing)
+- Only include times specifically mentioned or implied by cooking method
+
+TIME ACCURACY:
+- cook_time_minutes = sum of ALL duration_minutes from steps. Calculate it precisely from the steps you write.
+- prep_time_minutes = estimate chopping/prep time based on number of ingredients (more ingredients = more prep)
+- total_time_minutes = prep_time_minutes + cook_time_minutes. Never guess.`;
+  },
+
+  extractRecipeFromVideoFrames: (metadata?: { title?: string; description?: string; hashtags?: string[] }) => {
+    const contextText = metadata?.title || metadata?.description
+      ? `\nCONTEXT FROM VIDEO:\nTitle: ${metadata?.title || 'Unknown'}\nDescription: ${metadata?.description || 'None'}\nHashtags: ${metadata?.hashtags?.join(', ') || 'None'}`
+      : '';
+
+    return `You are analyzing a cooking video thumbnail/frame to identify the recipe being prepared.
+
+Look carefully at the image and identify:
+1. What dish is being prepared
+2. Visible ingredients
+3. Cooking method/technique
+4. Equipment being used
+${contextText}
+
+Based on your analysis, create a complete recipe.
+
+Return ONLY valid JSON (no markdown, no backticks) with this exact structure:
+{
+  "title": "Short recipe name (2-5 words max)",
+  "description": "One short sentence max 15 words",
+  "cuisine_type": "Italian/Mexican/Asian/etc or null",
+  "difficulty": "beginner/intermediate/advanced",
+  "prep_time_minutes": number (hands-on prep time),
+  "cook_time_minutes": number (SUM of all step durations with heat/cooking),
+  "total_time_minutes": number (prep + cook combined),
+  "active_time_minutes": number,
+  "servings": number,
+  "ingredients": [
+    {
+      "name": "ingredient name",
+      "amount": number or null,
+      "unit": "cup/tbsp/tsp/gram/piece/etc or null",
+      "category": "produce/meat/dairy/pantry/spices/frozen/other",
+      "notes": "optional preparation notes"
+    }
+  ],
+  "steps": [
+    {
+      "step_number": number,
+      "instruction": "clear, concise instruction",
+      "duration_minutes": number or null,
+      "temperature": "350F/180C/etc or null",
+      "tip": "short pro chef tip for THIS step — sensory cues, heat tricks, or plating advice (or null if not needed)"
+    }
+  ],
+  "nutrition_estimate": {
+    "calories": number (REQUIRED - always estimate based on visible ingredients),
+    "protein_g": number (REQUIRED),
+    "carbs_g": number (REQUIRED),
+    "fat_g": number (REQUIRED)
+  },
+  "tips": ["helpful tip"] or [],
+  "confidence": "high/medium/low"
+}
+
+RULES:
+1. Only include ingredients you can clearly identify or reasonably infer
+2. Provide standard recipe steps for the identified dish
+3. Be honest about confidence level
+4. If image is unclear or not food-related, return minimal data with low confidence
+5. Use visible equipment as hints for cooking method
+6. NUTRITION IS REQUIRED: Always estimate calories and macros based on the dish type
+
+STEP WRITING RULES:
+- Each step = ONE single action. Max 1 sentence, under 20 words.
+- Do NOT put ingredient amounts in step text — they are shown separately.
+- Use ingredient names only: "Toss vegetables with olive oil and seasoning."
+- Split complex actions into multiple steps.
+- Start with a strong verb: Dice, Sauté, Fold, Whisk, Roast, etc.
+
+STEP TIMING RULES:
+- duration_minutes ONLY for steps requiring WAITING (baking, simmering, resting, marinating)
+- duration_minutes = null for active steps (chopping, mixing, seasoning, sautéing)
+- Only include times for cooking methods that clearly require them
+
+TIME ACCURACY:
+- cook_time_minutes = sum of ALL duration_minutes from steps
+- prep_time_minutes = estimate based on ingredient count
+- total_time_minutes = prep + cook. Be precise, never round.`;
+  },
+
+  extractCookbookPages: () => {
+    return `You are a professional recipe extraction expert. The user has photographed one or more pages
+from a physical cookbook. Extract the complete recipe from these page images.
+
+If the recipe spans multiple pages, combine all information into a single complete recipe.
+
+MULTI-COMPONENT RECIPES: Many recipes include multiple components — a main dish plus sides,
+sauces, dressings, garnishes, or accompaniments. If the cookbook page(s) contain multiple
+components (e.g., "Grilled Chicken with Caesar Salad and Garlic Bread"), you MUST tag every
+ingredient and step with a "group" field so they can be displayed separately.
+- Use short, clear group names: "Grilled Chicken", "Caesar Salad", "Garlic Bread"
+- If there is only ONE component (single dish, no sides), omit the "group" field entirely.
+- Steps should be numbered sequentially across all components (1, 2, 3...) but grouped logically.
+
+Return ONLY valid JSON with this exact structure:
+{
+  "title": "Short recipe name (2-5 words max)",
+  "description": "One short sentence max 15 words",
+  "cuisine_type": "Italian/Mexican/Asian/etc or null",
+  "difficulty": "beginner/intermediate/advanced",
+  "prep_time_minutes": number (hands-on prep time),
+  "cook_time_minutes": number (SUM of all step durations with heat/cooking),
+  "total_time_minutes": number (prep + cook combined),
+  "active_time_minutes": number,
+  "servings": number,
+  "ingredients": [
+    { "name": "ingredient name", "amount": number, "unit": "cup/tbsp/tsp/oz/lb/g/kg/ml/l/piece/clove/slice/bunch/can/package/pinch/dash/to taste", "category": "produce/meat/dairy/pantry/spices/frozen/beverage/condiment/other", "group": "Component Name (only if multi-component)" }
+  ],
+  "steps": [
+    { "step_number": 1, "instruction": "Short single-action instruction, under 20 words", "duration_minutes": "number or null", "temperature": "350F/180C or null", "tip": "short pro chef tip — sensory cues, heat tricks, plating (or null)", "group": "Component Name (only if multi-component)" }
+  ],
+  "nutrition_estimate": { "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number },
+  "tips": ["Helpful tip 1", "Helpful tip 2"],
+  "food_keywords": ["keyword1", "keyword2"]
+}
+
+IMPORTANT for steps: Each step = ONE single action. Max 1 sentence, under 20 words.
+Do NOT put ingredient amounts in step text — amounts are displayed separately as pills.
+Use ingredient names only: "Season chicken with salt and pepper" not "Season 2 chicken breasts with 1 tsp salt".
+Split complex actions into multiple steps. Start with a strong verb: Dice, Sauté, Fold, Whisk, etc.
+Only include "duration_minutes" when there's a meaningful wait (oven time, simmering, resting).
+Only include "temperature" when relevant (oven temp, oil temp).
+
+IMPORTANT for multi-component grouping:
+- Look carefully for sections like "For the sauce:", "Salad:", "Dressing:", "Marinade:", "Side:", etc.
+- Each distinct component gets its own group name.
+- A single-dish recipe with NO sides or sub-recipes should have NO group fields at all.
+- Examples of multi-component: "Steak with Chimichurri" → groups: "Steak", "Chimichurri".
+  "Chicken Shawarma Plate" → groups: "Chicken Shawarma", "Garlic Sauce", "Pickled Onions".
+
+IMPORTANT for ingredients category: ONLY use these exact values: produce, meat, dairy, pantry, spices, frozen, beverage, condiment, other.
+
+IMPORTANT for title: Keep it short and specific — 2 to 4 words maximum.
+
+IMPORTANT for time accuracy:
+- cook_time_minutes MUST equal the sum of ALL duration_minutes from your steps (every step with heat/baking/simmering/resting)
+- prep_time_minutes = estimate hands-on chopping/mixing time based on number of ingredients
+- total_time_minutes = prep_time_minutes + cook_time_minutes exactly. Never guess round numbers.
+- If a step says "cook 5 min each side" that's 10 min. If "bake 25-30 min" use 28. Be precise.
+
+IMPORTANT for food_keywords: provide 2-3 simple, common food words that best describe what the final dish looks like.
+
+If you cannot identify a complete recipe from the images, return:
+{ "error": "Could not extract a recipe from these images. Please ensure the cookbook pages are clearly visible." }
+`;
+  },
+
+  parseGroceryVoice: (voiceInput: string) => {
+    return `Parse this voice input and extract grocery/shopping list items with quantities.
+
+VOICE INPUT: "${voiceInput}"
+
+Return ONLY valid JSON:
+{
+  "items": [
+    {
+      "name": "item name (lowercase, singular form)",
+      "amount": number or null,
+      "unit": "piece/kg/g/cup/tbsp/tsp/ml/liter/dozen/pack/bottle/can/bag/bunch/loaf/box" or null,
+      "category": "produce/meat/dairy/pantry/spices/frozen/beverage/other"
+    }
+  ],
+  "understood": true/false,
+  "message": "confirmation message or clarification needed"
+}
+
+RULES:
+1. Extract ALL items mentioned
+2. Parse quantities: "one bread" = amount: 1, "two kilos of rice" = amount: 2, unit: "kg"
+3. Handle natural language: "a dozen eggs" = amount: 12, "half kilo chicken" = amount: 0.5, unit: "kg"
+4. If no quantity specified, set amount to null
+5. Assign appropriate category for shopping list grouping
+6. Set understood: false if input is unclear/gibberish
+7. Message should confirm what was understood: "Added 2 loaves of bread and milk"
+
+Examples:
+- "I need bread and milk" → [{name:"bread",amount:null,category:"pantry"},{name:"milk",amount:null,category:"dairy"}]
+- "get me 6 eggs and butter" → [{name:"egg",amount:6,category:"dairy"},{name:"butter",amount:null,category:"dairy"}]
+- "two bottles of water and a pack of pasta" → [{name:"water",amount:2,unit:"bottle",category:"beverage"},{name:"pasta",amount:1,unit:"pack",category:"pantry"}]
+- "chicken breast, tomatoes, and onions" → [{name:"chicken breast",amount:null,category:"meat"},{name:"tomato",amount:null,category:"produce"},{name:"onion",amount:null,category:"produce"}]
+- "I want to buy some apples and bananas" → [{name:"apple",amount:null,category:"produce"},{name:"banana",amount:null,category:"produce"}]`;
+  },
+
+  processUserNotes: (notes: string, originalRecipe: any) => {
+    return `A user made these notes after cooking a recipe. Extract useful modifications.
+
+USER NOTES: "${notes}"
+
+ORIGINAL RECIPE: ${originalRecipe.title}
+
+Return ONLY valid JSON:
+{
+  "modifications": [
+    {
+      "type": "ingredient_change/technique_change/timing_change/seasoning_change",
+      "original": "what was in recipe",
+      "modified": "what user did instead",
+      "impact": "positive/negative/neutral"
+    }
+  ],
+  "overall_sentiment": "loved_it/liked_it/okay/disappointed",
+  "key_takeaways": ["takeaway 1", "takeaway 2"],
+  "should_save_as_variant": boolean (true if changes are significant)
+}
+
+Extract constructive feedback that could help the user or others.`;
+  }
+};
 
 // Initialize Gemini client
 const gemini = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY!);
@@ -70,6 +811,30 @@ const generateVision = async (
     generationConfig: {
       temperature: options?.temperature ?? 0.5,
       maxOutputTokens: options?.maxOutputTokens ?? 2000,
+      responseMimeType: options?.responseMimeType
+    }
+  });
+
+  return result.response.text();
+};
+
+const generateVisionMultiImage = async (
+  prompt: string,
+  imagesBase64: string[],
+  options?: { temperature?: number; maxOutputTokens?: number; responseMimeType?: string }
+) => {
+  const imageParts = imagesBase64.map(data => ({
+    inlineData: { mimeType: 'image/jpeg' as const, data }
+  }));
+
+  const result = await visionModel.generateContent({
+    contents: [{
+      role: 'user',
+      parts: [...imageParts, { text: prompt }]
+    }],
+    generationConfig: {
+      temperature: options?.temperature ?? 0.4,
+      maxOutputTokens: options?.maxOutputTokens ?? 16384,
       responseMimeType: options?.responseMimeType
     }
   });
@@ -282,7 +1047,7 @@ Preview steps: ${suggestedRecipe.preview_steps.join(' ')}
 
 Generate a complete recipe with:
 1. Full ingredients list with amounts and units
-2. Detailed step-by-step cooking instructions (numbered)
+2. Short, clear cooking steps — one action per step, under 20 words each. Include "ingredients_used" listing the ingredient names used in that step.
 3. Prep and cook times
 4. Tips if helpful
 5. Nutrition estimate
@@ -310,9 +1075,31 @@ Return as JSON in this exact format:
   "steps": [
     {
       "step_number": 1,
-      "instruction": "Detailed instruction",
+      "instruction": "Pat chicken dry with paper towels.",
+      "duration_minutes": null,
+      "temperature": null,
+      "ingredients_used": ["chicken breast"]
+    },
+    {
+      "step_number": 2,
+      "instruction": "Season both sides with salt and pepper.",
+      "duration_minutes": null,
+      "temperature": null,
+      "ingredients_used": ["salt", "black pepper"]
+    },
+    {
+      "step_number": 3,
+      "instruction": "Roast chicken in preheated oven until golden.",
+      "duration_minutes": 25,
+      "temperature": "200°C",
+      "ingredients_used": ["chicken breast"]
+    },
+    {
+      "step_number": 4,
+      "instruction": "Rest chicken on cutting board before slicing.",
       "duration_minutes": 5,
-      "temperature": "350°F"
+      "temperature": null,
+      "ingredients_used": ["chicken breast"]
     }
   ],
   "nutrition_estimate": {
@@ -323,7 +1110,20 @@ Return as JSON in this exact format:
   },
   "tips": ["Helpful tip 1", "Helpful tip 2"],
   "image_url": "https://example.com/food-image.jpg (provide a real public image URL that shows this dish)"
-}`;
+}
+
+IMPORTANT for title: Keep the recipe title short and specific (2-4 words max). Examples: "Garlic Butter Chicken", "Creamy Tomato Pasta". Do NOT write long titles. Same for description — one short sentence.
+
+IMPORTANT for steps: Each step = ONE action, max 1 sentence, under 20 words. Do NOT put ingredient amounts in step text — amounts are shown separately. Use ingredient names only (e.g., "Sauté onion and garlic until fragrant" NOT "Sauté 1 diced onion and 3 minced garlic cloves in 2 tbsp olive oil"). Split complex actions into separate steps. Start each step with a strong verb. Include "ingredients_used" for each step. Only include "duration_minutes" for meaningful wait times (baking, simmering, resting). Only include "temperature" when a specific heat setting is involved.
+
+IMPORTANT for ingredients category: ONLY use one of these exact values: "produce", "meat", "dairy", "pantry", "spices", "frozen", "beverage", "condiment", "other". Do not invent new categories.
+
+IMPORTANT for time accuracy:
+- cook_time_minutes = SUM of all duration_minutes from the steps. Calculate precisely from the steps you write.
+- prep_time_minutes = estimate of hands-on chopping/mixing time before cooking starts (more ingredients = more prep).
+- total_time_minutes = prep_time_minutes + cook_time_minutes exactly. Never round up or pad.
+- If steps add up to 22 minutes, say 22, not 30. Be honest — a simple pasta is 15-20 min, not 60.
+- If a step says "cook 5 min each side" = 10 min total. If "bake 25-30 min" use 28.`;
 
       const responseText = await generateText(prompt, {
         temperature: 0.7,
@@ -351,19 +1151,15 @@ Return as JSON in this exact format:
   async chatWithChef(
     userRequest: string,
     availableIngredients: string[]
-  ): Promise<{ message: string; recipes?: SuggestedRecipe[] }> {
+  ): Promise<{ message: string; recipes?: any[] }> {
     try {
       const prompt = `You are a friendly AI Chef assistant. The user has these ingredients in their fridge: ${availableIngredients.join(', ')}.
 
 User request: "${userRequest}"
 
-Based on what they have and what they're asking for, provide:
+Provide:
 1. A friendly conversational response (2-3 sentences)
-2. 2-3 recipe suggestions that match their request and use their available ingredients
-
-If they're asking what's in their fridge, list the ingredients.
-If they want a specific dish (pasta, breakfast, etc.), suggest recipes for that.
-If they ask what they can make, suggest based on what they have.
+2. 2-3 COMPLETE recipe suggestions with full ingredients, steps, and nutrition
 
 Return as JSON:
 {
@@ -374,25 +1170,49 @@ Return as JSON:
       "description": "Brief description",
       "cuisine_type": "Italian",
       "difficulty": "beginner",
+      "prep_time_minutes": 10,
+      "cook_time_minutes": 20,
       "total_time_minutes": 30,
+      "active_time_minutes": 15,
       "servings": 4,
       "match_score": 85,
       "ingredients_you_have": ["chicken", "rice"],
-      "ingredients_you_need": ["soy sauce", "garlic"],
-      "preview_steps": ["Step 1", "Step 2"],
+      "ingredients_you_need": ["soy sauce"],
+      "ingredients": [
+        { "name": "chicken breast", "amount": 2, "unit": "pieces", "category": "meat" },
+        { "name": "rice", "amount": 1, "unit": "cup", "category": "pantry" },
+        { "name": "soy sauce", "amount": 2, "unit": "tbsp", "category": "condiment" }
+      ],
+      "steps": [
+        { "step_number": 1, "instruction": "Pat chicken dry with paper towels.", "ingredients_used": ["chicken breast"] },
+        { "step_number": 2, "instruction": "Season both sides with salt and pepper.", "ingredients_used": ["salt", "black pepper"] },
+        { "step_number": 3, "instruction": "Preheat oven and position rack in center.", "temperature": "200°C" },
+        { "step_number": 4, "instruction": "Place chicken in oiled baking dish and roast until done.", "duration_minutes": 25, "temperature": "200°C", "ingredients_used": ["chicken breast", "olive oil"] },
+        { "step_number": 5, "instruction": "Rest chicken on cutting board before slicing.", "duration_minutes": 5 }
+      ],
+      "nutrition_estimate": { "calories": 350, "protein_g": 25, "carbs_g": 40, "fat_g": 12 },
+      "tips": ["Tip 1", "Tip 2"],
       "meal_type": "dinner",
-      "food_keywords": ["main food type", "second keyword"]
+      "food_keywords": ["chicken", "rice"]
     }
   ]
 }
 
 If they're just asking what's in their fridge or making small talk, set recipes to an empty array.
 
+IMPORTANT for title: Keep the recipe title short and specific (2-4 words max). Examples: "Garlic Butter Chicken", "Creamy Tomato Pasta", "Beef Stir Fry". Do NOT write long titles like "Delicious Homemade Creamy Garlic Butter Chicken with Herbs". Same for description — keep it to one short sentence.
+
+IMPORTANT for steps: Each step = ONE action, max 1 sentence, under 20 words. Do NOT put ingredient amounts in step text — amounts are shown separately. Use ingredient names only (e.g., "Sauté onion and garlic until fragrant" NOT "Sauté 1 diced onion and 3 minced garlic cloves in 2 tbsp olive oil"). Split complex actions into separate steps. Start each step with a strong verb. Include "ingredients_used" as an array of ingredient names used in that step. Only include "duration_minutes" when the step involves meaningful waiting time (baking, simmering, resting, marinating, boiling, etc.). Do NOT add duration to quick actions like chopping, seasoning, or mixing. Only include "temperature" when the step involves heat at a specific temperature (oven, stovetop setting, grill, etc.).
+
+IMPORTANT for ingredients category: ONLY use one of these exact values: "produce", "meat", "dairy", "pantry", "spices", "frozen", "beverage", "condiment", "other". Do not invent new categories.
+
+IMPORTANT for time accuracy: prep_time_minutes, cook_time_minutes, and total_time_minutes MUST be realistic and precise based on the actual steps. Calculate them by adding up the real durations from each step — do NOT round up or pad the time. If the steps add up to 22 minutes, say 22, not 30. total_time_minutes = prep_time_minutes + cook_time_minutes. Be honest — a simple pasta is 15-20 min, not 60.
+
 IMPORTANT for food_keywords: provide 2-3 simple, common food words that best describe what the final dish looks like (e.g., ["ice cream", "dessert"], ["pasta", "carbonara"], ["chicken", "stir fry"], ["burger", "beef"], ["salad", "vegetable"], ["cake", "chocolate"], ["soup", "curry"]). Use generic food category words, not brand names.`;
 
       const responseText = await generateText(prompt, {
         temperature: 0.8,
-        maxOutputTokens: 4000,
+        maxOutputTokens: 16384,
         responseMimeType: 'application/json'
       });
 
@@ -407,6 +1227,194 @@ IMPORTANT for food_keywords: provide 2-3 simple, common food words that best des
       return {
         message: "Sorry, I'm having trouble right now. Please try again!",
         recipes: [],
+      };
+    }
+  }
+
+  // ============================================
+  // MODIFY RECIPE - Generate a new version
+  // ============================================
+  async modifyRecipe(
+    modification: string,
+    originalRecipe: {
+      title: string;
+      ingredients: { name: string; amount?: number; unit?: string; category: string }[];
+      steps: { step_number: number; instruction: string; duration_minutes?: number | null; temperature?: string | null }[];
+      description?: string;
+      cuisine_type?: string;
+      servings?: number;
+    }
+  ): Promise<ExtractedRecipe> {
+    try {
+      const ingredientList = originalRecipe.ingredients
+        .map(i => [i.amount, i.unit, i.name].filter(Boolean).join(' '))
+        .join('\n- ');
+
+      const stepList = originalRecipe.steps
+        .map(s => {
+          let line = `${s.step_number}. ${s.instruction}`;
+          if (s.duration_minutes) line += ` [${s.duration_minutes} min]`;
+          if (s.temperature) line += ` [${s.temperature}]`;
+          return line;
+        })
+        .join('\n');
+
+      const prompt = `You are a professional chef assistant. The user wants to modify this recipe.
+
+Original Recipe: ${originalRecipe.title}
+${originalRecipe.description ? `Description: ${originalRecipe.description}` : ''}
+${originalRecipe.cuisine_type ? `Cuisine: ${originalRecipe.cuisine_type}` : ''}
+Servings: ${originalRecipe.servings || 4}
+
+Original Ingredients:
+- ${ingredientList}
+
+Original Steps:
+${stepList}
+
+User's request: "${modification}"
+
+FIRST: Check if the user's request is CLEAR and ACTIONABLE.
+If the request is:
+- Incomplete (e.g., "i want to", "can you", "please")
+- Gibberish or random letters (e.g., "asdf", "j", "xxx")
+- Too vague to understand (e.g., "change it", "fix")
+- Not related to modifying the recipe
+
+Then return this JSON:
+{
+  "error": true,
+  "message": "I didn't understand your request. Please be specific about what you'd like to change. For example: 'make it spicier', 'translate to Arabic', 'add more vegetables', or 'simplify the steps'."
+}
+
+If the request IS clear and actionable, you can:
+- Add, remove, or edit ANY steps
+- Add, remove, or change ANY ingredients
+- Change the language/translation of steps (if asked)
+- Completely rewrite the recipe (if asked)
+- Simplify or expand the recipe
+- Change cooking methods, techniques, or equipment
+- Adjust servings, timing, or difficulty
+- Make the recipe fit dietary restrictions
+- Convert to a different cuisine style
+
+Return the modified recipe as JSON:
+{
+  "title": "Recipe Title (2-4 words)",
+  "description": "One short sentence",
+  "cuisine_type": "cuisine or null",
+  "difficulty": "beginner|intermediate|advanced",
+  "prep_time_minutes": number,
+  "cook_time_minutes": number,
+  "total_time_minutes": number,
+  "active_time_minutes": number,
+  "servings": number,
+  "ingredients": [
+    { "name": "ingredient", "amount": number, "unit": "unit", "category": "produce|meat|dairy|pantry|spices|frozen|beverage|condiment|other" }
+  ],
+  "steps": [
+    { "step_number": 1, "instruction": "Short single action, under 20 words.", "duration_minutes": "number or null", "temperature": "200°C or null", "tip": "short pro chef tip — sensory cues, heat tricks, or plating advice (or null)" }
+  ],
+  "nutrition_estimate": { "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number },
+  "tips": ["tip1"]
+}
+
+FORMATTING RULES:
+- Steps: Each step = ONE action, max 1 sentence, under 20 words. No ingredient amounts in step text. Start with a verb.
+- Step tips: Add a short pro chef tip when useful — sensory cues ("listen for the sizzle"), heat tricks, texture tests. Set tip to null if no useful insight exists for that step.
+- Title: short (2-4 words), should reflect any changes made.
+- ALWAYS estimate nutrition.
+
+STEP TIMING RULES:
+- duration_minutes ONLY for steps requiring WAITING (baking, simmering, resting, marinating, boiling). Example: "Bake until golden." → duration_minutes: 25
+- duration_minutes = null for active steps (chopping, mixing, seasoning, quick sautéing). Example: "Dice the onion." → duration_minutes: null
+- temperature ONLY when a specific heat setting is involved (oven temp, grill temp). Otherwise null.
+
+TIME ACCURACY:
+- cook_time_minutes = SUM of all duration_minutes from the steps. Calculate precisely.
+- prep_time_minutes = estimate of hands-on chopping/mixing time before cooking starts.
+- total_time_minutes = prep_time_minutes + cook_time_minutes exactly.
+- If a step says "cook 5 min each side" = 10 min total. If "bake 25-30 min" use 28. Be precise, never guess round numbers.`;
+
+      const responseText = await generateText(prompt, {
+        temperature: 0.7,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json'
+      });
+
+      const result = await parseWithRepair(responseText);
+
+      // Check if AI returned an error (unclear request)
+      if (result.error) {
+        throw new Error(result.message || "I didn't understand your request. Please be more specific.");
+      }
+
+      if (!result.title || !result.ingredients || !result.steps) {
+        throw new Error('AI did not return a complete modified recipe');
+      }
+
+      return result as ExtractedRecipe;
+    } catch (error: any) {
+      console.error('Failed to modify recipe:', error);
+      // Re-throw with the original message if it's a clear error message
+      throw new Error(error?.message || 'Failed to generate modified recipe');
+    }
+  }
+
+  // ============================================
+  // ASK ABOUT RECIPE - Contextual Q&A
+  // ============================================
+  async askAboutRecipe(
+    question: string,
+    recipeContext: {
+      title: string;
+      ingredients: { name: string; amount?: number; unit?: string }[];
+      steps: { step_number: number; instruction: string }[];
+      description?: string;
+      cuisine_type?: string;
+    }
+  ): Promise<{ answer: string }> {
+    try {
+      const ingredientList = recipeContext.ingredients
+        .map(i => [i.amount, i.unit, i.name].filter(Boolean).join(' '))
+        .join('\n- ');
+
+      const stepList = recipeContext.steps
+        .map(s => `${s.step_number}. ${s.instruction}`)
+        .join('\n');
+
+      const prompt = `You are a professional chef assistant. The user is viewing a recipe and has a question about it. Answer concisely in 2-5 sentences. Be practical, helpful, and specific to this recipe.
+
+Recipe: ${recipeContext.title}
+${recipeContext.description ? `Description: ${recipeContext.description}` : ''}
+${recipeContext.cuisine_type ? `Cuisine: ${recipeContext.cuisine_type}` : ''}
+
+Ingredients:
+- ${ingredientList}
+
+Steps:
+${stepList}
+
+User question: "${question}"
+
+Return as JSON:
+{"answer": "Your concise answer here"}`;
+
+      const responseText = await generateText(prompt, {
+        temperature: 0.6,
+        maxOutputTokens: 1024,
+        responseMimeType: 'application/json'
+      });
+
+      const result = await parseWithRepair(responseText);
+
+      return {
+        answer: result.answer || "Sorry, I couldn't answer that. Please try rephrasing your question."
+      };
+    } catch (error) {
+      console.error('Failed to ask about recipe:', error);
+      return {
+        answer: "I'm having trouble right now. Please try again in a moment."
       };
     }
   }
@@ -520,6 +1528,45 @@ IMPORTANT for food_keywords: provide 2-3 simple, common food words that best des
   }
 
   // ============================================
+  // PARSE GROCERY ITEMS FROM VOICE INPUT
+  // ============================================
+  async parseGroceryVoice(voiceInput: string): Promise<{
+    items: Array<{
+      name: string;
+      amount?: number;
+      unit?: string;
+      category: string;
+    }>;
+    understood: boolean;
+    message: string;
+  }> {
+    try {
+      const prompt = AI_PROMPTS.parseGroceryVoice(voiceInput);
+
+      const responseText = await generateText(prompt, {
+        temperature: 0.3,
+        maxOutputTokens: 1500,
+        responseMimeType: 'application/json'
+      });
+
+      const result = await parseWithRepair(responseText);
+
+      return {
+        items: result.items || [],
+        understood: result.understood ?? true,
+        message: result.message || 'Items added'
+      };
+    } catch (error) {
+      console.error('Failed to parse grocery voice:', error);
+      return {
+        items: [],
+        understood: false,
+        message: "Sorry, I couldn't understand that. Please try again."
+      };
+    }
+  }
+
+  // ============================================
   // PROCESS USER RECIPE NOTES
   // ============================================
   async processUserNotes(
@@ -552,19 +1599,61 @@ IMPORTANT for food_keywords: provide 2-3 simple, common food words that best des
     hashtags: string[] = []
   ): Promise<ExtractedRecipe> {
     try {
-      const prompt = AI_PROMPTS.extractRecipeFromDescription(description, hashtags);
+      // Truncate very long descriptions to avoid token limits
+      const maxDescLength = 8000;
+      const truncatedDesc = description.length > maxDescLength
+        ? description.substring(0, maxDescLength) + '...'
+        : description;
+
+      console.log('[AI] Extracting recipe from description, length:', truncatedDesc.length);
+
+      const prompt = AI_PROMPTS.extractRecipeFromDescription(truncatedDesc, hashtags);
 
       const responseText = await generateText(prompt, {
         temperature: 0.6,
-        maxOutputTokens: 6000,
+        maxOutputTokens: 8000,
         responseMimeType: 'application/json'
       });
 
+      console.log('[AI] Response length:', responseText?.length || 0);
+
       const extractedRecipe = await parseWithRepair(responseText);
 
-      // Validate required fields
-      if (!extractedRecipe.title || !extractedRecipe.ingredients || !extractedRecipe.steps) {
-        throw new Error('Incomplete recipe data extracted from description');
+      console.log('[AI] Parsed recipe:', {
+        hasTitle: !!extractedRecipe?.title,
+        ingredientsCount: extractedRecipe?.ingredients?.length || 0,
+        stepsCount: extractedRecipe?.steps?.length || 0,
+      });
+
+      // Ensure arrays are proper arrays
+      if (!Array.isArray(extractedRecipe.ingredients)) {
+        extractedRecipe.ingredients = [];
+      }
+      if (!Array.isArray(extractedRecipe.steps)) {
+        extractedRecipe.steps = [];
+      }
+
+      // Validate required fields - need at least a title and some content
+      if (!extractedRecipe.title) {
+        console.error('[AI] No title found in recipe');
+        throw new Error('Could not find recipe title in the content');
+      }
+
+      if (extractedRecipe.ingredients.length === 0 && extractedRecipe.steps.length === 0) {
+        console.error('[AI] No ingredients or steps found');
+        throw new Error('Could not find recipe ingredients or instructions in the content');
+      }
+
+      // If we have a title and at least some content, return what we have
+      // Add default steps if none found but we have ingredients
+      if (extractedRecipe.steps.length === 0 && extractedRecipe.ingredients.length > 0) {
+        extractedRecipe.steps = [{
+          step_number: 1,
+          instruction: 'Follow the recipe instructions to prepare this dish.',
+          duration_minutes: null,
+          temperature: null,
+          tip: null,
+        }];
       }
 
       return extractedRecipe;
@@ -635,6 +1724,124 @@ IMPORTANT for food_keywords: provide 2-3 simple, common food words that best des
     } catch (error) {
       console.error('Failed to extract recipe from video frames:', error);
       throw new Error('Failed to analyze video for recipe');
+    }
+  }
+
+  // ============================================
+  // EXTRACT RECIPE FROM COOKBOOK PAGES (VISION)
+  // ============================================
+  async extractRecipeFromCookbookPages(pageUris: string[]): Promise<ExtractedRecipe> {
+    try {
+      if (!pageUris || pageUris.length === 0) {
+        throw new Error('No cookbook page images provided');
+      }
+
+      // Convert URIs to base64
+      const base64Images = await Promise.all(
+        pageUris.map(async (uri) => {
+          const base64 = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          return base64;
+        })
+      );
+
+      const prompt = AI_PROMPTS.extractCookbookPages();
+
+      const rawText = await generateVisionMultiImage(prompt, base64Images, {
+        temperature: 0.3,
+        maxOutputTokens: 16384,
+        responseMimeType: 'application/json',
+      });
+
+      const parsed = await parseWithRepair(rawText);
+
+      // Check for error response from AI
+      if (parsed.error) {
+        throw new Error(parsed.error);
+      }
+
+      // Validate required fields
+      if (!parsed.title || !parsed.ingredients || !parsed.steps) {
+        throw new Error('Could not extract a complete recipe from these images');
+      }
+
+      return parsed as ExtractedRecipe;
+    } catch (error) {
+      console.error('Failed to extract recipe from cookbook pages:', error);
+      throw error instanceof Error ? error : new Error('Failed to extract recipe from cookbook pages');
+    }
+  }
+
+  // ============================================
+  // GENERATE RECIPE IMAGE (Gemini image-to-image with fixed plate)
+  // ============================================
+  private _plateBase64: string | null = null;
+
+  private async getPlateBase64(): Promise<string> {
+    if (this._plateBase64) return this._plateBase64;
+    const asset = Asset.fromModule(require('../assets/images/plate.png'));
+    await asset.downloadAsync();
+    this._plateBase64 = await FileSystem.readAsStringAsync(asset.localUri!, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return this._plateBase64;
+  }
+
+  async generateRecipeImage(recipeName: string): Promise<string> {
+    try {
+      const plateBase64 = await this.getPlateBase64();
+
+      const prompt = `Place beautifully styled "${recipeName}" on this plate. Rules:
+- Use this image as a STYLE REFERENCE for composition, angle, lighting, and background only
+- You MUST change the plate shape and color to best match the dish (e.g. deep bowl for soup, wide white plate for steak, dark ceramic for sushi, elegant small plate for dessert)
+- Keep the EXACT same pure white background, top-down flat lay angle, and soft studio lighting
+- Only the plate with food — no props, utensils, napkins, or background elements
+- Food should look fresh, appetizing, and professionally styled like a magazine photo
+- Do not add any text or labels`;
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'image/png',
+                    data: plateBase64,
+                  },
+                },
+                { text: prompt },
+              ],
+            }],
+            generationConfig: {
+              responseModalities: ['IMAGE', 'TEXT'],
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Image generation failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const imagePart = data.candidates?.[0]?.content?.parts?.find(
+        (p: any) => p.inlineData?.mimeType?.startsWith('image/')
+      );
+
+      if (!imagePart?.inlineData?.data) {
+        throw new Error('Image generation failed — no image in response');
+      }
+
+      return imagePart.inlineData.data;
+    } catch (error) {
+      console.error('Failed to generate recipe image:', error);
+      throw new Error('Failed to generate recipe image');
     }
   }
 

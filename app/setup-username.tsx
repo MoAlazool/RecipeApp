@@ -106,7 +106,7 @@ export default function SetupUsernameScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={[styles.content, { paddingTop: insets.top }]}>
+      <View style={[styles.content, { paddingTop: insets.top + 8 }]}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity

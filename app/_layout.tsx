@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ThemeProvider } from '@rneui/themed';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { MenuProvider } from 'react-native-popup-menu';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import {
@@ -19,6 +20,12 @@ import {
   NotoSans_600SemiBold,
   NotoSans_700Bold,
 } from '@expo-google-fonts/noto-sans';
+import {
+  PlayfairDisplay_400Regular,
+  PlayfairDisplay_600SemiBold,
+  PlayfairDisplay_700Bold,
+  PlayfairDisplay_800ExtraBold,
+} from '@expo-google-fonts/playfair-display';
 import { useAuthStore } from '@/stores/authStore';
 import { configureNotifications } from '@/services/notifications.service';
 
@@ -77,6 +84,10 @@ export default function RootLayout() {
     NotoSans_500Medium,
     NotoSans_600SemiBold,
     NotoSans_700Bold,
+    PlayfairDisplay_400Regular,
+    PlayfairDisplay_600SemiBold,
+    PlayfairDisplay_700Bold,
+    PlayfairDisplay_800ExtraBold,
   });
 
   useEffect(() => {
@@ -103,10 +114,11 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <BottomSheetModalProvider>
-        <ThemeProvider theme={theme}>
-          <StatusBar style="auto" />
-          <Stack screenOptions={{ headerShown: false }}>
+      <MenuProvider>
+        <BottomSheetModalProvider>
+          <ThemeProvider theme={theme}>
+            <StatusBar style="auto" />
+            <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="auth/index" options={{ headerShown: false }} />
             <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
@@ -126,6 +138,13 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="edit-recipe"
+              options={{
+                headerShown: false,
+                presentation: 'modal'
+              }}
+            />
+            <Stack.Screen
               name="add-recipe"
               options={{
                 headerShown: false,
@@ -141,6 +160,20 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="fridge-review"
+              options={{
+                headerShown: false,
+                presentation: 'fullScreenModal'
+              }}
+            />
+            <Stack.Screen
+              name="cookbook-scan"
+              options={{
+                headerShown: false,
+                presentation: 'fullScreenModal'
+              }}
+            />
+            <Stack.Screen
+              name="cookbook-review"
               options={{
                 headerShown: false,
                 presentation: 'fullScreenModal'
@@ -249,9 +282,10 @@ export default function RootLayout() {
                 presentation: 'modal',
               }}
             />
-          </Stack>
-        </ThemeProvider>
-      </BottomSheetModalProvider>
+            </Stack>
+          </ThemeProvider>
+        </BottomSheetModalProvider>
+      </MenuProvider>
     </GestureHandlerRootView>
   );
 }

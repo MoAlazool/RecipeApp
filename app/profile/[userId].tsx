@@ -210,7 +210,7 @@ export default function UserProfileScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
@@ -228,7 +228,7 @@ export default function UserProfileScreen() {
 
   if (!profile) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
@@ -248,7 +248,7 @@ export default function UserProfileScreen() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={{ paddingTop: insets.top }}
+      contentContainerStyle={{ paddingTop: insets.top + 8 }}
       refreshControl={
         <RefreshControl refreshing={isLoading} onRefresh={fetchProfile} tintColor="#F2330D" />
       }
