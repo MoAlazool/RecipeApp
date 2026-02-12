@@ -1,208 +1,330 @@
-import { useEffect } from 'react';
-import { View, StyleSheet, ImageBackground, TouchableOpacity } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { Text } from '@rneui/themed';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSpring,
-  withDelay,
-  withSequence,
-  withRepeat,
-  Easing,
-  interpolate,
-  FadeInUp,
-} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { AnimatedMeshGradient } from '@/components/ui/MeshGradient';
+import Constants from 'expo-constants';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { useAuthStore } from '@/stores/authStore';
 
-const HERO_IMAGE =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuCoxBsywBe-w6v3I8KuCIcXGgrzg7ui9Yp-xMLJwSF0wJRAGm7kzKaluE5PDq8PQZZMsYuQDadosLE11Jg3YulTd8kHfAP6vOGvzsthc1jiIE9eSr9pOFMiUFfaVKhBohjeDCwVLZ7cKQCn229bQF0-yAN96ICN498PMBio-5doKvNpLKcBg9rI4jybBGdGFw26TUmfLyC0U_vF93IlLHpyvmJAzBRJFa7B-GoQRSjEDkvIvVpn1sc_VzgTS7nfr1vPk8WNKfJA9lc';
+const C = {
+  bg: '#F5F0ED',
+  white: '#FFFFFF',
+  sheet: 'rgba(255, 255, 255, 0.88)',
+  sheetBorder: 'rgba(0, 0, 0, 0.06)',
+  buttonLight: '#1A1A1E',
+  buttonDark: 'rgba(255, 255, 255, 0.72)',
+  buttonBorder: 'rgba(0, 0, 0, 0.08)',
+  textDark: '#F4F4F8',
+  textLight: '#1A1A1E',
+  headline: '#1A1A1E',
+};
 
-const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+const ENTRY_EASE = Easing.bezier(0.2, 0.8, 0.2, 1);
+
+// ── Mesh gradient colors (warm beige / terracotta / gold / cream) ──
+const MESH_COLORS = [
+  { r: 0.96, g: 0.94, b: 0.91 },  // warm cream
+  { r: 0.78, g: 0.43, b: 0.31 },  // terracotta
+  { r: 0.83, g: 0.69, b: 0.22 },  // gold
+  { r: 0.95, g: 0.91, b: 0.87 },  // light beige
+];
+
+// ── Typewriter phrases ──
+const PHRASES = [
+  'Save any recipe',
+  'Scan your fridge',
+  'Plan your meals',
+  'Cook hands-free',
+  'Share with friends',
+];
+const TYPE_SPEED = 70;
+const DELETE_SPEED = 40;
+const PAUSE_AFTER_TYPE = 2200;
+const PAUSE_AFTER_DELETE = 400;
+
+function useTypewriter(phrases: string[]) {
+  const [display, setDisplay] = useState('');
+  const [cursorVisible, setCursorVisible] = useState(true);
+  const idx = useRef(0);
+  const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const run = useCallback(() => {
+    const phrase = phrases[idx.current];
+    let charPos = 0;
+    let isDeleting = false;
+
+    const tick = () => {
+      if (!isDeleting) {
+        charPos++;
+        setDisplay(phrase.slice(0, charPos));
+        if (charPos === phrase.length) {
+          isDeleting = true;
+          timeout.current = setTimeout(tick, PAUSE_AFTER_TYPE);
+        } else {
+          timeout.current = setTimeout(tick, TYPE_SPEED);
+        }
+      } else {
+        charPos--;
+        setDisplay(phrase.slice(0, charPos));
+        if (charPos === 0) {
+          idx.current = (idx.current + 1) % phrases.length;
+          timeout.current = setTimeout(run, PAUSE_AFTER_DELETE);
+        } else {
+          timeout.current = setTimeout(tick, DELETE_SPEED);
+        }
+      }
+    };
+
+    tick();
+  }, [phrases]);
+
+  useEffect(() => {
+    // small initial delay before starting
+    timeout.current = setTimeout(run, 600);
+    return () => {
+      if (timeout.current) {
+        clearTimeout(timeout.current);
+      }
+    };
+  }, [run]);
+
+  // Blinking cursor
+  useEffect(() => {
+    const blink = setInterval(() => setCursorVisible((v) => !v), 530);
+    return () => clearInterval(blink);
+  }, []);
+
+  return { display, cursorVisible };
+}
 
 export default function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { signInWithApple, signInWithGoogle, isLoading } = useAuthStore();
+  const { display, cursorVisible } = useTypewriter(PHRASES);
+  const appleRequestInFlightRef = useRef(false);
+  const [isAppleRequestInFlight, setIsAppleRequestInFlight] = useState(false);
+  const isExpoGo = Constants.appOwnership === 'expo';
+  const isAppleBusy = isLoading || isAppleRequestInFlight;
 
-  // Animation values
-  const logoScale = useSharedValue(0);
-  const logoRotate = useSharedValue(-30);
-  const titleOpacity = useSharedValue(0);
-  const titleTranslateY = useSharedValue(30);
-  const subtitleOpacity = useSharedValue(0);
-  const buttonScale = useSharedValue(0);
-  const buttonOpacity = useSharedValue(0);
-  const shimmerPosition = useSharedValue(0);
-  const pulseScale = useSharedValue(1);
+  const headlineOpacity = useSharedValue(0);
+  const headlineY = useSharedValue(14);
+  const sheetY = useSharedValue(400);
+  const actionsOpacity = useSharedValue(0);
 
   useEffect(() => {
-    // Logo entrance animation
-    logoScale.value = withDelay(200, withSpring(1, { damping: 12, stiffness: 100 }));
-    logoRotate.value = withDelay(200, withSpring(0, { damping: 15 }));
+    headlineOpacity.value = withDelay(300, withTiming(1, { duration: 360, easing: ENTRY_EASE }));
+    headlineY.value = withDelay(300, withTiming(0, { duration: 360, easing: ENTRY_EASE }));
 
-    // Title animation
-    titleOpacity.value = withDelay(500, withTiming(1, { duration: 600 }));
-    titleTranslateY.value = withDelay(500, withSpring(0, { damping: 12 }));
-
-    // Subtitle animation
-    subtitleOpacity.value = withDelay(800, withTiming(1, { duration: 600 }));
-
-    // Button animation
-    buttonScale.value = withDelay(1100, withSpring(1, { damping: 10 }));
-    buttonOpacity.value = withDelay(1100, withTiming(1, { duration: 400 }));
-
-    // Shimmer animation (continuous)
-    shimmerPosition.value = withRepeat(
-      withTiming(1, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      false
-    );
-
-    // Pulse animation for logo
-    pulseScale.value = withDelay(
-      1500,
-      withRepeat(
-        withSequence(
-          withTiming(1.05, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      )
-    );
+    sheetY.value = withDelay(500, withSpring(0, { damping: 18, stiffness: 120, mass: 0.8 }));
+    actionsOpacity.value = withDelay(700, withTiming(1, { duration: 400, easing: ENTRY_EASE }));
   }, []);
 
-  const logoStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: logoScale.value * pulseScale.value },
-      { rotate: `${logoRotate.value}deg` },
-    ],
+  const headlineStyle = useAnimatedStyle(() => ({
+    opacity: headlineOpacity.value,
+    transform: [{ translateY: headlineY.value }],
   }));
 
-  const titleStyle = useAnimatedStyle(() => ({
-    opacity: titleOpacity.value,
-    transform: [{ translateY: titleTranslateY.value }],
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetY.value }],
   }));
 
-  const subtitleStyle = useAnimatedStyle(() => ({
-    opacity: subtitleOpacity.value,
+  const actionsStyle = useAnimatedStyle(() => ({
+    opacity: actionsOpacity.value,
   }));
 
-  const buttonStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: buttonScale.value }],
-    opacity: buttonOpacity.value,
-  }));
+  const handleApple = async () => {
+    if (isLoading || appleRequestInFlightRef.current) return;
+    if (Platform.OS !== 'ios') {
+      Alert.alert('iOS Only', 'Apple Sign In is only available on iOS devices.');
+      return;
+    }
+    if (isExpoGo) {
+      Alert.alert(
+        'Use Development or TestFlight Build',
+        'Apple Sign In is not supported in Expo Go for this app. Open the app from an EAS development build or TestFlight.'
+      );
+      return;
+    }
 
-  const shimmerStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateX: interpolate(shimmerPosition.value, [0, 1], [-200, 200]),
-      },
-    ],
-    opacity: interpolate(shimmerPosition.value, [0, 0.5, 1], [0, 0.6, 0]),
-  }));
+    appleRequestInFlightRef.current = true;
+    setIsAppleRequestInFlight(true);
+
+    try {
+      const result = await signInWithApple();
+      if (useAuthStore.getState().isAuthenticated) {
+        router.replace(result?.isNewUser ? '/onboarding' : '/(tabs)');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Apple sign in failed');
+    } finally {
+      appleRequestInFlightRef.current = false;
+      setIsAppleRequestInFlight(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    if (isLoading) return;
+    try {
+      const result = await signInWithGoogle();
+      router.replace(result?.isNewUser ? '/onboarding' : '/(tabs)');
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Google sign in failed');
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <ImageBackground source={{ uri: HERO_IMAGE }} style={styles.background}>
-        {/* Gradient overlays */}
-        <LinearGradient
-          colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.5)']}
-          locations={[0, 0.4, 1]}
+      <StatusBar barStyle="dark-content" />
+
+      {/* Animated mesh gradient background */}
+      <AnimatedMeshGradient
+        colors={MESH_COLORS}
+        speed={0.8}
+        noise={0.12}
+        blur={0.5}
+        contrast={0.9}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Fade overlay */}
+      <LinearGradient
+        colors={[
+          'rgba(245, 240, 237, 0)',
+          'rgba(245, 240, 237, 0.4)',
+          'rgba(245, 240, 237, 0.85)',
+          'rgba(245, 240, 237, 1)',
+        ]}
+        locations={[0, 0.3, 0.5, 0.65]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
+      {/* Center headline */}
+      <View style={styles.centerStage} pointerEvents="none">
+        <Animated.View style={[styles.headlineRow, headlineStyle]}>
+          <Text style={styles.headline}>
+            {display}
+            <Text style={[styles.cursor, !cursorVisible && styles.cursorHidden]}>|</Text>
+          </Text>
+        </Animated.View>
+        <Animated.View style={[styles.headlineRow, headlineStyle]}>
+          <Text style={styles.subtitle}>with EITO</Text>
+        </Animated.View>
+      </View>
+
+      {/* Bottom sheet — slides up from bottom */}
+      <Animated.View
+        style={[
+          styles.sheet,
+          sheetStyle,
+          { paddingBottom: Math.max(insets.bottom + 16, 26) },
+        ]}
+      >
+        <BlurView
+          intensity={60}
+          tint="light"
           style={StyleSheet.absoluteFill}
         />
-        <LinearGradient
-          colors={['transparent', 'rgba(28,16,13,0.95)']}
-          locations={[0.35, 0.85]}
-          style={StyleSheet.absoluteFill}
-        />
+        <View style={styles.sheetOverlay} pointerEvents="none" />
+        <Animated.View style={[styles.sheetContent, actionsStyle]}>
+          {/* Continue with Apple */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.mainButton,
+              styles.appleButton,
+              pressed && styles.pressed,
+              (isAppleBusy || isExpoGo) && styles.disabled,
+            ]}
+            onPress={handleApple}
+            disabled={isAppleBusy || isExpoGo}
+          >
+            {isAppleBusy ? (
+              <>
+                <ActivityIndicator size="small" color={C.textDark} />
+                <Text style={styles.appleText}>Signing in...</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="logo-apple" size={22} color={C.textDark} />
+                <Text style={styles.appleText}>Continue with Apple</Text>
+              </>
+            )}
+          </Pressable>
 
-        <View style={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom + 32 }]}>
-          <View style={styles.centerBlock}>
-            {/* Animated Logo */}
-            <Animated.View style={[styles.logoShell, logoStyle]}>
-              <View style={styles.logoInner}>
-                <Ionicons name="restaurant" size={32} color="#F2330D" />
-              </View>
-              {/* Shimmer effect */}
-              <Animated.View style={[styles.shimmer, shimmerStyle]}>
-                <LinearGradient
-                  colors={['transparent', 'rgba(255,255,255,0.4)', 'transparent']}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={StyleSheet.absoluteFill}
-                />
-              </Animated.View>
-            </Animated.View>
+          {/* Continue with Google */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.mainButton,
+              styles.googleButton,
+              pressed && styles.pressed,
+              isLoading && styles.disabled,
+            ]}
+            onPress={handleGoogle}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <>
+                <ActivityIndicator size="small" color={C.textLight} />
+                <Text style={styles.googleText}>Signing in...</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="logo-google" size={20} color={C.textLight} />
+                <Text style={styles.googleText}>Continue with Google</Text>
+              </>
+            )}
+          </Pressable>
 
-            {/* Title */}
-            <Animated.View style={titleStyle}>
-              <Text style={styles.title}>Recipe App</Text>
-            </Animated.View>
+          {/* Sign up */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.mainButton,
+              styles.darkButton,
+              pressed && styles.pressed,
+              isLoading && styles.disabled,
+            ]}
+            onPress={() => router.push('/auth?mode=signup')}
+            disabled={isLoading}
+          >
+            <Text style={styles.lightText}>Sign up</Text>
+          </Pressable>
 
-            {/* Subtitle */}
-            <Animated.View style={subtitleStyle}>
-              <Text style={styles.subtitle}>
-                Turn videos into delicious recipes instantly with AI magic.
-              </Text>
-            </Animated.View>
-
-            {/* Feature pills */}
-            <Animated.View
-              entering={FadeInUp.delay(1200).duration(600)}
-              style={styles.featurePills}
-            >
-              <View style={styles.featurePill}>
-                <Ionicons name="videocam" size={14} color="#F2330D" />
-                <Text style={styles.featurePillText}>Video to Recipe</Text>
-              </View>
-              <View style={styles.featurePill}>
-                <Ionicons name="camera" size={14} color="#F2330D" />
-                <Text style={styles.featurePillText}>Scan Fridge</Text>
-              </View>
-              <View style={styles.featurePill}>
-                <Ionicons name="mic" size={14} color="#F2330D" />
-                <Text style={styles.featurePillText}>Voice Cook</Text>
-              </View>
-            </Animated.View>
-          </View>
-
-          <Animated.View style={[styles.actions, buttonStyle]}>
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => router.push('/onboarding')}
-              activeOpacity={0.9}
-            >
-              <LinearGradient
-                colors={['#F2330D', '#E02D0B']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.buttonGradient}
-              >
-                <Text style={styles.primaryButtonText}>Get Started</Text>
-                <View style={styles.arrowCircle}>
-                  <Ionicons name="arrow-forward" size={16} color="#F2330D" />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => router.push('/auth')}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.secondaryButtonText}>I already have an account</Text>
-            </TouchableOpacity>
-
-            <Text style={styles.terms}>
-              By continuing, you agree to our Terms & Privacy Policy.
-            </Text>
-          </Animated.View>
-        </View>
-      </ImageBackground>
+          {/* Log in link */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.loginRow,
+              pressed && { opacity: 0.6 },
+              isLoading && styles.disabled,
+            ]}
+            onPress={() => router.push('/auth')}
+            disabled={isLoading}
+          >
+            <Text style={styles.loginHint}>Already have an account? </Text>
+            <Text style={styles.loginLink}>Log in</Text>
+          </Pressable>
+        </Animated.View>
+      </Animated.View>
     </View>
   );
 }
@@ -210,144 +332,114 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#221310',
+    backgroundColor: C.bg,
   },
-  background: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-  },
-  centerBlock: {
+  centerStage: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 20,
+    paddingHorizontal: 32,
   },
-  logoShell: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+  headlineRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    marginBottom: 24,
-    overflow: 'hidden',
   },
-  logoInner: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  shimmer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 100,
-    left: -100,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 48,
+  headline: {
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    textAlign: 'center',
-    letterSpacing: -1,
+    fontSize: 34,
+    color: C.headline,
+    letterSpacing: -0.6,
+    minHeight: 44,
+  },
+  cursor: {
+    fontFamily: 'PlusJakartaSans_300Light',
+    fontWeight: '300',
+    color: '#C66E4E',
+  },
+  cursorHidden: {
+    opacity: 0,
   },
   subtitle: {
-    marginTop: 16,
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 17,
-    fontFamily: 'NotoSans_500Medium',
-    textAlign: 'center',
-    maxWidth: 300,
-    lineHeight: 24,
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    fontSize: 34,
+    color: '#C66E4E',
+    letterSpacing: -0.6,
   },
-  featurePills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 32,
-  },
-  featurePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  featurePillText: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 12,
-    fontFamily: 'NotoSans_600SemiBold',
-  },
-  actions: {
-    width: '100%',
-    gap: 14,
-  },
-  primaryButton: {
-    borderRadius: 28,
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     overflow: 'hidden',
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    paddingTop: 20,
+    paddingHorizontal: 16,
   },
-  buttonGradient: {
-    height: 60,
+  sheetOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  sheetContent: {
+    gap: 10,
+  },
+  mainButton: {
+    height: 58,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
+    gap: 10,
+    overflow: 'hidden',
   },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
+  appleButton: {
+    backgroundColor: C.buttonLight,
+  },
+  googleButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+  },
+  darkButton: {
+    backgroundColor: C.buttonDark,
+  },
+  appleText: {
     fontFamily: 'PlusJakartaSans_700Bold',
-  },
-  arrowCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButton: {
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.25)',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButtonText: {
-    color: '#FFFFFF',
     fontSize: 16,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.textDark,
   },
-  terms: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 12,
-    textAlign: 'center',
-    fontFamily: 'NotoSans_500Medium',
-    marginTop: 8,
+  googleText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 16,
+    color: C.textLight,
+  },
+  lightText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 16,
+    color: C.textLight,
+  },
+  loginRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  loginHint: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: 'rgba(26, 26, 30, 0.45)',
+  },
+  loginLink: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 13,
+    color: '#C66E4E',
+  },
+  pressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.985 }],
+  },
+  disabled: {
+    opacity: 0.6,
   },
 });

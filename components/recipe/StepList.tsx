@@ -17,8 +17,10 @@ interface StepListProps {
   ingredientNames?: string[];
 }
 
-const formatAmount = (amount?: number): string => {
-  if (!amount) return '';
+const formatAmount = (raw?: number | string): string => {
+  if (raw == null || raw === '') return '';
+  const amount = typeof raw === 'string' ? parseFloat(raw) : raw;
+  if (isNaN(amount) || amount === 0) return '';
   if (amount === Math.floor(amount)) return amount.toString();
   if (Math.abs(amount - 0.25) < 0.01) return '\u00BC';
   if (Math.abs(amount - 0.33) < 0.01) return '\u2153';
@@ -113,7 +115,7 @@ export function StepList({ steps, ingredients = [], ingredientNames = [] }: Step
                   <View style={styles.metaItem}>
                     <Ionicons name="thermometer-outline" size={15} color={GOLD} />
                     <Text style={styles.metaText}>
-                      {step.temperature.toUpperCase()}
+                      {String(step.temperature).toUpperCase()}
                     </Text>
                   </View>
                 )}
@@ -158,9 +160,9 @@ export function StepList({ steps, ingredients = [], ingredientNames = [] }: Step
         Array.from(grouped).map(([group, groupSteps]) => (
           <View key={group || '_ungrouped'} style={group ? styles.group : undefined}>
             {group !== '' && (
-              <View style={styles.groupLabel}>
-                <Ionicons name="restaurant-outline" size={14} color={GOLD} />
-                <Text style={styles.groupLabelText}>{group}</Text>
+              <View style={styles.groupDivider}>
+                <View style={styles.groupDividerLine} />
+                <Text style={styles.groupDividerLabel}>{group.toUpperCase()}</Text>
               </View>
             )}
             {groupSteps.map((step, i) => renderStep(step, i, i === 0))}
@@ -276,22 +278,25 @@ const styles = StyleSheet.create({
 
   // Groups
   group: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
-  groupLabel: {
+  groupDivider: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    marginBottom: 12,
+    marginTop: 12,
+    marginBottom: 20,
   },
-  groupLabelText: {
-    fontSize: 13,
+  groupDividerLine: {
+    width: 28,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: GOLD,
+    marginRight: 10,
+  },
+  groupDividerLabel: {
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 10,
     color: GOLD,
+    letterSpacing: 2,
   },
 });

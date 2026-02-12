@@ -7,7 +7,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>RecipeApp</string>
+    <string>EITO</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -60,11 +60,11 @@
       <true/>
     </dict>
     <key>NSCameraUsageDescription</key>
-    <string>Allow RecipeApp to access your camera to scan ingredients</string>
+    <string>Allow EITO to access your camera to scan ingredients</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>We need microphone access for voice-controlled cooking mode</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Allow RecipeApp to access your photos</string>
+    <string>Allow EITO to access your photos</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>We need speech recognition for hands-free cooking commands</string>
     <key>NSSupportsLiveActivities</key>
@@ -100,7 +100,7 @@
       <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>UIUserInterfaceStyle</key>
-    <string>Automatic</string>
+    <string>Light</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
   </dict>

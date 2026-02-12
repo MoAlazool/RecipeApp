@@ -1,4 +1,4 @@
-import React, { forwardRef, useCallback, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useRef, useState, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -27,6 +27,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import { aiService } from '@/services/ai.service';
 import { useRecipeStore } from '@/stores/recipeStore';
+import { useUsageStore } from '@/stores/usageStore';
 import { previewRecipe } from '@/utils/previewRecipe';
 import type { Recipe, ExtractedRecipe } from '@/utils/types';
 
@@ -60,6 +61,12 @@ interface ChatMessage {
 
 interface AskAIChefSheetProps {
   recipe: Recipe;
+  canSendMessage?: () => Promise<boolean>;
+  quickPrompt?: {
+    label: string;
+    prompt: string;
+    requestId: number;
+  } | null;
   onPreviewOpen?: () => void;
 }
 
@@ -304,7 +311,7 @@ function FooterInput({ sendRef, loadingRef }: FooterInputProps) {
 const SNAP_POINTS = ['50%', '90%'];
 
 const AskAIChefSheet = forwardRef<BottomSheetModal, AskAIChefSheetProps>(
-  ({ recipe, onPreviewOpen }, ref) => {
+  ({ recipe, canSendMessage, quickPrompt, onPreviewOpen }, ref) => {
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const { addRecipe } = useRecipeStore();
@@ -346,12 +353,21 @@ const AskAIChefSheet = forwardRef<BottomSheetModal, AskAIChefSheetProps>(
 
     const doModify = useCallback(
       async (prompt: string) => {
+        if (canSendMessage) {
+          const allowed = await canSendMessage();
+          if (!allowed) {
+            setActiveInspiration(null);
+            return;
+          }
+        }
+
         lastRequestRef.current = prompt;
         setIsLoading(true);
         loadingRef.current = true;
         scrollToEnd();
 
         try {
+          await useUsageStore.getState().incrementUsage('ai_chat');
           const modified = await aiService.modifyRecipe(prompt, recipeContext());
 
           const aiMsg: ChatMessage = {
@@ -377,7 +393,7 @@ const AskAIChefSheet = forwardRef<BottomSheetModal, AskAIChefSheetProps>(
           scrollToEnd();
         }
       },
-      [recipeContext, scrollToEnd]
+      [canSendMessage, recipeContext, scrollToEnd]
     );
 
     // Called from typed input — shows user bubble
@@ -445,6 +461,16 @@ const AskAIChefSheet = forwardRef<BottomSheetModal, AskAIChefSheetProps>(
       },
       [isLoading, doModify]
     );
+
+    const lastQuickPromptIdRef = useRef<number | null>(null);
+
+    useEffect(() => {
+      if (!quickPrompt || isLoading) return;
+      if (lastQuickPromptIdRef.current === quickPrompt.requestId) return;
+      lastQuickPromptIdRef.current = quickPrompt.requestId;
+      setActiveInspiration(quickPrompt.label);
+      doModify(quickPrompt.prompt);
+    }, [quickPrompt, isLoading, doModify]);
 
     const renderBackdrop = useCallback(
       (props: any) => (

@@ -294,11 +294,18 @@ EXPO_PUBLIC_GEMINI_API_KEY=your-gemini-key
 EXPO_PUBLIC_TRANSCRIPT_API_URL=your-transcript-api
 EXPO_PUBLIC_REVENUECAT_APPLE_KEY=your-rc-apple-key
 EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY=your-rc-google-key
+EXPO_PUBLIC_REVENUECAT_IOS_MONTHLY_PRODUCT_ID=EITO_monthly
+EXPO_PUBLIC_REVENUECAT_IOS_YEARLY_PRODUCT_ID=EITO_yearly
+EXPO_PUBLIC_REVENUECAT_ANDROID_MONTHLY_PRODUCT_ID=EITO_monthly
+EXPO_PUBLIC_REVENUECAT_ANDROID_YEARLY_PRODUCT_ID=EITO_yearly
+EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_IDS=pro,premium,EITO Pro
 ```
 
 ## ملاحظات مهمة
 - متغيرات `EXPO_PUBLIC_*` تُضمَّن وقت البناء، لا تُخزّن أسرارًا داخلها.
+- ملف `.env` المحلي لا يُعتمد عليه تلقائيًا في TestFlight/EAS. استخدم متغيرات البيئة في EAS (أو تأكد من تحميلها داخل أرشفة Xcode) قبل رفع build.
 - خدمة النصوص اختيارية لكنها تحسن استخراج وصفات YouTube.
+- يجب أن تتطابق معرفات منتجات الاشتراك حرفيًا بين RevenueCat وApp Store Connect و`ios/Products.storekit`.
 
 ## الهيكل العام للمجلدات
 ```

@@ -22,13 +22,15 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import type {
   Conversation,
   ConversationParticipant,
   Message,
   MessageType,
   SharedRecipeData,
+  SharedMealPlanData,
+  SharedShoppingListData,
   UserProfile,
 } from '@/utils/types';
 
@@ -179,11 +181,32 @@ class MessagingService {
     callback: (conversations: Conversation[]) => void
   ): Unsubscribe {
     const userId = this.getCurrentUserId();
-    if (!userId) {
-      console.warn('[Messaging] No user signed in, cannot subscribe to conversations');
-      return () => {};
+
+    // If auth is already ready, subscribe immediately
+    if (userId) {
+      return this._listenConversations(userId, callback);
     }
 
+    // Auth not ready yet — wait for it, then subscribe
+    let firestoreUnsub: Unsubscribe = () => {};
+    const auth = getAuth();
+    const authUnsub = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        firestoreUnsub = this._listenConversations(firebaseUser.uid, callback);
+        authUnsub(); // Only need the first sign-in event
+      }
+    });
+
+    return () => {
+      authUnsub();
+      firestoreUnsub();
+    };
+  }
+
+  private _listenConversations(
+    userId: string,
+    callback: (conversations: Conversation[]) => void
+  ): Unsubscribe {
     const conversationsRef = collection(this.db, 'conversations');
     const q = query(
       conversationsRef,
@@ -199,7 +222,6 @@ class MessagingService {
           ...doc.data(),
         } as Conversation));
 
-        // Enrich with user profiles
         const enrichedConversations = await this.enrichConversationsWithProfiles(conversations);
         callback(enrichedConversations);
       },
@@ -774,11 +796,32 @@ class MessagingService {
     callback: (messages: Message[]) => void
   ): Unsubscribe {
     const userId = this.getCurrentUserId();
-    if (!userId) {
-      console.warn('[Messaging] No user signed in, cannot subscribe to messages');
-      return () => {};
+
+    // If auth is ready, subscribe immediately
+    if (userId) {
+      return this._listenMessages(conversationId, callback);
     }
 
+    // Auth not ready — wait for it
+    let firestoreUnsub: Unsubscribe = () => {};
+    const auth = getAuth();
+    const authUnsub = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        firestoreUnsub = this._listenMessages(conversationId, callback);
+        authUnsub();
+      }
+    });
+
+    return () => {
+      authUnsub();
+      firestoreUnsub();
+    };
+  }
+
+  private _listenMessages(
+    conversationId: string,
+    callback: (messages: Message[]) => void
+  ): Unsubscribe {
     const messagesRef = collection(this.db, 'conversations', conversationId, 'messages');
     const q = query(
       messagesRef,
@@ -857,6 +900,186 @@ class MessagingService {
   ): Promise<Message> {
     const content = message || `Check out this recipe: ${recipeData.title}`;
     return this.sendMessage(recipientId, content, 'recipe', recipeData);
+  }
+
+  async sendMealPlanMessage(
+    recipientId: string,
+    mealPlanData: SharedMealPlanData
+  ): Promise<Message> {
+    const userId = this.requireAuth();
+    const conversationId = this.generateConversationId(userId, recipientId);
+    await this.getOrCreateConversation(recipientId);
+
+    const now = new Date().toISOString();
+    const content =
+      mealPlanData.type === 'day'
+        ? `Shared ${mealPlanData.dayLabel}'s meal plan`
+        : `Shared weekly meal plan`;
+
+    const messagesRef = collection(this.db, 'conversations', conversationId, 'messages');
+    const newMessage: Omit<Message, 'id'> = {
+      conversation_id: conversationId,
+      sender_id: userId,
+      content,
+      message_type: 'meal_plan',
+      meal_plan_data: mealPlanData,
+      read_by: [userId],
+      created_at: now,
+      updated_at: now,
+    };
+
+    const docRef = await addDoc(messagesRef, newMessage);
+
+    const conversationRef = doc(this.db, 'conversations', conversationId);
+    await updateDoc(conversationRef, {
+      last_message: content,
+      last_message_at: now,
+      last_message_sender_id: userId,
+      updated_at: now,
+      [`participant_details`]: await this.updateUnreadCount(conversationId, recipientId, 1),
+    });
+
+    return { id: docRef.id, ...newMessage };
+  }
+
+  async sendMealPlanToConversation(
+    conversationId: string,
+    mealPlanData: SharedMealPlanData
+  ): Promise<Message> {
+    const userId = this.requireAuth();
+    const conversation = await this.getConversation(conversationId);
+    if (!conversation) throw new Error('Conversation not found');
+    if (!conversation.participants.includes(userId))
+      throw new Error('You are not a member of this conversation');
+
+    const now = new Date().toISOString();
+    const content =
+      mealPlanData.type === 'day'
+        ? `Shared ${mealPlanData.dayLabel}'s meal plan`
+        : `Shared weekly meal plan`;
+
+    const messagesRef = collection(this.db, 'conversations', conversationId, 'messages');
+    const newMessage: Omit<Message, 'id'> = {
+      conversation_id: conversationId,
+      sender_id: userId,
+      content,
+      message_type: 'meal_plan',
+      meal_plan_data: mealPlanData,
+      read_by: [userId],
+      created_at: now,
+      updated_at: now,
+    };
+
+    const docRef = await addDoc(messagesRef, newMessage);
+
+    const conversationRef = doc(this.db, 'conversations', conversationId);
+    const updatedDetails = conversation.is_group
+      ? conversation.participant_details.map((p) => ({
+          ...p,
+          unread_count: p.user_id === userId ? p.unread_count : (p.unread_count || 0) + 1,
+        }))
+      : await this.updateUnreadCount(
+          conversationId,
+          conversation.participants.find((p) => p !== userId) || '',
+          1
+        );
+
+    await updateDoc(conversationRef, {
+      last_message: content,
+      last_message_at: now,
+      last_message_sender_id: userId,
+      updated_at: now,
+      participant_details: updatedDetails,
+    });
+
+    return { id: docRef.id, ...newMessage };
+  }
+
+  async sendShoppingListMessage(
+    recipientId: string,
+    shoppingListData: SharedShoppingListData
+  ): Promise<Message> {
+    const userId = this.requireAuth();
+    const conversationId = this.generateConversationId(userId, recipientId);
+    await this.getOrCreateConversation(recipientId);
+
+    const now = new Date().toISOString();
+    const content = `Shared grocery list: ${shoppingListData.listName} (${shoppingListData.totalItems} items)`;
+
+    const messagesRef = collection(this.db, 'conversations', conversationId, 'messages');
+    const newMessage: Omit<Message, 'id'> = {
+      conversation_id: conversationId,
+      sender_id: userId,
+      content,
+      message_type: 'shopping_list',
+      shopping_list_data: shoppingListData,
+      read_by: [userId],
+      created_at: now,
+      updated_at: now,
+    };
+
+    const docRef = await addDoc(messagesRef, newMessage);
+
+    const conversationRef = doc(this.db, 'conversations', conversationId);
+    await updateDoc(conversationRef, {
+      last_message: content,
+      last_message_at: now,
+      last_message_sender_id: userId,
+      updated_at: now,
+      [`participant_details`]: await this.updateUnreadCount(conversationId, recipientId, 1),
+    });
+
+    return { id: docRef.id, ...newMessage };
+  }
+
+  async sendShoppingListToConversation(
+    conversationId: string,
+    shoppingListData: SharedShoppingListData
+  ): Promise<Message> {
+    const userId = this.requireAuth();
+    const conversation = await this.getConversation(conversationId);
+    if (!conversation) throw new Error('Conversation not found');
+    if (!conversation.participants.includes(userId))
+      throw new Error('You are not a member of this conversation');
+
+    const now = new Date().toISOString();
+    const content = `Shared grocery list: ${shoppingListData.listName} (${shoppingListData.totalItems} items)`;
+
+    const messagesRef = collection(this.db, 'conversations', conversationId, 'messages');
+    const newMessage: Omit<Message, 'id'> = {
+      conversation_id: conversationId,
+      sender_id: userId,
+      content,
+      message_type: 'shopping_list',
+      shopping_list_data: shoppingListData,
+      read_by: [userId],
+      created_at: now,
+      updated_at: now,
+    };
+
+    const docRef = await addDoc(messagesRef, newMessage);
+
+    const conversationRef = doc(this.db, 'conversations', conversationId);
+    const updatedDetails = conversation.is_group
+      ? conversation.participant_details.map((p) => ({
+          ...p,
+          unread_count: p.user_id === userId ? p.unread_count : (p.unread_count || 0) + 1,
+        }))
+      : await this.updateUnreadCount(
+          conversationId,
+          conversation.participants.find((p) => p !== userId) || '',
+          1
+        );
+
+    await updateDoc(conversationRef, {
+      last_message: content,
+      last_message_at: now,
+      last_message_sender_id: userId,
+      updated_at: now,
+      participant_details: updatedDetails,
+    });
+
+    return { id: docRef.id, ...newMessage };
   }
 
   /**

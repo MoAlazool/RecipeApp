@@ -1,9 +1,18 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
-import { Text, Button } from '@rneui/themed';
+import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import type { Recipe } from '@/utils/types';
+
+const C = {
+  bg: '#FAF7F2',
+  card: '#FFFFFF',
+  charcoal: '#1A1510',
+  muted: '#8A8578',
+  terracotta: '#B8845C',
+};
 
 interface RecipeCardProps {
   recipe: Recipe;
@@ -12,78 +21,45 @@ interface RecipeCardProps {
 }
 
 export function RecipeCard({ recipe, onPress, onCook }: RecipeCardProps) {
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty) {
-      case 'beginner':
-        return '#4CAF50';
-      case 'intermediate':
-        return '#FF9800';
-      case 'advanced':
-        return '#F44336';
-      default:
-        return '#888';
-    }
-  };
-
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.9}>
-      <View style={[styles.image, styles.imageStyle]}>
+      <View style={styles.thumbnailWrapper}>
         <Image
-          source={{ uri: recipe.thumbnail_url || 'https://via.placeholder.com/400x200' }}
-          style={StyleSheet.absoluteFillObject}
+          source={{ uri: recipe.thumbnail_url }}
+          style={styles.thumbnail}
           contentFit="cover"
           transition={300}
         />
-        <View style={styles.overlay}>
-          {recipe.is_favorite && (
-            <View style={styles.favoriteIcon}>
-              <Ionicons name="heart" size={20} color="#FF6B35" />
-            </View>
-          )}
-          <View style={styles.timeContainer}>
-            <Ionicons name="time-outline" size={14} color="#FFF" />
-            <Text style={styles.timeText}>{recipe.total_time_minutes} min</Text>
-          </View>
-        </View>
       </View>
 
       <View style={styles.content}>
+        {recipe.cuisine_type ? (
+          <Text style={styles.cuisine}>{recipe.cuisine_type.toUpperCase()}</Text>
+        ) : null}
+
         <Text style={styles.title} numberOfLines={2}>
           {recipe.title}
         </Text>
 
         <View style={styles.meta}>
-          <View style={styles.metaItem}>
-            <View
-              style={[
-                styles.difficultyDot,
-                { backgroundColor: getDifficultyColor(recipe.difficulty) },
-              ]}
-            />
-            <Text style={styles.metaText}>{recipe.difficulty}</Text>
-          </View>
-
-          <View style={styles.metaItem}>
-            <Ionicons name="people-outline" size={14} color="#888" />
-            <Text style={styles.metaText}>{recipe.current_servings} servings</Text>
-          </View>
-
-          {recipe.times_cooked > 0 && (
-            <View style={styles.metaItem}>
-              <Ionicons name="checkmark-circle-outline" size={14} color="#4CAF50" />
-              <Text style={styles.metaText}>Cooked {recipe.times_cooked}x</Text>
-            </View>
-          )}
+          <Ionicons name="time-outline" size={12} color={C.muted} />
+          <Text style={styles.metaText}>
+            {recipe.total_time_minutes || 15} min
+          </Text>
+          {recipe.difficulty ? (
+            <>
+              <Text style={styles.metaDot}>&middot;</Text>
+              <Text style={styles.metaText}>{recipe.difficulty}</Text>
+            </>
+          ) : null}
         </View>
 
         <View style={styles.actions}>
-          <Button
-            title="Cook Now"
-            onPress={onCook}
-            buttonStyle={styles.cookButton}
-            titleStyle={styles.cookButtonTitle}
-            icon={<Ionicons name="restaurant" size={16} color="#FFF" style={{ marginRight: 6 }} />}
-          />
+          <TouchableOpacity style={styles.cookButton} onPress={onCook} activeOpacity={0.8}>
+            <BlurView intensity={40} tint="light" style={styles.cookButtonBlur}>
+              <Text style={styles.cookButtonText}>Cook Now</Text>
+            </BlurView>
+          </TouchableOpacity>
         </View>
       </View>
     </TouchableOpacity>
@@ -92,96 +68,76 @@ export function RecipeCard({ recipe, onPress, onCook }: RecipeCardProps) {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#FFF',
+    flexDirection: 'row',
+    backgroundColor: C.bg,
+    borderRadius: 14,
+    marginHorizontal: 18,
+    marginBottom: 8,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(26, 21, 16, 0.08)',
+  },
+  thumbnailWrapper: {
+    width: 90,
+    height: 90,
     borderRadius: 16,
-    marginBottom: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    backgroundColor: '#E8E2D8',
   },
-  image: {
-    height: 160,
-    overflow: 'hidden',
-  },
-  imageStyle: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-  },
-  overlay: {
-    flex: 1,
-    padding: 12,
-    justifyContent: 'space-between',
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  favoriteIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  timeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  timeText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 4,
+  thumbnail: {
+    width: '100%',
+    height: '100%',
   },
   content: {
-    padding: 16,
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: 'center',
+  },
+  cuisine: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 10,
+    color: C.muted,
+    letterSpacing: 1,
+    marginBottom: 3,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginBottom: 8,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 14,
+    color: C.charcoal,
+    lineHeight: 19,
+    marginBottom: 4,
   },
   meta: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 12,
-  },
-  metaItem: {
-    flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 16,
-    marginBottom: 4,
-  },
-  difficultyDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    gap: 4,
+    marginBottom: 8,
   },
   metaText: {
-    fontSize: 13,
-    color: '#888',
-    marginLeft: 4,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: C.muted,
+  },
+  metaDot: {
+    color: C.muted,
+    fontSize: 12,
   },
   actions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
   },
   cookButton: {
-    backgroundColor: '#FF6B35',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
-  cookButtonTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+  cookButtonBlur: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
+  },
+  cookButtonText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 12,
+    color: C.charcoal,
   },
 });

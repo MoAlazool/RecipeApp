@@ -5,6 +5,7 @@ import { firebaseService } from '@/services/firebase.service';
 import { youtubeService, getYouTubeThumbnail } from '@/services/youtube.service';
 import { socialService } from '@/services/social.service';
 import { aiService } from '@/services/ai.service';
+import { queueSavedRecipesWidgetSync } from '@/services/savedRecipesWidget.service';
 import type { Recipe, ExtractedRecipe, RecipeSourceType } from '@/utils/types';
 
 // Lazy import to avoid circular dependency
@@ -29,9 +30,13 @@ interface RecipeState {
   setCurrentRecipe: (recipe: Recipe | null) => void;
   generateRecipeImage: (recipeId: string, recipeTitle: string) => Promise<void>;
   isGeneratingImage: (recipeId: string) => boolean;
+  prefetchRecipes: (ids: string[]) => Promise<void>;
   clearError: () => void;
   clearAll: () => void;
 }
+
+// In-memory cache for externally fetched recipes (not shown in user's collection)
+const _externalCache = new Map<string, Recipe>();
 
 export const useRecipeStore = create<RecipeState>()(
   persist(
@@ -47,6 +52,7 @@ export const useRecipeStore = create<RecipeState>()(
           set({ isLoading: true, error: null });
           const recipes = await firebaseService.getRecipes();
           set({ recipes, isLoading: false });
+          queueSavedRecipesWidgetSync(recipes);
         } catch (error: any) {
           set({
             error: error.message || 'Failed to fetch recipes',
@@ -63,8 +69,16 @@ export const useRecipeStore = create<RecipeState>()(
             return cached;
           }
 
+          // Check external cache (shared/imported recipes)
+          const ext = _externalCache.get(id);
+          if (ext) {
+            set({ currentRecipe: ext });
+            return ext;
+          }
+
           const recipe = await firebaseService.getRecipe(id);
           if (recipe) {
+            _externalCache.set(recipe.id, recipe);
             set({ currentRecipe: recipe });
           }
           return recipe;
@@ -141,39 +155,59 @@ export const useRecipeStore = create<RecipeState>()(
             ...(extractedRecipe.nutrition_estimate?.fat_g && { fat_g: extractedRecipe.nutrition_estimate.fat_g }),
           };
 
-          // Upload base64 data URI to Storage (e.g. from AI-generated preview)
-          if (thumbnailUrl?.startsWith('data:')) {
-            try {
-              const userId = getAuthStore().getState().user?.id;
-              const base64Data = thumbnailUrl.split(',')[1];
-              const storagePath = `recipes/${userId}/${Date.now()}_ai.jpg`;
-              thumbnailUrl = await firebaseService.uploadBase64Image(base64Data, storagePath);
-              recipeData.thumbnail_url = thumbnailUrl;
-            } catch (e) {
-              console.warn('Failed to upload base64 thumbnail:', e);
-              delete recipeData.thumbnail_url;
-            }
+          // Don't save base64 to Firestore (exceeds 1MB field limit) — upload in background
+          const pendingBase64 = thumbnailUrl?.startsWith('data:') ? thumbnailUrl : null;
+          if (pendingBase64) {
+            delete recipeData.thumbnail_url;
           }
 
-          // Auto-generate AI image for fridge/cookbook recipes before saving
-          if (!thumbnailUrl && AI_IMAGE_SOURCE_TYPES.includes(sourceType)) {
-            try {
-              const base64Image = await aiService.generateRecipeImage(extractedRecipe.title);
-              const userId = getAuthStore().getState().user?.id;
-              const storagePath = `recipes/${userId}/${Date.now()}_ai.jpg`;
-              const downloadUrl = await firebaseService.uploadBase64Image(base64Image, storagePath);
-              recipeData.thumbnail_url = downloadUrl;
-            } catch (e) {
-              console.warn('AI image generation failed, saving without image:', e);
-            }
-          }
-
+          // Save recipe to Firestore first (fast) — don't block on image upload
           const recipe = await firebaseService.createRecipe(recipeData);
 
+          // Keep base64 in local state so the image shows immediately in the UI
+          const localRecipe = pendingBase64
+            ? { ...recipe, thumbnail_url: pendingBase64 }
+            : recipe;
+
           set((state) => ({
-            recipes: [recipe, ...state.recipes],
+            recipes: [localRecipe, ...state.recipes],
             isLoading: false,
           }));
+          queueSavedRecipesWidgetSync(get().recipes);
+
+          // Upload image to Storage in background, then update the recipe
+          if (pendingBase64) {
+            const base64Data = pendingBase64.split(',')[1];
+            const userId = getAuthStore().getState().user?.id;
+            const storagePath = `recipes/${userId}/${Date.now()}_ai.jpg`;
+            firebaseService.uploadBase64Image(base64Data, storagePath).then((downloadUrl) => {
+              firebaseService.updateRecipeThumbnail(recipe.id, downloadUrl).catch(() => {});
+              // Update local state
+              set((state) => ({
+                recipes: state.recipes.map((r) =>
+                  r.id === recipe.id ? { ...r, thumbnail_url: downloadUrl } : r
+                ),
+              }));
+            }).catch((e) => {
+              console.warn('Background image upload failed:', e);
+            });
+          } else if (!thumbnailUrl && AI_IMAGE_SOURCE_TYPES.includes(sourceType)) {
+            // Generate + upload AI image in background
+            aiService.generateRecipeImage(extractedRecipe.title).then((base64Image) => {
+              const userId = getAuthStore().getState().user?.id;
+              const storagePath = `recipes/${userId}/${Date.now()}_ai.jpg`;
+              return firebaseService.uploadBase64Image(base64Image, storagePath);
+            }).then((downloadUrl) => {
+              firebaseService.updateRecipeThumbnail(recipe.id, downloadUrl).catch(() => {});
+              set((state) => ({
+                recipes: state.recipes.map((r) =>
+                  r.id === recipe.id ? { ...r, thumbnail_url: downloadUrl } : r
+                ),
+              }));
+            }).catch((e) => {
+              console.warn('Background AI image generation failed:', e);
+            });
+          }
 
           return recipe;
         } catch (error: any) {
@@ -198,6 +232,7 @@ export const useRecipeStore = create<RecipeState>()(
                 ? { ...state.currentRecipe, ...updates }
                 : state.currentRecipe,
           }));
+          queueSavedRecipesWidgetSync(get().recipes);
         } catch (error) {
           console.error('Update recipe error:', error);
           throw error;
@@ -214,6 +249,7 @@ export const useRecipeStore = create<RecipeState>()(
             currentRecipe:
               state.currentRecipe?.id === id ? null : state.currentRecipe,
           }));
+          queueSavedRecipesWidgetSync(get().recipes);
           console.log('[RecipeStore] ✓ Removed from local app state');
 
           // Delete from Firebase in the background
@@ -275,6 +311,7 @@ export const useRecipeStore = create<RecipeState>()(
             recipes: [savedRecipe, ...state.recipes],
             isLoading: false,
           }));
+          queueSavedRecipesWidgetSync(get().recipes);
 
           return savedRecipe;
         } catch (error: any) {
@@ -321,6 +358,18 @@ export const useRecipeStore = create<RecipeState>()(
         return get().generatingImageIds.includes(recipeId);
       },
 
+      prefetchRecipes: async (ids: string[]) => {
+        const ownIds = new Set(get().recipes.map((r) => r.id));
+        const missing = ids.filter((id) => id && !id.startsWith('shared_') && !ownIds.has(id) && !_externalCache.has(id));
+        if (missing.length === 0) return;
+        const fetched = await Promise.all(
+          missing.map((id) => firebaseService.getRecipe(id).catch(() => null))
+        );
+        for (const r of fetched) {
+          if (r) _externalCache.set(r.id, r);
+        }
+      },
+
       clearError: () => set({ error: null }),
 
       clearAll: () => {
@@ -332,6 +381,7 @@ export const useRecipeStore = create<RecipeState>()(
           isLoading: false,
           error: null,
         });
+        queueSavedRecipesWidgetSync([]);
       },
     }),
     {
@@ -340,6 +390,11 @@ export const useRecipeStore = create<RecipeState>()(
       partialize: (state) => ({
         recipes: state.recipes,
       }),
+      onRehydrateStorage: () => (state, error) => {
+        if (!error && state) {
+          queueSavedRecipesWidgetSync(state.recipes);
+        }
+      },
     }
   )
 );

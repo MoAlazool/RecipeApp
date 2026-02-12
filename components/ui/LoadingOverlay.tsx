@@ -1,42 +1,55 @@
 import React from 'react';
-import { View, StyleSheet, ActivityIndicator, Modal } from 'react-native';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Text } from '@rneui/themed';
 
 interface LoadingOverlayProps {
   visible: boolean;
-  message?: string;
+  message?: string | null;
 }
 
-export function LoadingOverlay({ visible, message = 'Loading...' }: LoadingOverlayProps) {
+export function LoadingOverlay({ visible, message }: LoadingOverlayProps) {
+  if (!visible) return null;
+
+  const showMessage = Boolean(message && message.trim().length > 0);
+
   return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View style={styles.overlay}>
-        <View style={styles.container}>
-          <ActivityIndicator size="large" color="#FF6B35" />
+    <View style={styles.overlay} pointerEvents="auto">
+      <View style={styles.container}>
+        <ActivityIndicator size="small" color="#C66E4E" />
+        {showMessage ? (
           <Text style={styles.message}>{message}</Text>
-        </View>
+        ) : null}
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
+    paddingTop: 56,
+    zIndex: 20,
   },
   container: {
-    backgroundColor: '#FFF',
-    padding: 32,
-    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
-    minWidth: 200,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderWidth: 1,
+    borderColor: 'rgba(26,21,16,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
   },
   message: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#333',
+    fontSize: 13,
+    color: '#4A3228',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
 });

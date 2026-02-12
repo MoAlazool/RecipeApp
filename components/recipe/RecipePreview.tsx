@@ -10,18 +10,25 @@ interface RecipePreviewProps {
   onEdit: () => void;
   onDiscard: () => void;
   isSaving?: boolean;
+  usageBanner?: { remaining: number; total: number };
 }
 
-export function RecipePreview({ recipe, onSave, onEdit, onDiscard, isSaving = false }: RecipePreviewProps) {
+export function RecipePreview({ recipe, onSave, onEdit, onDiscard, isSaving = false, usageBanner }: RecipePreviewProps) {
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Header */}
         <View style={styles.header}>
-          <Ionicons name="checkmark-circle" size={48} color="#4CAF50" />
-          <Text h4 style={styles.title}>Recipe Extracted!</Text>
-          <Text style={styles.subtitle}>Review before saving</Text>
+          <View style={styles.checkWrap}>
+            <Ionicons name="checkmark" size={18} color="#D4AF37" />
+          </View>
+          <View>
+            <Text style={styles.headerTitle}>Recipe Extracted</Text>
+            <Text style={styles.headerSub}>Review before saving</Text>
+          </View>
         </View>
 
+        {/* Recipe Card */}
         <View style={styles.card}>
           <Text style={styles.recipeTitle}>{recipe.title}</Text>
           {recipe.description && (
@@ -29,46 +36,53 @@ export function RecipePreview({ recipe, onSave, onEdit, onDiscard, isSaving = fa
           )}
 
           <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <Ionicons name="time-outline" size={16} color="#FF6B35" />
+            <View style={styles.metaPill}>
+              <Ionicons name="time-outline" size={14} color="#8A8578" />
               <Text style={styles.metaText}>{recipe.total_time_minutes} min</Text>
             </View>
-            <View style={styles.metaItem}>
-              <Ionicons name="people-outline" size={16} color="#FF6B35" />
+            <View style={styles.metaPill}>
+              <Ionicons name="people-outline" size={14} color="#8A8578" />
               <Text style={styles.metaText}>{recipe.servings} servings</Text>
             </View>
-            <View style={styles.metaItem}>
-              <Ionicons name="speedometer-outline" size={16} color="#FF6B35" />
+            <View style={styles.metaPill}>
+              <Ionicons name="speedometer-outline" size={14} color="#8A8578" />
               <Text style={styles.metaText}>{recipe.difficulty}</Text>
             </View>
           </View>
         </View>
 
+        {/* Ingredients */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="list" size={16} color="#1A1A2E" /> Ingredients ({recipe.ingredients.length})
-          </Text>
+          <View style={styles.sectionHead}>
+            <Text style={styles.sectionLabel}>Ingredients</Text>
+            <Text style={styles.sectionCount}>{recipe.ingredients.length}</Text>
+          </View>
           {recipe.ingredients.slice(0, 5).map((ing, index) => (
-            <Text key={index} style={styles.ingredient}>
-              • {ing.amount} {ing.unit} {ing.name}
-              {ing.notes ? ` (${ing.notes})` : ''}
-            </Text>
+            <View key={index} style={styles.ingredientRow}>
+              <View style={styles.ingredientDot} />
+              <Text style={styles.ingredientText}>
+                {ing.amount} {ing.unit} {ing.name}
+                {ing.notes ? ` (${ing.notes})` : ''}
+              </Text>
+            </View>
           ))}
           {recipe.ingredients.length > 5 && (
             <Text style={styles.moreText}>
-              +{recipe.ingredients.length - 5} more ingredients
+              +{recipe.ingredients.length - 5} more
             </Text>
           )}
         </View>
 
+        {/* Steps */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="footsteps" size={16} color="#1A1A2E" /> Steps ({recipe.steps.length})
-          </Text>
+          <View style={styles.sectionHead}>
+            <Text style={styles.sectionLabel}>Steps</Text>
+            <Text style={styles.sectionCount}>{recipe.steps.length}</Text>
+          </View>
           {recipe.steps.slice(0, 3).map((step, index) => (
             <View key={index} style={styles.step}>
-              <View style={styles.stepNumber}>
-                <Text style={styles.stepNumberText}>{step.step_number}</Text>
+              <View style={styles.stepNum}>
+                <Text style={styles.stepNumText}>{step.step_number}</Text>
               </View>
               <Text style={styles.stepText} numberOfLines={2}>
                 {step.instruction}
@@ -82,28 +96,42 @@ export function RecipePreview({ recipe, onSave, onEdit, onDiscard, isSaving = fa
           )}
         </View>
 
+        {/* Tips */}
         {recipe.tips && recipe.tips.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              <Ionicons name="bulb-outline" size={16} color="#1A1A2E" /> Tips
-            </Text>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionLabel}>Tips</Text>
+            </View>
             {recipe.tips.map((tip, index) => (
-              <Text key={index} style={styles.tip}>• {tip}</Text>
+              <View key={index} style={styles.ingredientRow}>
+                <Ionicons name="bulb-outline" size={14} color="#D4AF37" />
+                <Text style={styles.tipText}>{tip}</Text>
+              </View>
             ))}
           </View>
         )}
       </ScrollView>
 
+      {/* Bottom Actions */}
       <View style={styles.actions}>
+        {usageBanner && usageBanner.remaining > 0 && (
+          <View style={styles.usageBanner}>
+            <Ionicons name="information-circle-outline" size={16} color="#C66E4E" />
+            <Text style={styles.usageBannerText}>
+              Saving will use 1 of your {usageBanner.remaining} remaining extractions
+            </Text>
+          </View>
+        )}
+        <View style={styles.actionButtons}>
         <TouchableOpacity
-          style={styles.discardButton}
+          style={styles.discardBtn}
           onPress={onDiscard}
           disabled={isSaving}
         >
-          <Text style={styles.discardButtonText}>Discard</Text>
+          <Text style={styles.discardBtnText}>Discard</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+          style={[styles.saveBtn, isSaving && styles.saveBtnDisabled]}
           onPress={onSave}
           disabled={isSaving}
           activeOpacity={0.9}
@@ -111,12 +139,13 @@ export function RecipePreview({ recipe, onSave, onEdit, onDiscard, isSaving = fa
           {isSaving ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
-            <Ionicons name="checkmark" size={20} color="#FFF" />
+            <Ionicons name="checkmark" size={18} color="#FFF" />
           )}
-          <Text style={styles.saveButtonText}>
+          <Text style={styles.saveBtnText}>
             {isSaving ? 'Saving...' : 'Save Recipe'}
           </Text>
         </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -125,179 +154,241 @@ export function RecipePreview({ recipe, onSave, onEdit, onDiscard, isSaving = fa
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: '#FAFAF8',
   },
   content: {
     padding: 20,
     paddingBottom: 120,
   },
+
+  // ── Header ──
   header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    gap: 12,
+    marginBottom: 16,
   },
-  title: {
-    marginTop: 12,
-    color: '#1C100D',
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 22,
+  checkWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(212, 175, 55, 0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  subtitle: {
-    color: '#9C5749',
-    marginTop: 4,
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 14,
+  headerTitle: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 19,
+    color: '#1A1510',
   },
+  headerSub: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: '#B5B0A7',
+  },
+
+  // ── Card ──
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 20,
-    marginBottom: 16,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 3,
+    marginBottom: 12,
+    shadowColor: '#1A1510',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
   },
   recipeTitle: {
+    fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 20,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
-    marginBottom: 8,
+    color: '#1A1510',
+    marginBottom: 6,
   },
   description: {
-    color: '#9C5749',
-    lineHeight: 22,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: '#8A8578',
+    lineHeight: 20,
     marginBottom: 16,
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 14,
   },
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16,
+    gap: 8,
   },
-  metaItem: {
+  metaPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
   },
   metaText: {
-    fontSize: 14,
-    color: '#9C5749',
-    fontFamily: 'NotoSans_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: '#8A8578',
   },
+
+  // ── Section ──
   section: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 20,
-    marginBottom: 16,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 3,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
     marginBottom: 12,
+    shadowColor: '#1A1510',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
   },
-  ingredient: {
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  sectionLabel: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 15,
+    color: '#1A1510',
+  },
+  sectionCount: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 12,
+    color: '#B5B0A7',
+  },
+
+  // ── Ingredients ──
+  ingredientRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 5,
+  },
+  ingredientDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#D5D1CB',
+    marginTop: 7,
+  },
+  ingredientText: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 14,
-    color: '#1C100D',
-    lineHeight: 26,
-    fontFamily: 'NotoSans_500Medium',
+    color: '#1A1510',
+    lineHeight: 20,
   },
   moreText: {
-    color: '#F2330D',
-    fontSize: 14,
-    marginTop: 8,
-    fontFamily: 'NotoSans_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 13,
+    color: '#C66E4E',
+    marginTop: 10,
   },
+
+  // ── Steps ──
   step: {
     flexDirection: 'row',
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    marginBottom: 14,
+    gap: 12,
   },
-  stepNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#F2330D',
-    justifyContent: 'center',
+  stepNum: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#1A1510',
     alignItems: 'center',
-    marginRight: 12,
+    justifyContent: 'center',
   },
-  stepNumberText: {
-    color: '#FFFFFF',
-    fontSize: 13,
+  stepNumText: {
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 12,
+    color: '#FFFFFF',
   },
   stepText: {
     flex: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 14,
-    color: '#1C100D',
-    lineHeight: 22,
-    fontFamily: 'NotoSans_500Medium',
+    color: '#1A1510',
+    lineHeight: 21,
   },
-  tip: {
-    fontSize: 14,
-    color: '#9C5749',
-    lineHeight: 24,
-    fontFamily: 'NotoSans_500Medium',
+
+  // ── Tips ──
+  tipText: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: '#8A8578',
+    lineHeight: 20,
   },
+
+  // ── Actions ──
   actions: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
     padding: 20,
     paddingBottom: 36,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 4,
+    backgroundColor: '#FAFAF8',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(26, 21, 16, 0.06)',
+  },
+  actionButtons: {
+    flexDirection: 'row',
     gap: 12,
   },
-  discardButton: {
+  usageBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(198, 110, 78, 0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  usageBannerText: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: '#C66E4E',
+    lineHeight: 17,
+  },
+  discardBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#E8D3CE',
-    borderRadius: 14,
+    borderColor: 'rgba(26, 21, 16, 0.10)',
+    borderRadius: 20,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
   },
-  discardButtonText: {
-    color: '#9C5749',
+  discardBtnText: {
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    fontSize: 15,
+    fontSize: 14,
+    color: '#8A8578',
   },
-  saveButton: {
+  saveBtn: {
     flex: 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#F2330D',
-    borderRadius: 14,
+    backgroundColor: '#C66E4E',
+    borderRadius: 20,
     paddingVertical: 14,
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  saveButtonDisabled: {
-    backgroundColor: 'rgba(242, 51, 13, 0.7)',
+  saveBtnDisabled: {
+    backgroundColor: 'rgba(198, 110, 78, 0.6)',
   },
-  saveButtonText: {
-    color: '#FFFFFF',
+  saveBtnText: {
     fontFamily: 'PlusJakartaSans_700Bold',
     fontSize: 15,
+    color: '#FFFFFF',
   },
 });

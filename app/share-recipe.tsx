@@ -65,6 +65,20 @@ interface ShareItemProps {
   isSending: boolean;
 }
 
+interface ShareTargetItem {
+  id: string;
+  name: string;
+  subtitle?: string;
+  avatarUrl?: string;
+  lastMessageAt?: string;
+  isGroup: boolean;
+}
+
+interface ShareSection {
+  title: string;
+  data: ShareTargetItem[];
+}
+
 const ShareItem = ({ id, name, username, avatarUrl, isGroup, onPress, isSending }: ShareItemProps) => {
   const avatarColor = getAvatarColor(id);
 
@@ -149,7 +163,7 @@ export default function ShareRecipeScreen() {
   }, []);
 
   // Get recent DM chats
-  const recentDMs = useMemo(() => {
+  const recentDMs = useMemo<ShareTargetItem[]>(() => {
     if (!user) return [];
 
     return conversations
@@ -177,7 +191,7 @@ export default function ShareRecipeScreen() {
   }, [conversations, user]);
 
   // Get group chats
-  const groupChats = useMemo(() => {
+  const groupChats = useMemo<ShareTargetItem[]>(() => {
     if (!user) return [];
 
     return conversations
@@ -199,8 +213,8 @@ export default function ShareRecipeScreen() {
   }, [conversations, user]);
 
   // Combined sections for SectionList
-  const sections = useMemo(() => {
-    const result = [];
+  const sections = useMemo<ShareSection[]>(() => {
+    const result: ShareSection[] = [];
     if (groupChats.length > 0) {
       result.push({ title: 'Groups', data: groupChats });
     }
@@ -313,10 +327,10 @@ export default function ShareRecipeScreen() {
   const isSearchMode = searchQuery.trim().length > 0;
 
   // Filter local groups + DMs by search query
-  const filteredSections = useMemo(() => {
+  const filteredSections = useMemo<ShareSection[]>(() => {
     if (!isSearchMode) return [];
     const q = searchQuery.trim().toLowerCase();
-    const result = [];
+    const result: ShareSection[] = [];
 
     const matchedGroups = groupChats.filter(g =>
       g.name.toLowerCase().includes(q) || g.subtitle?.toLowerCase().includes(q)
@@ -341,7 +355,7 @@ export default function ShareRecipeScreen() {
           subtitle: u.username,
           avatarUrl: u.avatar_url,
           isGroup: false,
-          lastMessageAt: null,
+          lastMessageAt: undefined,
         })),
       });
     }

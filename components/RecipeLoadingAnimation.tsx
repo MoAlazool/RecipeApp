@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet, useColorScheme, Dimensions } from 'react-native';
-import { Text } from '@rneui/themed';
+import { View, StyleSheet, Text } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -13,17 +12,17 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-const COLORS = {
-  primary: '#F2330D',
-  olive: '#606C38',
-  oliveDark: '#283618',
-  oliveLight: '#DDE5B6',
-  backgroundLight: '#FCFAF9',
-  backgroundDark: '#1A1210',
+// Michelin-star Design Tokens
+const C = {
+  ivory: '#FFFEFB',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  backgroundLight: '#FAFAF8',
+  backgroundDark: '#1A1510',
   cardLight: '#FFFFFF',
-  cardDark: '#2A1D1A',
+  cardDark: '#2A2520',
 };
 
 interface RecipeLoadingAnimationProps {
@@ -35,15 +34,12 @@ export function RecipeLoadingAnimation({
   ingredientCount,
   ingredientEmojis = ['🍅', '🥬', '🥚', '🧄'],
 }: RecipeLoadingAnimationProps) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-
   // Animation values
   const orbitRotation = useSharedValue(0);
   const pulse1Scale = useSharedValue(1);
-  const pulse1Opacity = useSharedValue(0.1);
+  const pulse1Opacity = useSharedValue(0.08);
   const pulse2Scale = useSharedValue(1);
-  const pulse2Opacity = useSharedValue(0.05);
+  const pulse2Opacity = useSharedValue(0.04);
   const aiIconScale = useSharedValue(1);
   const dot1Y = useSharedValue(0);
   const dot2Y = useSharedValue(0);
@@ -53,26 +49,26 @@ export function RecipeLoadingAnimation({
   const slideUp = useSharedValue(20);
 
   useEffect(() => {
-    // Orbit rotation - 12 seconds for full rotation
+    // Orbit rotation - slower, more elegant 16 seconds
     orbitRotation.value = withRepeat(
-      withTiming(360, { duration: 12000, easing: Easing.linear }),
+      withTiming(360, { duration: 16000, easing: Easing.linear }),
       -1,
       false
     );
 
-    // Pulse animation 1
+    // Pulse animation 1 - more subtle
     pulse1Scale.value = withRepeat(
       withSequence(
-        withTiming(1.2, { duration: 1500, easing: Easing.out(Easing.ease) }),
-        withTiming(1, { duration: 1500, easing: Easing.in(Easing.ease) })
+        withTiming(1.15, { duration: 2000, easing: Easing.out(Easing.ease) }),
+        withTiming(1, { duration: 2000, easing: Easing.in(Easing.ease) })
       ),
       -1,
       false
     );
     pulse1Opacity.value = withRepeat(
       withSequence(
-        withTiming(0.05, { duration: 1500, easing: Easing.out(Easing.ease) }),
-        withTiming(0.1, { duration: 1500, easing: Easing.in(Easing.ease) })
+        withTiming(0.04, { duration: 2000, easing: Easing.out(Easing.ease) }),
+        withTiming(0.08, { duration: 2000, easing: Easing.in(Easing.ease) })
       ),
       -1,
       false
@@ -80,33 +76,33 @@ export function RecipeLoadingAnimation({
 
     // Pulse animation 2 (delayed)
     pulse2Scale.value = withDelay(
-      1500,
+      2000,
       withRepeat(
         withSequence(
-          withTiming(1.15, { duration: 1500, easing: Easing.out(Easing.ease) }),
-          withTiming(1, { duration: 1500, easing: Easing.in(Easing.ease) })
+          withTiming(1.1, { duration: 2000, easing: Easing.out(Easing.ease) }),
+          withTiming(1, { duration: 2000, easing: Easing.in(Easing.ease) })
         ),
         -1,
         false
       )
     );
     pulse2Opacity.value = withDelay(
-      1500,
+      2000,
       withRepeat(
         withSequence(
-          withTiming(0.02, { duration: 1500, easing: Easing.out(Easing.ease) }),
-          withTiming(0.05, { duration: 1500, easing: Easing.in(Easing.ease) })
+          withTiming(0.02, { duration: 2000, easing: Easing.out(Easing.ease) }),
+          withTiming(0.04, { duration: 2000, easing: Easing.in(Easing.ease) })
         ),
         -1,
         false
       )
     );
 
-    // AI Icon pulse
+    // AI Icon pulse - very subtle
     aiIconScale.value = withRepeat(
       withSequence(
-        withTiming(1.05, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+        withTiming(1.03, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       false
@@ -118,8 +114,8 @@ export function RecipeLoadingAnimation({
         delay,
         withRepeat(
           withSequence(
-            withTiming(-4, { duration: 300, easing: Easing.out(Easing.ease) }),
-            withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) })
+            withTiming(-3, { duration: 400, easing: Easing.out(Easing.ease) }),
+            withTiming(0, { duration: 400, easing: Easing.in(Easing.ease) })
           ),
           -1,
           false
@@ -127,22 +123,22 @@ export function RecipeLoadingAnimation({
       );
 
     dot1Y.value = dotAnimation(0);
-    dot2Y.value = dotAnimation(100);
-    dot3Y.value = dotAnimation(200);
+    dot2Y.value = dotAnimation(120);
+    dot3Y.value = dotAnimation(240);
 
-    // Progress bar animation
+    // Progress bar animation - smoother
     progressX.value = withRepeat(
       withSequence(
-        withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+        withTiming(0, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       false
     );
 
     // Fade in and slide up
-    fadeIn.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.ease) });
-    slideUp.value = withTiming(0, { duration: 500, easing: Easing.out(Easing.ease) });
+    fadeIn.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.ease) });
+    slideUp.value = withTiming(0, { duration: 600, easing: Easing.out(Easing.ease) });
   }, []);
 
   // Animated styles
@@ -181,7 +177,7 @@ export function RecipeLoadingAnimation({
   }));
 
   const progressStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: interpolate(progressX.value, [-1, 0, 1], [-192, 0, 192]) }],
+    transform: [{ translateX: interpolate(progressX.value, [-1, 0, 1], [-160, 0, 160]) }],
   }));
 
   const textContainerStyle = useAnimatedStyle(() => ({
@@ -196,7 +192,7 @@ export function RecipeLoadingAnimation({
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? COLORS.backgroundDark : COLORS.backgroundLight }]}>
+    <View style={[styles.container, { backgroundColor: C.backgroundLight }]}>
       {/* Orbit Container */}
       <View style={styles.orbitContainer}>
         {/* Pulsing Background Circles */}
@@ -204,7 +200,7 @@ export function RecipeLoadingAnimation({
           style={[
             styles.pulseCircle,
             styles.pulseCircle1,
-            { backgroundColor: COLORS.primary },
+            { backgroundColor: C.gold },
             pulse1Style,
           ]}
         />
@@ -212,7 +208,7 @@ export function RecipeLoadingAnimation({
           style={[
             styles.pulseCircle,
             styles.pulseCircle2,
-            { backgroundColor: COLORS.primary },
+            { backgroundColor: C.terracotta },
             pulse2Style,
           ]}
         />
@@ -223,7 +219,7 @@ export function RecipeLoadingAnimation({
           <View
             style={[
               styles.dashedBorder,
-              { borderColor: isDark ? 'rgba(242,51,13,0.2)' : 'rgba(242,51,13,0.2)' },
+              { borderColor: 'rgba(212, 175, 55, 0.25)' },
             ]}
           />
 
@@ -233,8 +229,8 @@ export function RecipeLoadingAnimation({
               style={[
                 styles.emojiBubbleInner,
                 {
-                  backgroundColor: isDark ? COLORS.cardDark : COLORS.cardLight,
-                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                  backgroundColor: C.cardLight,
+                  borderColor: 'rgba(26, 21, 16, 0.06)',
                 },
               ]}
             >
@@ -250,8 +246,8 @@ export function RecipeLoadingAnimation({
               style={[
                 styles.emojiBubbleInner,
                 {
-                  backgroundColor: isDark ? COLORS.cardDark : COLORS.cardLight,
-                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                  backgroundColor: C.cardLight,
+                  borderColor: 'rgba(26, 21, 16, 0.06)',
                 },
               ]}
             >
@@ -267,8 +263,8 @@ export function RecipeLoadingAnimation({
               style={[
                 styles.emojiBubbleInner,
                 {
-                  backgroundColor: isDark ? COLORS.cardDark : COLORS.cardLight,
-                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                  backgroundColor: C.cardLight,
+                  borderColor: 'rgba(26, 21, 16, 0.06)',
                 },
               ]}
             >
@@ -284,8 +280,8 @@ export function RecipeLoadingAnimation({
               style={[
                 styles.emojiBubbleInner,
                 {
-                  backgroundColor: isDark ? COLORS.cardDark : COLORS.cardLight,
-                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                  backgroundColor: C.cardLight,
+                  borderColor: 'rgba(26, 21, 16, 0.06)',
                 },
               ]}
             >
@@ -301,20 +297,20 @@ export function RecipeLoadingAnimation({
           style={[
             styles.centerCircle,
             {
-              backgroundColor: isDark ? COLORS.cardDark : COLORS.cardLight,
-              shadowColor: COLORS.primary,
-              borderColor: isDark ? 'rgba(255,255,255,0.05)' : COLORS.cardLight,
+              backgroundColor: C.cardLight,
+              shadowColor: C.gold,
+              borderColor: C.cardLight,
             },
           ]}
         >
-          <View style={styles.centerGradient} />
+          <View style={[styles.centerGradient, { backgroundColor: 'rgba(212, 175, 55, 0.04)' }]} />
           <Animated.View style={[styles.aiIconContainer, aiIconStyle]}>
-            <Ionicons name="sparkles" size={48} color={COLORS.primary} />
+            <Ionicons name="sparkles" size={44} color={C.gold} />
           </Animated.View>
           <View style={styles.dotsContainer}>
-            <Animated.View style={[styles.dot, dot1Style]} />
-            <Animated.View style={[styles.dot, dot2Style]} />
-            <Animated.View style={[styles.dot, dot3Style]} />
+            <Animated.View style={[styles.dot, { backgroundColor: C.terracotta }, dot1Style]} />
+            <Animated.View style={[styles.dot, { backgroundColor: C.gold }, dot2Style]} />
+            <Animated.View style={[styles.dot, { backgroundColor: C.terracotta }, dot3Style]} />
           </View>
         </View>
       </View>
@@ -324,23 +320,22 @@ export function RecipeLoadingAnimation({
         <Text
           style={[
             styles.title,
-            { color: isDark ? '#FFFFFF' : '#0F172A' },
+            { color: C.charcoal },
           ]}
         >
-          Chef AI is curating{'\n'}your menu...
+          Chef AI is curating{'\n'}your menu
         </Text>
-        <Text style={[styles.subtitle, { color: isDark ? '#9CA3AF' : '#64748B' }]}>
+        <Text style={[styles.subtitle, { color: C.muted }]}>
           Matching{' '}
           <Text
             style={[
               styles.ingredientCount,
               {
-                color: COLORS.primary,
-                backgroundColor: isDark ? 'rgba(242,51,13,0.15)' : 'rgba(242,51,13,0.1)',
+                color: C.terracotta,
               },
             ]}
           >
-            {' '}{ingredientCount} ingredients{' '}
+            {ingredientCount} ingredients
           </Text>{' '}
           with recipes
         </Text>
@@ -351,19 +346,19 @@ export function RecipeLoadingAnimation({
         <View
           style={[
             styles.progressTrack,
-            { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB' },
+            { backgroundColor: 'rgba(26, 21, 16, 0.06)' },
           ]}
         >
-          <Animated.View style={[styles.progressBar, progressStyle]} />
+          <Animated.View style={[styles.progressBar, { backgroundColor: C.gold }, progressStyle]} />
         </View>
       </Animated.View>
     </View>
   );
 }
 
-const ORBIT_SIZE = 280;
-const CENTER_SIZE = 120;
-const EMOJI_BUBBLE_SIZE = 56;
+const ORBIT_SIZE = 260;
+const CENTER_SIZE = 110;
+const EMOJI_BUBBLE_SIZE = 52;
 
 const styles = StyleSheet.create({
   container: {
@@ -388,8 +383,8 @@ const styles = StyleSheet.create({
     height: ORBIT_SIZE,
   },
   pulseCircle2: {
-    width: ORBIT_SIZE - 96,
-    height: ORBIT_SIZE - 96,
+    width: ORBIT_SIZE - 80,
+    height: ORBIT_SIZE - 80,
   },
   orbitRing: {
     position: 'absolute',
@@ -420,9 +415,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 8,
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 6,
   },
   emojiBubbleTop: {
     top: -EMOJI_BUBBLE_SIZE / 2,
@@ -441,19 +436,19 @@ const styles = StyleSheet.create({
     left: -EMOJI_BUBBLE_SIZE / 2,
   },
   emojiText: {
-    fontSize: 24,
+    fontSize: 22,
   },
   centerCircle: {
     width: CENTER_SIZE,
     height: CENTER_SIZE,
     borderRadius: CENTER_SIZE / 2,
-    borderWidth: 4,
+    borderWidth: 3,
     justifyContent: 'center',
     alignItems: 'center',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 50,
-    elevation: 20,
+    shadowOpacity: 0.2,
+    shadowRadius: 40,
+    elevation: 16,
     overflow: 'hidden',
   },
   centerGradient: {
@@ -462,7 +457,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(242,51,13,0.05)',
   },
   aiIconContainer: {
     marginBottom: 4,
@@ -470,51 +464,45 @@ const styles = StyleSheet.create({
   dotsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
   },
   dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.primary,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   textContainer: {
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
   },
   title: {
-    fontSize: 28,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    fontSize: 26,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
     textAlign: 'center',
-    lineHeight: 36,
-    letterSpacing: -0.5,
+    lineHeight: 34,
+    letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: 16,
-    fontFamily: 'NotoSans_500Medium',
+    fontSize: 15,
+    fontFamily: 'NotoSans_400Regular',
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
   },
   ingredientCount: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    overflow: 'hidden',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   progressContainer: {
-    marginTop: 48,
-    width: 192,
+    marginTop: 40,
+    width: 160,
   },
   progressTrack: {
-    height: 6,
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
     overflow: 'hidden',
   },
   progressBar: {
     width: '100%',
     height: '100%',
-    backgroundColor: COLORS.primary,
-    borderRadius: 3,
+    borderRadius: 2,
   },
 });

@@ -16,10 +16,13 @@ export interface User {
   dietary_restrictions?: DietaryRestriction[];
   default_servings: number;
   is_premium: boolean;
-  premium_expires_at?: string;
+  premium_expires_at?: string | null;
   weekly_recipe_count: number;
   weekly_scan_count: number;
   week_reset_at: string;
+  daily_ai_chat_count: number;
+  chat_reset_at: string;
+  expo_push_token?: string;
   created_at: string;
   updated_at: string;
 }
@@ -326,11 +329,13 @@ export interface UsageLog {
 }
 
 export interface UsageLimits {
-  can_extract_recipe: boolean;
-  can_scan_fridge: boolean;
-  recipes_remaining: number;
-  scans_remaining: number;
-  reset_at: string;
+  canScan: boolean;
+  canChat: boolean;
+  canGenerateRecipe: boolean;
+  canUseWeekPlanner: boolean;
+  scansRemaining: number;
+  chatsRemaining: number;
+  recipesRemaining: number;
 }
 
 // ============================================
@@ -414,6 +419,39 @@ export interface RecipeSortOption {
 }
 
 // ============================================
+// MEAL PLANNER TYPES
+// ============================================
+
+export type PlannerMealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+export interface MealPlanItem {
+  id: string;
+  recipeId: string;
+  title: string;
+  thumbnailUrl?: string;
+  totalTimeMinutes: number;
+  calories?: number;
+  difficulty: RecipeDifficulty;
+}
+
+export interface MealPlanDay {
+  date: string; // 'YYYY-MM-DD'
+  breakfast?: MealPlanItem;
+  lunch?: MealPlanItem;
+  dinner?: MealPlanItem;
+  snack?: MealPlanItem;
+}
+
+export type MealPlanViewMode = 'day' | 'week';
+
+export interface DayNutritionSummary {
+  totalCalories: number;
+  totalTimeMinutes: number;
+  filledSlots: number;
+  firstRecipeId: string | null;
+}
+
+// ============================================
 // MESSAGING TYPES
 // ============================================
 export interface Conversation {
@@ -455,13 +493,15 @@ export interface Message {
   message_type: MessageType;
   recipe_id?: string;
   recipe_data?: SharedRecipeData;
+  meal_plan_data?: SharedMealPlanData;
+  shopping_list_data?: SharedShoppingListData;
   reactions?: MessageReaction[];
   read_by: string[];
   created_at: string;
   updated_at: string;
 }
 
-export type MessageType = 'text' | 'recipe' | 'image' | 'system';
+export type MessageType = 'text' | 'recipe' | 'image' | 'system' | 'meal_plan' | 'shopping_list';
 
 export interface SharedRecipeData {
   id: string;
@@ -469,6 +509,56 @@ export interface SharedRecipeData {
   thumbnail_url?: string;
   total_time_minutes?: number;
   difficulty?: RecipeDifficulty;
+}
+
+export interface SharedMealPlanData {
+  type: 'day' | 'week';
+  // Day plan
+  date?: string;
+  dayLabel?: string;
+  meals?: SharedMealPlanMeal[];
+  // Week plan
+  startDate?: string;
+  endDate?: string;
+  daySummaries?: SharedMealPlanDaySummary[];
+  // Stats
+  totalMeals: number;
+  totalCalories?: number;
+  totalTimeMinutes?: number;
+}
+
+export interface SharedMealPlanMeal {
+  slot: PlannerMealSlot;
+  title: string;
+  thumbnailUrl?: string;
+  timeMinutes?: number;
+  calories?: number;
+  recipeId?: string;
+  difficulty?: RecipeDifficulty;
+}
+
+export interface SharedMealPlanDaySummary {
+  dayLabel: string;
+  date?: string;
+  filledSlots: number;
+  meals?: SharedMealPlanMeal[];
+}
+
+export interface SharedShoppingListData {
+  listName: string;
+  totalItems: number;
+  checkedItems: number;
+  items: SharedShoppingItem[];
+  categories: { name: IngredientCategory; count: number }[];
+}
+
+export interface SharedShoppingItem {
+  name: string;
+  amount?: number;
+  unit?: string;
+  category: IngredientCategory;
+  is_checked: boolean;
+  recipe_name?: string;
 }
 
 export interface MessageReaction {
@@ -488,20 +578,11 @@ export interface UserProfile {
   avatar_url?: string;
   bio?: string;
   is_public: boolean;
-  followers_count: number;
-  following_count: number;
   recipes_count: number;
   is_online?: boolean;
   last_seen_at?: string;
   created_at: string;
   updated_at: string;
-}
-
-export interface Follow {
-  id: string;
-  follower_id: string;
-  following_id: string;
-  created_at: string;
 }
 
 export interface RecipeShare {
@@ -511,6 +592,19 @@ export interface RecipeShare {
   recipe_id: string;
   message_id?: string;
   created_at: string;
+}
+
+// ============================================
+// COOKBOOK TYPES
+// ============================================
+export interface Cookbook {
+  id: string;
+  user_id: string;
+  name: string;
+  emoji?: string;
+  recipe_ids: string[];
+  created_at: string;
+  updated_at: string;
 }
 
 // ============================================
@@ -529,8 +623,9 @@ export interface ErrorState {
 // ============================================
 export const FREE_PLAN_LIMITS = {
   recipes_per_week: 5,
-  scans_per_day: 1,
-  saved_recipes: 10
+  scans_per_week: 3,
+  ai_chats_per_week: 20,
+  saved_recipes: Infinity,
 } as const;
 
 export const PREMIUM_FEATURES: Record<PremiumFeature, string> = {

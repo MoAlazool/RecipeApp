@@ -1,7 +1,9 @@
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 const TIMER_CHANNEL_ID = 'cooking-timers';
+const MESSAGES_CHANNEL_ID = 'messages';
 let isConfigured = false;
 
 export const configureNotifications = async (): Promise<void> => {
@@ -9,10 +11,10 @@ export const configureNotifications = async (): Promise<void> => {
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowBanner: false,
-      shouldShowList: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
-      shouldSetBadge: false,
+      shouldSetBadge: true,
     }),
   });
 
@@ -21,6 +23,11 @@ export const configureNotifications = async (): Promise<void> => {
       name: 'Cooking Timers',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
+      sound: 'default',
+    });
+    await Notifications.setNotificationChannelAsync(MESSAGES_CHANNEL_ID, {
+      name: 'Messages',
+      importance: Notifications.AndroidImportance.HIGH,
       sound: 'default',
     });
   }
@@ -72,4 +79,47 @@ export const scheduleTimerNotification = async (params: {
 export const cancelNotification = async (notificationId?: string | null): Promise<void> => {
   if (!notificationId) return;
   await Notifications.cancelScheduledNotificationAsync(notificationId);
+};
+
+export const registerForPushNotifications = async (): Promise<string | null> => {
+  await configureNotifications();
+
+  const hasPermission = await ensurePermissions();
+  if (!hasPermission) return null;
+
+  try {
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    if (!projectId) {
+      console.warn('[Notifications] No EAS projectId found');
+      return null;
+    }
+
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+    return token;
+  } catch {
+    // Silently fail — push tokens don't work on iOS simulator
+    return null;
+  }
+};
+
+export const showMessageNotification = async (params: {
+  senderName: string;
+  body: string;
+  conversationId: string;
+}): Promise<void> => {
+  await configureNotifications();
+
+  const hasPermission = await ensurePermissions();
+  if (!hasPermission) return;
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: params.senderName,
+      body: params.body,
+      sound: 'default',
+      data: { type: 'message', conversationId: params.conversationId },
+      ...(Platform.OS === 'android' && { channelId: MESSAGES_CHANNEL_ID }),
+    },
+    trigger: null, // show immediately
+  });
 };

@@ -1,37 +1,54 @@
 {
   "cli": {
-    "version": ">= 10.0.0"
+    "version": ">= 10.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "ios": {
+        "scheme": "RecipeApp"
+      }
     },
     "development-simulator": {
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "simulator": true
+        "simulator": true,
+        "scheme": "RecipeApp"
       }
     },
     "preview": {
       "distribution": "internal",
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "scheme": "RecipeApp"
       }
     },
     "production": {
+      "env": {
+        "EXPO_PUBLIC_ENV_FILE": "true"
+      },
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "scheme": "RecipeApp"
+      }
+    },
+    "testflight": {
+      "extends": "production",
+      "ios": {
+        "simulator": false,
+        "scheme": "RecipeApp"
       }
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "appleId": "your-apple-id@email.com",
-        "ascAppId": "your-app-store-connect-app-id",
-        "appleTeamId": "YOUR_TEAM_ID"
+        "appleId": "khkeks@gmail.com",
+        "ascAppId": "6758878627",
+        "appleTeamId": "ELD3N9M4AP"
       }
     }
   }

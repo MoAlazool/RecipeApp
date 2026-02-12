@@ -1,9 +1,16 @@
 import Expo
 import React
 import ReactAppDependencyProvider
+import WidgetKit
 
 @UIApplicationMain
 public class AppDelegate: ExpoAppDelegate {
+  private let mealPlanWidgetGroupIdentifier = "group.com.moalazool.recipeapp"
+  private let mealPlanWidgetStorageKey = "mealPlanWidgetWeekV1"
+  private let mealPlanWidgetUpdatedAtKey = "mealPlanWidgetUpdatedAt"
+  private let savedRecipesWidgetStorageKey = "savedRecipesWidgetV1"
+  private let savedRecipesWidgetUpdatedAtKey = "savedRecipesWidgetUpdatedAt"
+
   var window: UIWindow?
 
   var reactNativeDelegate: ExpoReactNativeFactoryDelegate?
@@ -38,6 +45,10 @@ public class AppDelegate: ExpoAppDelegate {
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
+    if handleWidgetSync(url: url) {
+      return true
+    }
+
     return super.application(app, open: url, options: options) || RCTLinkingManager.application(app, open: url, options: options)
   }
 
@@ -49,6 +60,55 @@ public class AppDelegate: ExpoAppDelegate {
   ) -> Bool {
     let result = RCTLinkingManager.application(application, continue: userActivity, restorationHandler: restorationHandler)
     return super.application(application, continue: userActivity, restorationHandler: restorationHandler) || result
+  }
+
+  private func handleWidgetSync(url: URL) -> Bool {
+    guard let host = url.host else {
+      return false
+    }
+
+    let target: (storageKey: String, updatedAtKey: String, widgetKinds: [String])?
+    switch host {
+    case "widget-sync":
+      target = (mealPlanWidgetStorageKey, mealPlanWidgetUpdatedAtKey, ["MealPlanWeekWidget", "MealPlanTodayWidget"])
+    case "widget-sync-saved":
+      target = (savedRecipesWidgetStorageKey, savedRecipesWidgetUpdatedAtKey, ["SavedRecipesWidget"])
+    default:
+      target = nil
+    }
+
+    guard let target else {
+      return false
+    }
+
+    guard
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      let payload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
+      let defaults = UserDefaults(suiteName: mealPlanWidgetGroupIdentifier)
+    else {
+      return true
+    }
+
+    guard
+      let payloadData = payload.data(using: .utf8),
+      let json = try? JSONSerialization.jsonObject(with: payloadData),
+      JSONSerialization.isValidJSONObject(json),
+      let normalizedData = try? JSONSerialization.data(withJSONObject: json, options: []),
+      let normalizedString = String(data: normalizedData, encoding: .utf8)
+    else {
+      return true
+    }
+
+    defaults.set(normalizedString, forKey: target.storageKey)
+    defaults.set(Date().timeIntervalSince1970, forKey: target.updatedAtKey)
+
+    if #available(iOS 14.0, *) {
+      for kind in target.widgetKinds {
+        WidgetCenter.shared.reloadTimelines(ofKind: kind)
+      }
+    }
+
+    return true
   }
 }
 

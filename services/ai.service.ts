@@ -191,126 +191,164 @@ Be accurate and thorough. This data will be used for cooking guidance.`;
   },
 
   suggestRecipesFromFridge: (ingredients: string[], userPreferences?: any) => {
-    const preferencesText = userPreferences
-      ? `\nUser dietary restrictions: ${userPreferences.dietary_restrictions?.join(', ') || 'none'}
-User cooking style: ${userPreferences.cooking_style || 'any'}
-Servings needed: ${userPreferences.default_servings || 2}
-Maximum time: ${userPreferences.max_time_minutes ? userPreferences.max_time_minutes + ' minutes' : 'any'}
-${userPreferences.meal_type ? `(${userPreferences.meal_type} recipes should prioritize ${
-  userPreferences.meal_type === 'breakfast' ? '5-15 minute quick prep' :
-  userPreferences.meal_type === 'lunch' ? '15-30 minute moderate prep' :
-  '30-60 minute fuller cooking'
-})` : ''}
-Difficulty limit: ${userPreferences.difficulty_level || 'any'}
-Meal type: ${userPreferences.meal_type || 'any'}`
+    // Generate randomization seed for variety
+    const varietySeed = Math.floor(Math.random() * 1000);
+    const cuisineRotation = ['Italian', 'Mexican', 'Asian', 'Mediterranean', 'American', 'Middle Eastern', 'Indian', 'French', 'Greek', 'Thai', 'Japanese', 'Korean'];
+    const shuffledCuisines = cuisineRotation.sort(() => Math.random() - 0.5).slice(0, 5);
+
+    // Recently suggested recipes to avoid
+    const recentlyViewed = userPreferences?.recently_viewed_recipes || [];
+    const recentlyRejected = userPreferences?.recently_rejected_recipes || [];
+    const excludeRecipes = [...recentlyViewed, ...recentlyRejected];
+
+    // Cooking style preferences
+    const stylePreferences = userPreferences?.style_preferences || [];
+    const styleText = stylePreferences.length > 0
+      ? `User style preferences: ${stylePreferences.join(', ')}`
       : '';
 
-    return `You are a creative chef helping someone cook with what they have.
+    // Build comprehensive preferences text
+    const preferencesText = userPreferences
+      ? `
+═══════════════════════════════════════════════════════════════
+USER PROFILE & PREFERENCES
+═══════════════════════════════════════════════════════════════
+Dietary restrictions: ${userPreferences.dietary_restrictions?.join(', ') || 'none'}
+Cooking skill level: ${userPreferences.skill_level || 'intermediate'}
+Cooking style: ${userPreferences.cooking_style || 'any'}
+${styleText}
+Servings needed: ${userPreferences.default_servings || 2}
+Maximum cooking time: ${userPreferences.max_time_minutes ? userPreferences.max_time_minutes + ' minutes' : 'flexible'}
+Difficulty preference: ${userPreferences.difficulty_level || 'any'}
+Meal type: ${userPreferences.meal_type?.toUpperCase() || 'ANY'}
 
-AVAILABLE INGREDIENTS:
-${ingredients.join(', ')}
+${excludeRecipes.length > 0 ? `
+═══════════════════════════════════════════════════════════════
+RECIPES TO AVOID (recently shown/rejected):
+${excludeRecipes.slice(0, 10).join(', ')}
+DO NOT suggest any recipe with similar names or that is essentially the same dish.
+═══════════════════════════════════════════════════════════════
+` : ''}
+`
+      : '';
+
+    // Quantity-aware ingredient formatting
+    const ingredientsList = userPreferences?.ingredients_with_quantities
+      ? userPreferences.ingredients_with_quantities.map((ing: any) =>
+          `${ing.name}${ing.quantity ? ` (${ing.quantity})` : ''}${ing.expiring_soon ? ' ⚠️EXPIRING SOON' : ''}`
+        ).join('\n- ')
+      : ingredients.join(', ');
+
+    const recipeCount = userPreferences?.recipe_count || 6;
+
+    return `You are an innovative, world-class chef with expertise in multiple cuisines. Your goal is to create EXCITING, VARIED recipe suggestions that make the most of available ingredients.
+
+═══════════════════════════════════════════════════════════════
+AVAILABLE INGREDIENTS IN REFRIGERATOR/PANTRY:
+═══════════════════════════════════════════════════════════════
+${ingredientsList}
+
 ${preferencesText}
 
-Suggest 3-5 recipes that can be made with MOST of these ingredients. It's okay if 1-2 common pantry items are missing (salt, pepper, oil, etc).
+═══════════════════════════════════════════════════════════════
+VARIETY GENERATION SEED: ${varietySeed}
+PRIORITIZE CUISINES: ${shuffledCuisines.join(', ')}
+═══════════════════════════════════════════════════════════════
 
-Return ONLY valid JSON (no markdown, no backticks) with this structure:
+Generate EXACTLY ${recipeCount} DISTINCTLY DIFFERENT recipes. Each recipe MUST be unique in:
+- Cuisine type (use the prioritized cuisines above)
+- Cooking method (vary between: grilled, baked, sautéed, steamed, raw, fried, braised, roasted)
+- Flavor profile (rotate: savory, sweet, spicy, tangy, umami, herby, smoky)
+- Texture (mix: crispy, creamy, crunchy, tender, chewy)
+
+Return ONLY valid JSON (no markdown, no backticks):
 {
   "recipes": [
     {
-      "title": "Short recipe name (2-5 words max)",
-      "description": "One short sentence max 15 words",
-      "cuisine_type": "Italian/Mexican/etc",
+      "title": "Creative Recipe Name (2-5 words, be inventive!)",
+      "description": "Enticing one-sentence description (max 15 words)",
+      "cuisine_type": "Specific cuisine (Italian/Thai/Mexican/etc)",
+      "cooking_method": "Primary method (grilled/baked/sautéed/etc)",
+      "flavor_profile": "Main flavor (spicy/savory/sweet/tangy/umami)",
       "difficulty": "beginner/intermediate/advanced",
       "total_time_minutes": number,
       "servings": number,
       "calories_per_serving": number (REQUIRED - always estimate),
-      "match_score": number (0-100, how well it matches available ingredients),
+      "match_score": number (0-100, based on ingredient availability),
       "ingredients_you_have": ["ingredient1", "ingredient2"],
       "ingredients_you_need": ["ingredient3"] or [],
-      "preview_steps": ["Step 1", "Step 2", "Step 3"] (first 3 steps only, keep concise),
-      "image_url": "https://example.com/image.jpg" or null (optional - provide ONLY if you have a reliable direct image URL, otherwise leave as null)
+      "why_this_recipe": "Brief explanation of why this recipe works with these ingredients",
+      "preview_steps": ["Step 1", "Step 2", "Step 3"] (first 3 steps only),
+      "chef_tip": "One pro tip for this recipe"
     }
-  ]
+  ],
+  "ingredient_highlights": {
+    "star_ingredient": "The ingredient with most potential",
+    "expiring_priority": ["ingredients to use first"],
+    "creative_pairings": ["unexpected but delicious combinations"]
+  }
 }
 
-CRITICAL RULES:
-1. Keep descriptions brief (max 2 sentences)
-2. Keep preview_steps concise (each step should be 1-2 sentences)
-3. Prioritize recipes with 80%+ match (few missing ingredients)
-4. VARIETY IS ESSENTIAL: Ensure recipes are DISTINCTLY DIFFERENT from each other:
-   - Different cooking methods (baked, fried, grilled, raw, steamed, sautéed, etc.)
-   - Different cuisine types (Italian, Mexican, Asian, American, Middle Eastern, Mediterranean, etc.)
-   - Different flavor profiles (savory, sweet, spicy, tangy, umami, mild, bold)
-   - Different textures (crispy, creamy, crunchy, soft, chewy, tender)
-   - Different preparation styles (one-pan, multi-step, quick assembly, slow-cooked, no-cook)
-   - Mix of: light meals, hearty meals, comfort food, healthy options, budget-friendly, gourmet
-4.5. MEAL-SPECIFIC VARIETY:
-   ${userPreferences?.meal_type === 'breakfast' ? `
-   - Balance: sweet vs. savory options
-   - Protein sources: eggs-based, dairy-based, plant-based
-   - Temperature: hot dishes vs. cold/room-temp options
-   - Prep style: cooked vs. assembled (overnight oats, smoothies)
-   ` : ''}
-   ${userPreferences?.meal_type === 'lunch' ? `
-   - Format: hot vs. cold meals
-   - Eating style: fork meals vs. handheld (wraps, sandwiches)
-   - Heartiness: light (salads) vs. substantial (grain bowls)
-   - Cuisine rotation: Asian bowls, Mediterranean wraps, American sandwiches, etc.
-   ` : ''}
-   ${userPreferences?.meal_type === 'dinner' ? `
-   - Cooking method: oven-based, stovetop, slow-cooker, grilled
-   - Meal structure: one-pot dishes vs. protein+sides
-   - Cultural variety: Italian pasta, Asian stir-fry, American comfort, Mexican casserole
-   - Richness: light proteins (fish) vs. hearty (beef/pork)
-   ` : ''}
-5. MEAL TYPE ENFORCEMENT:
-   ${userPreferences?.meal_type ? `
-   ⚠️ CRITICAL: ALL recipes MUST be appropriate for ${userPreferences.meal_type.toUpperCase()}
+═══════════════════════════════════════════════════════════════
+CRITICAL REQUIREMENTS:
+═══════════════════════════════════════════════════════════════
 
-   ${userPreferences.meal_type === 'breakfast' ? `
-   BREAKFAST REQUIREMENTS:
-   - Prep time: 5-20 minutes maximum (morning time constraints)
-   - Serving size: 1-2 portions (individual servings)
-   - Ingredient types: Emphasize eggs, dairy, bread/grains, fruits, quick proteins
-   - Cooking methods: Quick (scrambled, toasted, blended, assembled, microwaved)
-   - Temperature: Typically served warm OR cold/room-temp (smoothies, overnight oats)
-   - Examples: Scrambled eggs, avocado toast, smoothie bowls, pancakes, oatmeal, breakfast burritos, yogurt parfaits
-   - REJECT: Heavy pastas, slow-cooked stews, elaborate multi-course meals, dinner-style proteins
-   ` : ''}
+1. VARIETY IS MANDATORY:
+   - Recipe 1: Different cuisine than Recipe 2, 3, 4...
+   - Recipe 2: Different cooking method than Recipe 1, 3, 4...
+   - Each recipe MUST feel like a completely different meal experience
+   - NO TWO RECIPES should use the same primary protein preparation
+   - Mix: 1 quick/easy + 1 comfort food + 1 healthy/light + 1 adventurous + others varied
 
-   ${userPreferences.meal_type === 'lunch' ? `
-   LUNCH REQUIREMENTS:
-   - Prep time: 15-35 minutes maximum (midday efficiency)
-   - Serving size: 2-4 portions (individual or small group)
-   - Ingredient types: Balanced proteins + vegetables + grains, portable options
-   - Cooking methods: One-pan, assembled, light sautéing, fresh/raw components
-   - Temperature: Can be served cold, room-temp, or warm (must be portable-friendly)
-   - Examples: Grain bowls, wraps, sandwiches, salads with protein, light pasta, stir-fries, soups
-   - REJECT: Heavy casseroles, elaborate roasts, breakfast-only foods (pancakes, cereal)
-   ` : ''}
+2. INGREDIENT INTELLIGENCE:
+   - Prioritize recipes using ingredients marked as "EXPIRING SOON"
+   - Consider ingredient quantities when suggesting (don't suggest recipes needing 6 eggs if user has 2)
+   - Maximize use of available ingredients (aim for 80%+ match)
+   - Missing ingredients should be common pantry staples only
 
-   ${userPreferences.meal_type === 'dinner' ? `
-   DINNER REQUIREMENTS:
-   - Prep time: 30-60 minutes acceptable (evening leisure time)
-   - Serving size: 4+ portions (family/sharing focus)
-   - Ingredient types: Substantial proteins (chicken, beef, fish), hearty vegetables, complex carbs
-   - Cooking methods: Roasting, braising, baking, grilling, simmering (full cooking techniques)
-   - Temperature: Typically served warm/hot (comfort and presentation focused)
-   - Examples: Roasted chicken, pasta dishes, casseroles, stews, curries, grilled proteins with sides
-   - REJECT: Quick breakfast items (toast, cereal), ultra-light salads, grab-and-go wraps
-   ` : ''}
+3. MEAL-TYPE SPECIFIC RULES:
+${userPreferences?.meal_type === 'breakfast' ? `
+   ★ BREAKFAST MODE ★
+   - Time limit: 5-25 minutes MAX
+   - Include: 2 savory options + 2 sweet options minimum
+   - Variety: eggs-based, bread-based, fruit-based, dairy-based
+   - Consider: Make-ahead options, one-pan meals, no-cook options
+   - FORBIDDEN: Heavy dinners, slow-cooked meats, elaborate sauces
+` : ''}
+${userPreferences?.meal_type === 'lunch' ? `
+   ★ LUNCH MODE ★
+   - Time limit: 15-40 minutes MAX
+   - Include: Mix of hot and cold options
+   - Variety: Salads, sandwiches/wraps, bowls, light proteins
+   - Consider: Meal-prep friendly, portable options
+   - FORBIDDEN: Heavy roasts, multi-hour preparations
+` : ''}
+${userPreferences?.meal_type === 'dinner' ? `
+   ★ DINNER MODE ★
+   - Time limit: 20-60 minutes
+   - Include: Mix of quick weeknight + special occasion options
+   - Variety: One-pot meals, sheet pan dinners, traditional proteins
+   - Consider: Family-style portions, impressive presentations
+   - Include at least 1 vegetarian option if ingredients allow
+` : ''}
+${!userPreferences?.meal_type || userPreferences?.meal_type === 'any' ? `
+   ★ ANY MEAL MODE ★
+   - Suggest recipes spanning breakfast, lunch, and dinner
+   - Vary complexity from quick snacks to full meals
+` : ''}
 
-   - If ingredients don't naturally fit this meal type, adapt cooking method/presentation to match
-   - STRICTLY REJECT any recipe that violates time, serving, or meal-appropriateness constraints
-   ` : '- Include recipes suitable for any meal time'}
-6. Respect dietary restrictions STRICTLY
-7. Match cooking style preference when possible
-8. STRICTLY respect the maximum time limit if specified
-9. STRICTLY respect the difficulty limit if specified
-10. Be creative but practical
-11. Missing ingredients should be common and easy to get
+4. STRICT COMPLIANCE:
+   - Respect ALL dietary restrictions (${userPreferences?.dietary_restrictions?.join(', ') || 'none'})
+   - Stay within time limit: ${userPreferences?.max_time_minutes || 'flexible'} minutes
+   - Match difficulty: ${userPreferences?.difficulty_level || 'any'}
+   - NEVER repeat recipes from the exclusion list
 
-Sort recipes by match_score (highest first).`;
+5. CREATIVITY ENCOURAGED:
+   - Suggest at least 1 unexpected/creative combination
+   - Include fusion options when ingredients allow
+   - Think beyond obvious recipes
+
+Sort by match_score (highest first), then by creativity.`;
   },
 
   suggestSubstitution: (ingredient: string, recipeContext: string) => {
@@ -1047,7 +1085,7 @@ Preview steps: ${suggestedRecipe.preview_steps.join(' ')}
 
 Generate a complete recipe with:
 1. Full ingredients list with amounts and units
-2. Short, clear cooking steps — one action per step, under 20 words each. Include "ingredients_used" listing the ingredient names used in that step.
+2. Detailed, chef-quality cooking steps — one action per step, 15-30 words. Write like a mentor chef teaching a student: include sensory cues (sounds, colors, textures), visual doneness indicators, and WHY each step matters. Add a "tip" field for pro techniques. Include "ingredients_used" listing the ingredient names used in that step.
 3. Prep and cook times
 4. Tips if helpful
 5. Nutrition estimate
@@ -1075,31 +1113,35 @@ Return as JSON in this exact format:
   "steps": [
     {
       "step_number": 1,
-      "instruction": "Pat chicken dry with paper towels.",
+      "instruction": "Pat chicken completely dry — this is the secret to a crispy golden sear.",
       "duration_minutes": null,
       "temperature": null,
-      "ingredients_used": ["chicken breast"]
+      "ingredients_used": ["chicken breast"],
+      "tip": "Moisture is the enemy of browning. The drier the surface, the better the crust."
     },
     {
       "step_number": 2,
-      "instruction": "Season both sides with salt and pepper.",
+      "instruction": "Season generously on both sides with salt and pepper, pressing the spices in gently.",
       "duration_minutes": null,
       "temperature": null,
-      "ingredients_used": ["salt", "black pepper"]
+      "ingredients_used": ["salt", "black pepper"],
+      "tip": null
     },
     {
       "step_number": 3,
-      "instruction": "Roast chicken in preheated oven until golden.",
+      "instruction": "Roast in a preheated oven until the skin turns deep golden and juices run clear.",
       "duration_minutes": 25,
       "temperature": "200°C",
-      "ingredients_used": ["chicken breast"]
+      "ingredients_used": ["chicken breast"],
+      "tip": "Don't open the oven door for the first 15 minutes — let the heat build up."
     },
     {
       "step_number": 4,
-      "instruction": "Rest chicken on cutting board before slicing.",
+      "instruction": "Rest on a cutting board — this lets the juices redistribute for a moist, tender result.",
       "duration_minutes": 5,
       "temperature": null,
-      "ingredients_used": ["chicken breast"]
+      "ingredients_used": ["chicken breast"],
+      "tip": "Tent loosely with foil to keep warm while resting."
     }
   ],
   "nutrition_estimate": {
@@ -1112,9 +1154,21 @@ Return as JSON in this exact format:
   "image_url": "https://example.com/food-image.jpg (provide a real public image URL that shows this dish)"
 }
 
-IMPORTANT for title: Keep the recipe title short and specific (2-4 words max). Examples: "Garlic Butter Chicken", "Creamy Tomato Pasta". Do NOT write long titles. Same for description — one short sentence.
+IMPORTANT for title: Keep the recipe title short and specific (2-4 words max). Examples: "Garlic Butter Chicken", "Creamy Tomato Pasta". Do NOT write long titles.
 
-IMPORTANT for steps: Each step = ONE action, max 1 sentence, under 20 words. Do NOT put ingredient amounts in step text — amounts are shown separately. Use ingredient names only (e.g., "Sauté onion and garlic until fragrant" NOT "Sauté 1 diced onion and 3 minced garlic cloves in 2 tbsp olive oil"). Split complex actions into separate steps. Start each step with a strong verb. Include "ingredients_used" for each step. Only include "duration_minutes" for meaningful wait times (baking, simmering, resting). Only include "temperature" when a specific heat setting is involved.
+IMPORTANT for description: Write an enticing 1-2 sentence description that makes the reader hungry. Use sensory language — mention textures, aromas, or flavors. Examples: "Tender chicken thighs glazed in a sticky honey-garlic sauce with a kick of chili heat.", "A velvety risotto with earthy mushrooms and a shower of aged parmesan."
+
+IMPORTANT for steps: Write like a Michelin-star chef mentoring a home cook.
+- Each step = ONE action, 1-2 sentences, 15-30 words. Be descriptive, not robotic.
+- Include sensory cues: "until edges turn golden brown", "when it sizzles and pops", "until fragrant, about 30 seconds".
+- Include visual doneness indicators: "the sauce should coat the back of a spoon", "bubbles should slow down".
+- Explain WHY when it helps: "— this creates a flavor base for the sauce", "— resting lets juices redistribute".
+- Add a "tip" field (string or null) with pro chef techniques when helpful: knife skills, timing tricks, flavor boosts, common mistakes to avoid.
+- Do NOT put ingredient amounts in step text — amounts are shown separately. Use ingredient names only.
+- Split complex actions into separate steps. Start each step with a strong verb.
+- Include "ingredients_used" array for each step.
+- Only include "duration_minutes" for meaningful wait times (baking, simmering, resting, marinating).
+- Only include "temperature" when a specific heat setting is involved.
 
 IMPORTANT for ingredients category: ONLY use one of these exact values: "produce", "meat", "dairy", "pantry", "spices", "frozen", "beverage", "condiment", "other". Do not invent new categories.
 

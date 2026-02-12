@@ -10,6 +10,10 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
+  ActionSheetIOS,
+  ScrollView,
+  NativeSyntheticEvent,
+  TextInputSelectionChangeEventData,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Text } from '@rneui/themed';
@@ -17,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { BlurView } from 'expo-blur';
-import { GlassView } from 'expo-glass-effect';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import {
   Menu,
@@ -28,8 +32,12 @@ import {
 } from 'react-native-popup-menu';
 import { useMessagingStore } from '@/stores/messagingStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useMealPlanStore } from '@/stores/mealPlanStore';
+import { useRecipeStore } from '@/stores/recipeStore';
+import { useShoppingStore } from '@/stores/shoppingStore';
 import { firebaseService } from '@/services/firebase.service';
-import type { Message, Conversation, ConversationParticipant } from '@/utils/types';
+import { storeData } from '@/utils/imageCache';
+import type { Message, Conversation, ConversationParticipant, SharedMealPlanData, SharedShoppingListData } from '@/utils/types';
 
 // ============================================================
 // DESIGN TOKENS — Michelin-Star Luxury
@@ -110,9 +118,42 @@ interface MessageBubbleProps {
   senderName?: string;
   senderAvatar?: string;
   isGroup?: boolean;
+  participantUsernames?: Set<string>;
   onRecipePress?: (recipeId: string) => void;
   onDeletePress?: (messageId: string) => void;
+  onSavePlan?: (messageId: string, data: SharedMealPlanData) => void;
+  onViewPlan?: (data: SharedMealPlanData) => void;
+  onSaveShoppingList?: (messageId: string, data: SharedShoppingListData) => void;
+  onViewShoppingList?: (data: SharedShoppingListData) => void;
+  savingPlanId?: string | null;
+  savedPlanIds?: Set<string>;
+  savingShoppingListId?: string | null;
+  savedShoppingListIds?: Set<string>;
 }
+
+// Parse @mentions in message text and return styled Text elements
+const parseMentions = (content: string, participantUsernames: Set<string>, isOwn: boolean) => {
+  const parts = content.split(/(@\w+)/g);
+  if (parts.length === 1) return <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>{content}</Text>;
+
+  return (
+    <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>
+      {parts.map((part, i) => {
+        if (part.startsWith('@')) {
+          const username = part.slice(1);
+          if (participantUsernames.has(username)) {
+            return (
+              <Text key={i} style={[styles.mentionText, isOwn && styles.mentionTextOwn]}>
+                {part}
+              </Text>
+            );
+          }
+        }
+        return <Text key={i}>{part}</Text>;
+      })}
+    </Text>
+  );
+};
 
 // Fix Firebase Storage URLs - ensure path is properly encoded
 const fixFirebaseStorageUrl = (url: string | undefined): string | undefined => {
@@ -153,7 +194,7 @@ const fixFirebaseStorageUrl = (url: string | undefined): string | undefined => {
   return url;
 };
 
-const MessageBubble = ({ message, isOwn, showAvatar, senderName, senderAvatar, isGroup, onRecipePress, onDeletePress }: MessageBubbleProps) => {
+const MessageBubble = ({ message, isOwn, showAvatar, senderName, senderAvatar, isGroup, participantUsernames, onRecipePress, onDeletePress, onSavePlan, onViewPlan, onSaveShoppingList, onViewShoppingList, savingPlanId, savedPlanIds, savingShoppingListId, savedShoppingListIds }: MessageBubbleProps) => {
   const avatarColor = getAvatarColor(message.sender_id);
   const [imageError, setImageError] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -169,7 +210,7 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, senderAvatar, i
           cancelButtonIndex: 0,
           destructiveButtonIndex: 1,
         },
-        (buttonIndex) => {
+        (buttonIndex: number) => {
           if (buttonIndex === 1) {
             onDeletePress?.(message.id);
           }
@@ -196,6 +237,279 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, senderAvatar, i
     return (
       <View style={styles.systemMessageRow}>
         <Text style={styles.systemMessageText}>{message.content}</Text>
+      </View>
+    );
+  }
+
+  // Meal plan message
+  if (message.message_type === 'meal_plan' && message.meal_plan_data) {
+    const mp = message.meal_plan_data;
+    const isDay = mp.type === 'day';
+    const SLOT_COLORS: Record<string, string> = {
+      breakfast: '#FB923C',
+      lunch: '#4ADE80',
+      dinner: '#60A5FA',
+      snack: '#D4AF37',
+    };
+
+    return (
+      <View style={[styles.messageContainer, isOwn && styles.messageContainerOwn]}>
+        {!isOwn && showAvatar && (
+          <View style={[styles.avatarSmall, { backgroundColor: avatarColor, overflow: 'hidden' }]}>
+            {senderAvatar && !avatarError ? (
+              <Image source={{ uri: senderAvatar }} style={styles.avatarSmallImage} contentFit="cover" cachePolicy="memory-disk" onError={() => setAvatarError(true)} />
+            ) : (
+              <Text style={styles.avatarSmallText}>{getInitials(senderName)}</Text>
+            )}
+          </View>
+        )}
+        {!isOwn && !showAvatar && <View style={styles.avatarSmallPlaceholder} />}
+
+        <View style={[styles.messageContentWrapper, isOwn && styles.messageContentWrapperOwn]}>
+          {isGroup && !isOwn && showAvatar && (
+            <Text style={styles.senderName}>{senderName}</Text>
+          )}
+          <Pressable
+            onPress={() => onViewPlan?.(mp)}
+            onLongPress={isOwn ? handleLongPress : undefined}
+            delayLongPress={500}
+            style={({ pressed }) => pressed && { opacity: 0.92, transform: [{ scale: 0.97 }] }}
+          >
+            <View style={styles.mealPlanCard}>
+              {/* Glassy header */}
+              <View style={styles.mpHeaderWrap}>
+                <LinearGradient
+                  colors={['rgba(245, 243, 238, 0.95)', 'rgba(237, 233, 224, 0.85)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.mpHeader}
+                >
+                  <View style={styles.mpHeaderTop}>
+                    <View style={styles.mpBadge}>
+                      <Ionicons name={isDay ? 'restaurant' : 'calendar'} size={9} color={C.gold} />
+                      <Text style={styles.mpBadgeText}>{isDay ? 'Meal Plan' : 'Week Plan'}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.mpHeaderTitle} numberOfLines={1}>
+                    {isDay
+                      ? mp.dayLabel || 'Day Plan'
+                      : mp.startDate && mp.endDate
+                      ? (() => {
+                          try {
+                            const s = new Date(mp.startDate + 'T12:00:00');
+                            const e = new Date(mp.endDate + 'T12:00:00');
+                            return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                          } catch { return 'This Week'; }
+                        })()
+                      : 'This Week'}
+                  </Text>
+                  <Text style={styles.mpHeaderSub}>
+                    {mp.totalMeals} meal{mp.totalMeals !== 1 ? 's' : ''}
+                    {mp.totalTimeMinutes != null && mp.totalTimeMinutes > 0 ? `  ·  ${mp.totalTimeMinutes} min` : ''}
+                    {mp.totalCalories != null && mp.totalCalories > 0 ? `  ·  ~${mp.totalCalories} cal` : ''}
+                  </Text>
+                </LinearGradient>
+              </View>
+
+              {/* Body */}
+              <View style={styles.mpBody}>
+                {/* Day: meals with colored left borders */}
+                {isDay && mp.meals && mp.meals.length > 0 && (
+                  <View style={styles.mpMeals}>
+                    {mp.meals.map((meal) => (
+                      <View key={meal.slot} style={styles.mpMealRow}>
+                        <View style={[styles.mpMealAccent, { backgroundColor: SLOT_COLORS[meal.slot] || C.gold }]} />
+                        <Text style={styles.mpMealTitle} numberOfLines={1}>{meal.title}</Text>
+                        {meal.timeMinutes != null && (
+                          <Text style={styles.mpMealTime}>{meal.timeMinutes}m</Text>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Week: colored ring dots per day */}
+                {!isDay && mp.daySummaries && (
+                  <View style={styles.mpWeek}>
+                    {mp.daySummaries.map((day, i) => {
+                      const pct = day.filledSlots / 4;
+                      return (
+                        <View key={i} style={styles.mpWeekCol}>
+                          <View style={[styles.mpRing, pct > 0 && styles.mpRingActive, pct === 1 && styles.mpRingFull]}>
+                            <Text style={[styles.mpRingNum, pct > 0 && styles.mpRingNumActive, pct === 1 && styles.mpRingNumFull]}>{day.filledSlots}</Text>
+                          </View>
+                          <Text style={[styles.mpWeekLabel, pct > 0 && styles.mpWeekLabelActive]}>{day.dayLabel}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* Empty */}
+                {((isDay && (!mp.meals || mp.meals.length === 0)) || (!isDay && !mp.daySummaries)) && (
+                  <Text style={styles.mpEmptyText}>No meals planned</Text>
+                )}
+
+                {/* Actions */}
+                <View style={styles.mpActions}>
+                  <View style={styles.mpViewBtn}>
+                    <Ionicons name="eye-outline" size={13} color={C.charcoal} />
+                    <Text style={styles.mpViewText}>View</Text>
+                  </View>
+                  {mp.totalMeals > 0 && (
+                    <Pressable
+                      style={[styles.mpSaveBtn, savedPlanIds?.has(message.id) && styles.mpSaveBtnSaved]}
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        onSavePlan?.(message.id, mp);
+                      }}
+                      disabled={savingPlanId === message.id || savedPlanIds?.has(message.id)}
+                    >
+                      {savingPlanId === message.id ? (
+                        <ActivityIndicator size={11} color={C.gold} />
+                      ) : savedPlanIds?.has(message.id) ? (
+                        <>
+                          <Ionicons name="checkmark-circle" size={13} color="#6B8E23" />
+                          <Text style={styles.mpSaveTextSaved}>Saved</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Ionicons name="download-outline" size={13} color={C.ivory} />
+                          <Text style={styles.mpSaveText}>Save</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            </View>
+          </Pressable>
+          <Text style={[styles.messageTime, isOwn && styles.messageTimeOwn]}>
+            {formatMessageTime(message.created_at)}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Shopping list message
+  if (message.message_type === 'shopping_list' && message.shopping_list_data) {
+    const sl = message.shopping_list_data;
+    const uncheckedItems = sl.items.filter(i => !i.is_checked);
+    const displayItems = uncheckedItems.slice(0, 5);
+    const remaining = uncheckedItems.length - displayItems.length;
+    const isSaved = savedShoppingListIds?.has(message.id);
+    const isSaving = savingShoppingListId === message.id;
+
+    const CATEGORY_COLORS_CHAT: Record<string, string> = {
+      produce: '#4ADE80', meat: '#F87171', dairy: '#60A5FA', pantry: '#FB923C',
+      spices: '#F59E0B', frozen: '#818CF8', beverage: '#A78BFA', condiment: '#F472B6', other: '#9CA3AF',
+    };
+
+    return (
+      <View style={[styles.messageContainer, isOwn && styles.messageContainerOwn]}>
+        {!isOwn && showAvatar && (
+          <View style={[styles.avatarSmall, { backgroundColor: avatarColor, overflow: 'hidden' }]}>
+            {senderAvatar && !avatarError ? (
+              <Image source={{ uri: senderAvatar }} style={styles.avatarSmallImage} contentFit="cover" cachePolicy="memory-disk" onError={() => setAvatarError(true)} />
+            ) : (
+              <Text style={styles.avatarSmallText}>{getInitials(senderName)}</Text>
+            )}
+          </View>
+        )}
+        {!isOwn && !showAvatar && <View style={styles.avatarSmallPlaceholder} />}
+
+        <View style={[styles.messageContentWrapper, isOwn && styles.messageContentWrapperOwn]}>
+          {isGroup && !isOwn && showAvatar && (
+            <Text style={styles.senderName}>{senderName}</Text>
+          )}
+          <Pressable
+            onPress={() => onViewShoppingList?.(sl)}
+            onLongPress={isOwn ? handleLongPress : undefined}
+            delayLongPress={500}
+            style={({ pressed }) => pressed && { opacity: 0.92, transform: [{ scale: 0.97 }] }}
+          >
+            <View style={styles.slCard}>
+              {/* Header */}
+              <View style={styles.slHeaderWrap}>
+                <LinearGradient
+                  colors={['rgba(198, 110, 78, 0.08)', 'rgba(198, 110, 78, 0.02)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.slHeader}
+                >
+                  <View style={styles.slHeaderTop}>
+                    <View style={styles.slBadge}>
+                      <Ionicons name="cart" size={9} color={C.terracotta} />
+                      <Text style={styles.slBadgeText}>Grocery List</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.slHeaderTitle} numberOfLines={1}>{sl.listName}</Text>
+                  <Text style={styles.slHeaderSub}>
+                    {sl.totalItems} item{sl.totalItems !== 1 ? 's' : ''}
+                    {sl.checkedItems > 0 ? `  ·  ${sl.checkedItems} done` : ''}
+                  </Text>
+                </LinearGradient>
+              </View>
+
+              {/* Body */}
+              <View style={styles.slBody}>
+                {/* Item list */}
+                {displayItems.length > 0 && (
+                  <View style={styles.slItems}>
+                    {displayItems.map((item, i) => (
+                      <View key={i} style={styles.slItemRow}>
+                        <View style={[styles.slItemDot, { backgroundColor: CATEGORY_COLORS_CHAT[item.category] || C.muted }]} />
+                        <Text style={styles.slItemName} numberOfLines={1}>{item.name}</Text>
+                        {item.amount != null && (
+                          <Text style={styles.slItemAmount}>
+                            {item.amount}{item.unit ? ` ${item.unit}` : ''}
+                          </Text>
+                        )}
+                      </View>
+                    ))}
+                    {remaining > 0 && (
+                      <Text style={styles.slMoreText}>+{remaining} more</Text>
+                    )}
+                  </View>
+                )}
+
+                {displayItems.length === 0 && (
+                  <Text style={styles.slEmptyText}>All items checked off!</Text>
+                )}
+
+                {/* Actions */}
+                <View style={styles.slActions}>
+                  <Pressable
+                    style={[styles.slSaveBtn, isSaved && styles.slSaveBtnSaved]}
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      onSaveShoppingList?.(message.id, sl);
+                    }}
+                    disabled={isSaving || isSaved}
+                  >
+                    {isSaving ? (
+                      <ActivityIndicator size={11} color={C.terracotta} />
+                    ) : isSaved ? (
+                      <>
+                        <Ionicons name="checkmark-circle" size={13} color="#6B8E23" />
+                        <Text style={styles.slSaveTextSaved}>Added</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Ionicons name="add-circle-outline" size={13} color={C.ivory} />
+                        <Text style={styles.slSaveText}>Add to My List</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+          <Text style={[styles.messageTime, isOwn && styles.messageTimeOwn]}>
+            {formatMessageTime(message.created_at)}
+          </Text>
+        </View>
       </View>
     );
   }
@@ -354,9 +668,10 @@ const MessageBubble = ({ message, isOwn, showAvatar, senderName, senderAvatar, i
               isOwn ? styles.messageBubbleOwn : styles.messageBubbleOther,
             ]}
           >
-            <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>
-              {message.content}
-            </Text>
+            {participantUsernames && participantUsernames.size > 0
+              ? parseMentions(message.content, participantUsernames, isOwn)
+              : <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>{message.content}</Text>
+            }
           </View>
         </Pressable>
         <Text style={[styles.messageTime, isOwn && styles.messageTimeOwn]}>
@@ -397,8 +712,17 @@ export default function ChatScreen() {
     isConversationMuted,
   } = useMessagingStore();
 
+  const { importMealPlan } = useMealPlanStore();
+  const { prefetchRecipes } = useRecipeStore();
+  const { addItem: addShoppingItem } = useShoppingStore();
   const [messageText, setMessageText] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [savingPlanId, setSavingPlanId] = useState<string | null>(null);
+  const [savedPlanIds, setSavedPlanIds] = useState<Set<string>>(new Set());
+  const [savingShoppingListId, setSavingShoppingListId] = useState<string | null>(null);
+  const [savedShoppingListIds, setSavedShoppingListIds] = useState<Set<string>>(new Set());
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const selectionIndexRef = useRef(0);
   const [otherUser, setOtherUser] = useState<{
     id: string;
     full_name?: string;
@@ -456,6 +780,29 @@ export default function ChatScreen() {
     }
     return { participantNames: names, participantAvatars: avatars };
   }, [effectiveConversation]);
+
+  // Build set of participant usernames for mention highlighting
+  const participantUsernames = useMemo(() => {
+    const usernames = new Set<string>();
+    if (effectiveConversation?.participant_details) {
+      effectiveConversation.participant_details.forEach((p) => {
+        if (p.username) usernames.add(p.username);
+      });
+    }
+    return usernames;
+  }, [effectiveConversation]);
+
+  // Filter mention suggestions based on query
+  const filteredMentions = useMemo(() => {
+    if (!isGroup || mentionQuery === null || !effectiveConversation?.participant_details) return [];
+    const query = mentionQuery.toLowerCase();
+    return effectiveConversation.participant_details.filter((p) => {
+      if (p.user_id === user?.id) return false;
+      const matchUsername = p.username?.toLowerCase().includes(query);
+      const matchName = p.full_name?.toLowerCase().includes(query);
+      return matchUsername || matchName;
+    });
+  }, [isGroup, mentionQuery, effectiveConversation, user?.id]);
 
   // Check if conversation is muted
   const isMuted = useMemo(() => {
@@ -574,7 +921,7 @@ export default function ChatScreen() {
       });
     });
 
-    return items;
+    return items.reverse();
   }, [groupedMessages]);
 
   const handleSend = useCallback(async () => {
@@ -595,9 +942,9 @@ export default function ChatScreen() {
         await sendMessage(userId, text);
       }
 
-      // Scroll to bottom after sending
+      // Scroll to newest message after sending
       setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
     } catch (error) {
       console.error('Error sending message:', error);
@@ -607,8 +954,124 @@ export default function ChatScreen() {
     }
   }, [messageText, userId, effectiveConversation, isGroup, sendMessage, sendMessageToConversation, isSending]);
 
+  // Handle text change and detect @mention trigger
+  const handleTextChange = useCallback((text: string) => {
+    const prevLength = messageText.length;
+    setMessageText(text);
+    if (!isGroup) { setMentionQuery(null); return; }
+
+    // Adjust cursor for the characters just typed/deleted since onSelectionChange fires after onChangeText
+    const cursor = Math.max(0, Math.min(selectionIndexRef.current + (text.length - prevLength), text.length));
+    // Scan backward from cursor to find word start
+    let wordStart = cursor;
+    while (wordStart > 0 && text[wordStart - 1] !== ' ' && text[wordStart - 1] !== '\n') {
+      wordStart--;
+    }
+    const word = text.slice(wordStart, cursor);
+    if (word.startsWith('@')) {
+      setMentionQuery(word.slice(1));
+    } else {
+      setMentionQuery(null);
+    }
+  }, [isGroup, messageText.length]);
+
+  // Track cursor position
+  const handleSelectionChange = useCallback((e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+    selectionIndexRef.current = e.nativeEvent.selection.end;
+  }, []);
+
+  // Insert selected mention into message text
+  const handleSelectMention = useCallback((participant: ConversationParticipant) => {
+    const cursor = selectionIndexRef.current;
+    const text = messageText;
+    // Find the @word at cursor
+    let wordStart = Math.min(cursor, text.length);
+    while (wordStart > 0 && text[wordStart - 1] !== ' ' && text[wordStart - 1] !== '\n') {
+      wordStart--;
+    }
+    const before = text.slice(0, wordStart);
+    const after = text.slice(Math.min(cursor, text.length));
+    const mention = `@${participant.username} `;
+    const newText = before + mention + after;
+    setMessageText(newText);
+    selectionIndexRef.current = (before + mention).length;
+    setMentionQuery(null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [messageText]);
+
   const handleRecipePress = useCallback((recipeId: string) => {
     router.push(`/recipe/${recipeId}`);
+  }, [router]);
+
+  const handleSavePlan = useCallback(async (messageId: string, data: SharedMealPlanData) => {
+    setSavingPlanId(messageId);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const count = importMealPlan(data);
+      if (count > 0) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setSavedPlanIds(prev => new Set(prev).add(messageId));
+
+        // Pre-fetch recipes so they open instantly from the planner
+        const recipeIds: string[] = [];
+        if (data.meals) {
+          data.meals.forEach((m) => { if (m.recipeId) recipeIds.push(m.recipeId); });
+        }
+        if (data.daySummaries) {
+          data.daySummaries.forEach((d) => {
+            d.meals?.forEach((m) => { if (m.recipeId) recipeIds.push(m.recipeId); });
+          });
+        }
+        if (recipeIds.length > 0) {
+          prefetchRecipes(recipeIds).catch(() => {});
+        }
+      } else {
+        Alert.alert('No Meals', 'This plan has no meals to save.');
+      }
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setSavingPlanId(null);
+    }
+  }, [importMealPlan, prefetchRecipes]);
+
+  const handleSaveShoppingList = useCallback(async (messageId: string, data: SharedShoppingListData) => {
+    setSavingShoppingListId(messageId);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const uncheckedItems = data.items.filter(i => !i.is_checked);
+      if (uncheckedItems.length === 0) {
+        Alert.alert('Empty List', 'All items in this list are already checked off.');
+        return;
+      }
+      for (const item of uncheckedItems) {
+        await addShoppingItem({
+          name: item.name,
+          amount: item.amount,
+          unit: item.unit as any,
+          category: item.category,
+          recipe_name: item.recipe_name,
+        });
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSavedShoppingListIds(prev => new Set(prev).add(messageId));
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setSavingShoppingListId(null);
+    }
+  }, [addShoppingItem]);
+
+  const handleViewPlan = useCallback((data: SharedMealPlanData) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const key = storeData(data);
+    router.push({ pathname: '/plan-detail', params: { cacheKey: key } } as any);
+  }, [router]);
+
+  const handleViewShoppingList = useCallback((data: SharedShoppingListData) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const key = storeData(data);
+    router.push({ pathname: '/shopping-list-detail', params: { cacheKey: key } } as any);
   }, [router]);
 
   const handleDeleteMessage = useCallback(async (messageId: string) => {
@@ -650,11 +1113,20 @@ export default function ChatScreen() {
         senderName={senderName}
         senderAvatar={senderAvatar}
         isGroup={isGroup}
+        participantUsernames={participantUsernames}
         onRecipePress={handleRecipePress}
         onDeletePress={handleDeleteMessage}
+        onSavePlan={handleSavePlan}
+        onViewPlan={handleViewPlan}
+        onSaveShoppingList={handleSaveShoppingList}
+        onViewShoppingList={handleViewShoppingList}
+        savingPlanId={savingPlanId}
+        savedPlanIds={savedPlanIds}
+        savingShoppingListId={savingShoppingListId}
+        savedShoppingListIds={savedShoppingListIds}
       />
     );
-  }, [user, otherUser, isGroup, participantNames, participantAvatars, effectiveOtherUser, handleRecipePress, handleDeleteMessage]);
+  }, [user, otherUser, isGroup, participantNames, participantAvatars, participantUsernames, effectiveOtherUser, handleRecipePress, handleDeleteMessage, handleSavePlan, handleViewPlan, handleSaveShoppingList, handleViewShoppingList, savingPlanId, savedPlanIds, savingShoppingListId, savedShoppingListIds]);
 
   // Get display name and avatar for header (use effective data for instant display)
   const headerTitle = isGroup
@@ -707,13 +1179,6 @@ export default function ChatScreen() {
       ]
     );
   }, [effectiveConversation, expectedConversationId, isGroup, router]);
-
-  // View user profile (for DMs)
-  const handleViewProfile = useCallback(() => {
-    if (userId && !isGroup) {
-      router.push(`/profile/${userId}` as any);
-    }
-  }, [userId, isGroup, router]);
 
   // Mute/Unmute conversation
   const handleMuteConversation = useCallback(async () => {
@@ -817,46 +1282,40 @@ export default function ChatScreen() {
               <Ionicons name="settings-outline" size={22} color={C.charcoal} />
             </TouchableOpacity>
           )}
-          <Menu renderer={renderers.Popover} rendererProps={{ placement: 'bottom', anchorStyle: { opacity: 0 } }}>
+          <Menu renderer={renderers.Popover} rendererProps={{ placement: 'bottom', anchorStyle: { opacity: 0 }, preferredPlacement: 'bottom' }}>
             <MenuTrigger customStyles={{ triggerWrapper: styles.headerAction }}>
               <Ionicons name="ellipsis-vertical" size={20} color={C.charcoal} />
             </MenuTrigger>
             <MenuOptions customStyles={menuOptionsStyles}>
-              <GlassView
-                glassEffectStyle="clear"
-                isInteractive={true}
-                tintColor="rgba(255, 255, 255, 0.8)"
-                style={styles.menuGlassContainer}
-              >
-                {!isGroup && (
-                  <MenuOption onSelect={handleViewProfile}>
-                    <View style={styles.menuOption}>
-                      <Ionicons name="person-outline" size={20} color={C.charcoal} />
-                      <Text style={styles.menuOptionText}>View Profile</Text>
-                    </View>
-                  </MenuOption>
-                )}
+              <BlurView intensity={90} tint="light" style={styles.menuBlurContainer}>
                 <MenuOption onSelect={handleMuteConversation}>
                   <View style={styles.menuOption}>
-                    <Ionicons name={isMuted ? "notifications-outline" : "notifications-off-outline"} size={20} color={C.charcoal} />
-                    <Text style={styles.menuOptionText}>{isMuted ? 'Unmute Notifications' : 'Mute Notifications'}</Text>
+                    <View style={styles.menuOptionIcon}>
+                      <Ionicons name={isMuted ? "notifications-outline" : "notifications-off-outline"} size={18} color={C.charcoal} />
+                    </View>
+                    <Text style={styles.menuOptionText}>{isMuted ? 'Unmute' : 'Mute'}</Text>
                   </View>
                 </MenuOption>
                 {!isGroup && (
                   <MenuOption onSelect={handleBlockUser}>
                     <View style={styles.menuOption}>
-                      <Ionicons name="ban-outline" size={20} color={C.charcoal} />
-                      <Text style={styles.menuOptionText}>Block User</Text>
+                      <View style={styles.menuOptionIcon}>
+                        <Ionicons name="ban-outline" size={18} color={C.charcoal} />
+                      </View>
+                      <Text style={styles.menuOptionText}>Block</Text>
                     </View>
                   </MenuOption>
                 )}
+                <View style={styles.menuDivider} />
                 <MenuOption onSelect={handleDeleteConversation}>
-                  <View style={[styles.menuOption, styles.menuOptionDestructive]}>
-                    <Ionicons name="trash-outline" size={20} color="#DC2626" />
-                    <Text style={[styles.menuOptionText, styles.menuOptionTextDestructive]}>Delete Conversation</Text>
+                  <View style={styles.menuOption}>
+                    <View style={[styles.menuOptionIcon, styles.menuOptionIconDestructive]}>
+                      <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                    </View>
+                    <Text style={styles.menuOptionTextDestructive}>Delete</Text>
                   </View>
                 </MenuOption>
-              </GlassView>
+              </BlurView>
             </MenuOptions>
           </Menu>
         </View>
@@ -866,15 +1325,13 @@ export default function ChatScreen() {
       <FlatList
         ref={flatListRef}
         data={flattenedData}
+        inverted
         keyExtractor={(item, index) =>
           item.type === 'date' ? `date-${item.date}` : `msg-${item.message.id}`
         }
         renderItem={renderItem}
         contentContainerStyle={styles.messagesList}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => {
-          flatListRef.current?.scrollToEnd({ animated: false });
-        }}
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
             {isLoadingMessages ? (
@@ -908,13 +1365,41 @@ export default function ChatScreen() {
 
       {/* Input */}
       <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        {/* Mention suggestion list */}
+        {isGroup && mentionQuery !== null && filteredMentions.length > 0 && (
+          <View style={styles.mentionList}>
+            <ScrollView keyboardShouldPersistTaps="always" style={{ maxHeight: 200 }}>
+              {filteredMentions.map((p, i) => (
+                <TouchableOpacity
+                  key={p.user_id}
+                  style={[styles.mentionItem, i < filteredMentions.length - 1 && styles.mentionItemBorder]}
+                  onPress={() => handleSelectMention(p)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.mentionAvatar, { backgroundColor: getAvatarColor(p.user_id), overflow: 'hidden' }]}>
+                    {p.avatar_url ? (
+                      <Image source={{ uri: p.avatar_url }} style={styles.mentionAvatarImage} contentFit="cover" cachePolicy="memory-disk" />
+                    ) : (
+                      <Text style={styles.mentionAvatarText}>{getInitials(p.full_name)}</Text>
+                    )}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.mentionName} numberOfLines={1}>{p.full_name || p.username}</Text>
+                    {p.username && <Text style={styles.mentionHandle} numberOfLines={1}>@{p.username}</Text>}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
         <View style={styles.inputWrapper}>
           <TextInput
             style={styles.input}
             placeholder="Type a message..."
             placeholderTextColor={C.muted}
             value={messageText}
-            onChangeText={setMessageText}
+            onChangeText={handleTextChange}
+            onSelectionChange={handleSelectionChange}
             multiline
             maxLength={2000}
             returnKeyType="default"
@@ -943,8 +1428,13 @@ export default function ChatScreen() {
 const menuOptionsStyles = {
   optionsContainer: {
     backgroundColor: 'transparent',
-    padding: 0,
-    borderRadius: 0,
+    borderRadius: 14,
+    overflow: 'hidden' as const,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
   },
 };
 
@@ -1032,31 +1522,43 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: C.cardBg,
   },
-  menuGlassContainer: {
-    borderRadius: 16,
-    paddingVertical: 8,
-    minWidth: 220,
-    backgroundColor: '#FFFFFF',
+  menuBlurContainer: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    minWidth: 180,
   },
   menuOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  menuOptionIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuOptionIconDestructive: {
+    backgroundColor: 'rgba(220, 38, 38, 0.1)',
   },
   menuOptionText: {
     fontSize: 15,
     fontFamily: 'PlusJakartaSans_500Medium',
     color: C.charcoal,
   },
-  menuOptionDestructive: {
-    borderTopWidth: 0.5,
-    borderTopColor: C.hairline,
-    marginTop: 4,
-    paddingTop: 16,
+  menuDivider: {
+    height: 0.5,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    marginHorizontal: 14,
+    marginVertical: 4,
   },
   menuOptionTextDestructive: {
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans_500Medium',
     color: '#DC2626',
   },
 
@@ -1331,6 +1833,366 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
+  // Meal plan card
+  mealPlanCard: {
+    backgroundColor: C.ivory,
+    borderRadius: 20,
+    overflow: 'hidden',
+    width: 260,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 21, 16, 0.06)',
+    ...SHADOW_SOFT,
+  },
+  mpHeaderWrap: {
+    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(26, 21, 16, 0.06)',
+  },
+  mpHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+    gap: 4,
+  },
+  mpHeaderTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  mpBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  mpBadgeText: {
+    fontSize: 8,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.gold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  mpHeaderTitle: {
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    letterSpacing: -0.3,
+  },
+  mpHeaderSub: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+  },
+  mpBody: {
+    padding: 14,
+    gap: 14,
+  },
+  mpMeals: {
+    gap: 6,
+  },
+  mpMealRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mpMealAccent: {
+    width: 3,
+    height: 18,
+    borderRadius: 1.5,
+  },
+  mpMealTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.charcoal,
+  },
+  mpMealTime: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+  },
+  mpWeek: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  mpWeekCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 5,
+  },
+  mpRing: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mpRingActive: {
+    borderColor: C.gold,
+    backgroundColor: 'rgba(212, 175, 55, 0.06)',
+  },
+  mpRingFull: {
+    backgroundColor: C.gold,
+    borderColor: C.gold,
+  },
+  mpRingNum: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: 'rgba(26, 21, 16, 0.2)',
+  },
+  mpRingNumActive: {
+    color: C.charcoal,
+  },
+  mpRingNumFull: {
+    color: C.ivory,
+  },
+  mpWeekLabel: {
+    fontSize: 9,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: 'rgba(26, 21, 16, 0.25)',
+  },
+  mpWeekLabelActive: {
+    color: C.muted,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+  },
+  mpEmptyText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 4,
+  },
+  mpActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mpViewBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 21, 16, 0.1)',
+  },
+  mpViewText: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.charcoal,
+  },
+  mpSaveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: C.gold,
+  },
+  mpSaveBtnSaved: {
+    backgroundColor: 'rgba(107, 142, 35, 0.12)',
+  },
+  mpSaveText: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.ivory,
+  },
+  mpSaveTextSaved: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: '#6B8E23',
+  },
+
+  // Shopping list card
+  slCard: {
+    backgroundColor: C.ivory,
+    borderRadius: 20,
+    overflow: 'hidden',
+    width: 260,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 21, 16, 0.06)',
+    ...SHADOW_SOFT,
+  },
+  slHeaderWrap: {
+    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(26, 21, 16, 0.06)',
+  },
+  slHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+    gap: 4,
+  },
+  slHeaderTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  slBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(198, 110, 78, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  slBadgeText: {
+    fontSize: 8,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.terracotta,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  slHeaderTitle: {
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    letterSpacing: -0.3,
+  },
+  slHeaderSub: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+  },
+  slBody: {
+    padding: 14,
+    gap: 14,
+  },
+  slItems: {
+    gap: 6,
+  },
+  slItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  slItemDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  slItemName: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.charcoal,
+  },
+  slItemAmount: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+  },
+  slMoreText: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+    paddingLeft: 13,
+    marginTop: 2,
+  },
+  slEmptyText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 4,
+  },
+  slActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  slSaveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: C.terracotta,
+  },
+  slSaveBtnSaved: {
+    backgroundColor: 'rgba(107, 142, 35, 0.12)',
+  },
+  slSaveText: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.ivory,
+  },
+  slSaveTextSaved: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: '#6B8E23',
+  },
+
+  // Mention styles
+  mentionText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.terracotta,
+  },
+  mentionTextOwn: {
+    color: '#FFD6C9',
+  },
+  mentionList: {
+    backgroundColor: C.ivory,
+    borderRadius: 16,
+    marginBottom: 8,
+    maxHeight: 200,
+    ...SHADOW_SOFT,
+    shadowOpacity: 0.1,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+  },
+  mentionItem: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    height: 48,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  mentionItemBorder: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.hairline,
+  },
+  mentionAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  mentionAvatarImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  mentionAvatarText: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.ivory,
+  },
+  mentionName: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.charcoal,
+  },
+  mentionHandle: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+  },
+
   // Input container
   inputContainer: {
     backgroundColor: C.ivory,
@@ -1384,6 +2246,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 80,
+    // FlatList is inverted, so empty state must be flipped back to normal.
+    transform: [{ scaleY: -1 }],
   },
   emptyAvatar: {
     width: 90,

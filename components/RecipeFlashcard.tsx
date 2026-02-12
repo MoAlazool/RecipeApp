@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   Dimensions,
   Pressable,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image as ExpoImage } from 'expo-image';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -22,11 +22,27 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
+
 // ============================================================================
-// TYPES - Support both Recipe and FlashcardRecipe formats
+// DESIGN TOKENS — Matching Recipe Detail Screen
 // ============================================================================
 
-// FlashcardRecipe format (from recipe-results screen)
+const C = {
+  ivory: '#FFFFFF',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+  glass: 'rgba(255, 255, 255, 0.85)',
+  cardBg: 'rgba(26, 21, 16, 0.03)',
+  olive: '#6B8E23',
+};
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
 interface FlashcardIngredient {
   name: string;
   inStock: boolean;
@@ -44,7 +60,6 @@ interface FlashcardRecipe {
   originalRecipe?: any;
 }
 
-// Standard Recipe format (from @/utils/types)
 interface StandardIngredient {
   name: string;
   amount?: number;
@@ -65,10 +80,8 @@ interface StandardRecipe {
   ingredients: StandardIngredient[];
 }
 
-// Union type to accept either format
 type RecipeInput = FlashcardRecipe | StandardRecipe;
 
-// Type guard to check if recipe is FlashcardRecipe format
 const isFlashcardRecipe = (recipe: RecipeInput): recipe is FlashcardRecipe => {
   return 'name' in recipe && 'image' in recipe && 'prepTime' in recipe;
 };
@@ -79,46 +92,13 @@ const isFlashcardRecipe = (recipe: RecipeInput): recipe is FlashcardRecipe => {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 100;
-const ROTATION_ANGLE = 12;
+const ROTATION_ANGLE = 10;
 
-// Faster, snappier spring animations
 const SPRING_CONFIG = {
-  // Fast entrance - card pops in quickly
-  enter: {
-    stiffness: 500,
-    damping: 28,
-    mass: 0.6,
-  },
-  // Bouncy snap-back
-  snapBack: {
-    stiffness: 600,
-    damping: 22,
-    mass: 0.5,
-  },
-  // Quick exit with velocity
-  exit: {
-    stiffness: 300,
-    damping: 20,
-    mass: 0.8,
-  },
-  // Card press feedback
-  press: {
-    stiffness: 500,
-    damping: 20,
-    mass: 0.4,
-  },
-};
-
-const COLORS = {
-  primary: '#FF4B2B',
-  olive: '#606C38',
-  charcoal: '#121417',
-  blue: '#3B82F6',
-  blueLight: '#DBEAFE',
-  blueTint: 'rgba(59, 130, 246, 0.1)',
-  white: '#FFFFFF',
-  gray400: '#9CA3AF',
-  slate700: '#334155',
+  enter: { stiffness: 500, damping: 28, mass: 0.6 },
+  snapBack: { stiffness: 600, damping: 22, mass: 0.5 },
+  exit: { stiffness: 300, damping: 20, mass: 0.8 },
+  press: { stiffness: 500, damping: 20, mass: 0.4 },
 };
 
 // ============================================================================
@@ -131,12 +111,12 @@ interface RecipeFlashcardProps {
   onSwipe: (direction: 'left' | 'right') => void;
   activeIndex: number;
   totalItems: number;
-  pantryItems?: string[]; // Items user has in pantry (only used for StandardRecipe)
+  pantryItems?: string[];
   onCardPress?: (recipe: RecipeInput) => void;
   onFavoritePress?: (recipe: RecipeInput) => void;
+  isDark?: boolean;
 }
 
-// Normalize recipe data to a common format
 interface NormalizedRecipe {
   id: string;
   title: string;
@@ -155,7 +135,6 @@ const normalizeRecipe = (
   pantryItems: string[] = []
 ): NormalizedRecipe => {
   if (isFlashcardRecipe(recipe)) {
-    // FlashcardRecipe format - already has inStock/needed split
     return {
       id: recipe.id,
       title: recipe.name,
@@ -169,7 +148,6 @@ const normalizeRecipe = (
       needed: recipe.ingredients.filter(i => !i.inStock).map(i => ({ name: i.name })),
     };
   } else {
-    // StandardRecipe format - need to calculate match from pantry
     const pantryLower = pantryItems.map(p => p.toLowerCase().trim());
     const inStock: { name: string }[] = [];
     const needed: { name: string }[] = [];
@@ -230,61 +208,48 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
   onCardPress,
   onFavoritePress,
 }) => {
-  // Normalize recipe data to common format
   const normalizedRecipe = normalizeRecipe(recipe, pantryItems);
   const normalizedNextRecipe = nextRecipe ? normalizeRecipe(nextRecipe, pantryItems) : null;
 
   const [isSaved, setIsSaved] = useState(normalizedRecipe.isFavorite);
 
-  // Use normalized data
   const { inStock, needed, matchPercent } = {
     inStock: normalizedRecipe.inStock,
     needed: normalizedRecipe.needed,
     matchPercent: normalizedRecipe.matchPercent,
   };
 
-  // ---- SHARED VALUES ----
+  // Shared values
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const cardScale = useSharedValue(1);
   const cardOpacity = useSharedValue(1);
 
-  // Stack card animations
   const stackCard2Scale = useSharedValue(0.96);
-  const stackCard2TranslateY = useSharedValue(12);
+  const stackCard2TranslateY = useSharedValue(10);
   const stackCard3Scale = useSharedValue(0.92);
-  const stackCard3TranslateY = useSharedValue(20);
+  const stackCard3TranslateY = useSharedValue(18);
 
-  const blueGlowIntensity = useSharedValue(0);
   const favoriteScale = useSharedValue(1);
 
-  // ---- EFFECTS ----
   useEffect(() => {
-    // Quick reset - no delay
     cardOpacity.value = 0;
     cardScale.value = 0.92;
     translateY.value = 15;
     translateX.value = 0;
 
-    // Fast entrance animation
-    cardOpacity.value = withTiming(1, {
-      duration: 150,
-      easing: Easing.out(Easing.cubic)
-    });
+    cardOpacity.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.cubic) });
     cardScale.value = withSpring(1, SPRING_CONFIG.enter);
     translateY.value = withSpring(0, SPRING_CONFIG.enter);
 
-    // Reset stack cards
     stackCard2Scale.value = withTiming(0.96, { duration: 150 });
-    stackCard2TranslateY.value = withTiming(12, { duration: 150 });
+    stackCard2TranslateY.value = withTiming(10, { duration: 150 });
     stackCard3Scale.value = withTiming(0.92, { duration: 150 });
-    stackCard3TranslateY.value = withTiming(20, { duration: 150 });
-    blueGlowIntensity.value = withTiming(0, { duration: 100 });
+    stackCard3TranslateY.value = withTiming(18, { duration: 150 });
 
     setIsSaved(normalizedRecipe.isFavorite);
   }, [normalizedRecipe.id]);
 
-  // ---- HAPTIC & SWIPE HANDLERS ----
   const triggerHaptic = (style: Haptics.ImpactFeedbackStyle) => {
     Haptics.impactAsync(style);
   };
@@ -293,7 +258,6 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
     onSwipe(direction);
   };
 
-  // ---- GESTURE HANDLER ----
   const panGesture = Gesture.Pan()
     .minDistance(8)
     .activeOffsetX([-8, 8])
@@ -309,12 +273,10 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
 
       const dragProgress = Math.min(Math.abs(event.translationX) / (SCREEN_WIDTH * 0.4), 1);
 
-      // Animate stack cards
       stackCard2Scale.value = interpolate(dragProgress, [0, 1], [0.96, 1]);
-      stackCard2TranslateY.value = interpolate(dragProgress, [0, 1], [12, 0]);
+      stackCard2TranslateY.value = interpolate(dragProgress, [0, 1], [10, 0]);
       stackCard3Scale.value = interpolate(dragProgress, [0, 1], [0.92, 0.96]);
-      stackCard3TranslateY.value = interpolate(dragProgress, [0, 1], [20, 12]);
-      blueGlowIntensity.value = interpolate(dragProgress, [0, 0.5, 1], [0, 0.3, 0.6]);
+      stackCard3TranslateY.value = interpolate(dragProgress, [0, 1], [18, 10]);
     })
     .onEnd((event) => {
       'worklet';
@@ -323,7 +285,6 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
         const direction = event.translationX > 0 ? 'right' : 'left';
         const exitX = event.translationX > 0 ? SCREEN_WIDTH + 100 : -SCREEN_WIDTH - 100;
 
-        // Fast exit with velocity
         translateX.value = withSpring(exitX, {
           ...SPRING_CONFIG.exit,
           velocity: event.velocityX,
@@ -334,19 +295,16 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
         });
         cardOpacity.value = withTiming(0, { duration: 200 });
       } else {
-        // Snap back
         runOnJS(triggerHaptic)(Haptics.ImpactFeedbackStyle.Light);
         cardScale.value = withSpring(1, SPRING_CONFIG.snapBack);
         translateX.value = withSpring(0, SPRING_CONFIG.snapBack);
         stackCard2Scale.value = withSpring(0.96, SPRING_CONFIG.snapBack);
-        stackCard2TranslateY.value = withSpring(12, SPRING_CONFIG.snapBack);
+        stackCard2TranslateY.value = withSpring(10, SPRING_CONFIG.snapBack);
         stackCard3Scale.value = withSpring(0.92, SPRING_CONFIG.snapBack);
-        stackCard3TranslateY.value = withSpring(20, SPRING_CONFIG.snapBack);
-        blueGlowIntensity.value = withTiming(0, { duration: 150 });
+        stackCard3TranslateY.value = withSpring(18, SPRING_CONFIG.snapBack);
       }
     });
 
-  // ---- ANIMATED STYLES ----
   const mainCardStyle = useAnimatedStyle(() => ({
     opacity: cardOpacity.value,
     transform: [
@@ -371,17 +329,6 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
     ],
   }));
 
-  const nextCardStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: stackCard2Scale.value },
-      { translateY: stackCard2TranslateY.value },
-    ],
-  }));
-
-  const blueGlowStyle = useAnimatedStyle(() => ({
-    shadowOpacity: blueGlowIntensity.value,
-  }));
-
   const favoriteButtonStyle = useAnimatedStyle(() => ({
     transform: [{ scale: favoriteScale.value }],
   }));
@@ -403,7 +350,6 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
     };
   });
 
-  // ---- EVENT HANDLERS ----
   const handleFavoritePress = () => {
     triggerHaptic(Haptics.ImpactFeedbackStyle.Medium);
     const newSavedState = !isSaved;
@@ -420,147 +366,102 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
     onCardPress?.(recipe);
   };
 
-  // ============================================================================
-  // RENDER
-  // ============================================================================
-
   return (
     <View style={styles.container}>
-      {/* ========== CARD STACK (3-LAYER DEPTH) ========== */}
+      {/* Stack Cards */}
       <Animated.View style={[styles.card, styles.stackCard3, stackCard3Style]}>
-        <LinearGradient
-          colors={['#F8FAFC', '#FFFFFF']}
-          style={StyleSheet.absoluteFill}
-        />
+        <LinearGradient colors={['#FAF9F7', C.ivory]} style={StyleSheet.absoluteFill} />
       </Animated.View>
 
       <Animated.View style={[styles.card, styles.stackCard2, stackCard2Style]}>
-        <LinearGradient
-          colors={['#FAFBFC', '#FFFFFF']}
-          style={StyleSheet.absoluteFill}
-        />
+        <LinearGradient colors={['#FCFBF9', C.ivory]} style={StyleSheet.absoluteFill} />
       </Animated.View>
 
-      {/* ========== NEXT CARD PREVIEW (BLUE GLOW) ========== */}
-      {normalizedNextRecipe && (
-        <Animated.View
-          style={[
-            styles.card,
-            styles.nextCard,
-            nextCardStyle,
-            blueGlowStyle
-          ]}
-        >
-          <Image
-            source={{ uri: normalizedNextRecipe.image }}
-            style={styles.nextCardImage}
-          />
-          <View style={styles.nextCardOverlay} />
-          <View style={styles.nextUpLabel}>
-            <Text style={styles.nextUpText}>NEXT UP</Text>
-            <Ionicons name="play-forward" size={12} color={COLORS.blue} />
-          </View>
-        </Animated.View>
-      )}
-
-      {/* ========== MAIN ACTIVE CARD ========== */}
+      {/* Main Card */}
       <GestureDetector gesture={panGesture}>
         <Animated.View style={[styles.card, styles.mainCard, mainCardStyle]}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={handleCardPress}
-          />
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleCardPress} />
 
-          {/* ---------- HERO SECTION ---------- */}
+          {/* Hero Section */}
           <View style={styles.heroSection}>
-            <Image source={{ uri: normalizedRecipe.image }} style={styles.heroImage} />
+            <ExpoImage source={{ uri: normalizedRecipe.image }} style={styles.heroImage} contentFit="cover" transition={200} />
             <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.9)']}
+              colors={['transparent', 'rgba(26, 21, 16, 0.2)', 'rgba(26, 21, 16, 0.9)']}
               style={styles.heroGradient}
             />
 
-            {/* Top badges */}
+            {/* Top Badges */}
             <View style={styles.topBadgesContainer}>
               <View style={styles.matchBadge}>
                 <Text style={styles.badgeText}>{normalizedRecipe.matchPercent}% Match</Text>
               </View>
               {normalizedRecipe.isChefChoice && (
                 <View style={styles.chefChoiceBadge}>
-                  <Ionicons name="shield-checkmark" size={12} color={COLORS.olive} />
-                  <Text style={styles.chefChoiceBadgeText}>Chef's Choice</Text>
+                  <Ionicons name="sparkles" size={12} color={C.gold} />
+                  <Text style={styles.chefChoiceBadgeText}>Chef's Pick</Text>
                 </View>
               )}
             </View>
 
-            {/* Favorite button */}
+            {/* Favorite Button */}
             <Animated.View style={[styles.favoriteButtonWrapper, favoriteButtonStyle]}>
               <Pressable
                 onPress={handleFavoritePress}
                 style={[styles.favoriteButton, isSaved && styles.favoriteButtonActive]}
               >
-                <Ionicons
-                  name={isSaved ? 'heart' : 'heart-outline'}
-                  size={24}
-                  color={COLORS.white}
-                />
+                <Ionicons name={isSaved ? 'heart' : 'heart-outline'} size={22} color="#FFF" />
               </Pressable>
             </Animated.View>
 
-            {/* Recipe info */}
+            {/* Recipe Info */}
             <View style={styles.heroBottomInfo}>
               <Text style={styles.recipeName} numberOfLines={2}>
                 {normalizedRecipe.title}
               </Text>
               <View style={styles.metaRow}>
                 <View style={styles.metaItem}>
-                  <Ionicons name="time-outline" size={16} color={COLORS.white} />
+                  <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.9)" />
                   <Text style={styles.metaText}>{normalizedRecipe.time}</Text>
                 </View>
+                <View style={styles.metaDot} />
                 <View style={styles.metaItem}>
-                  <MaterialCommunityIcons name="stairs" size={16} color={COLORS.white} />
+                  <MaterialCommunityIcons name="chef-hat" size={14} color="rgba(255,255,255,0.9)" />
                   <Text style={styles.metaText}>{normalizedRecipe.difficulty}</Text>
                 </View>
               </View>
             </View>
           </View>
 
-          {/* ---------- INGREDIENTS SECTION ---------- */}
+          {/* Ingredients Section */}
           <View style={styles.ingredientsSection}>
             <View style={styles.ingredientsGrid}>
-              {/* In Stock column */}
+              {/* In Stock */}
               <View style={styles.ingredientColumn}>
                 <View style={styles.ingredientHeader}>
                   <View style={[styles.dot, styles.dotOlive]} />
                   <Text style={styles.ingredientLabel}>YOU HAVE</Text>
                 </View>
                 <Text style={styles.ingredientList} numberOfLines={4}>
-                  {inStock.length > 0
-                    ? inStock.map(i => i.name).join(', ')
-                    : 'No matching items'}
+                  {inStock.length > 0 ? inStock.map(i => i.name).join(', ') : 'No matching items'}
                 </Text>
               </View>
 
               {/* Divider */}
-              <LinearGradient
-                colors={['#F1F5F9', '#E2E8F0', '#F1F5F9']}
-                style={styles.divider}
-              />
+              <View style={styles.divider} />
 
-              {/* Needed column */}
+              {/* Needed */}
               <View style={styles.ingredientColumn}>
                 <View style={styles.ingredientHeader}>
-                  <View style={[styles.dot, styles.dotPrimary]} />
+                  <View style={[styles.dot, styles.dotTerracotta]} />
                   <Text style={styles.ingredientLabel}>YOU NEED</Text>
                 </View>
                 <Text style={styles.ingredientList} numberOfLines={4}>
-                  {needed.length > 0
-                    ? needed.map(i => i.name).join(', ')
-                    : 'Ready to cook!'}
+                  {needed.length > 0 ? needed.map(i => i.name).join(', ') : 'Ready to cook!'}
                 </Text>
               </View>
             </View>
 
-            {/* Pagination dots */}
+            {/* Pagination */}
             <View style={styles.paginationContainer}>
               <View style={styles.paginationDots}>
                 {Array.from({ length: totalItems }).map((_, i) => (
@@ -570,11 +471,7 @@ export const RecipeFlashcard: React.FC<RecipeFlashcardProps> = ({
                   />
                 ))}
                 <Animated.View
-                  style={[
-                    styles.paginationDot,
-                    styles.paginationDotActive,
-                    paginationIndicatorStyle
-                  ]}
+                  style={[styles.paginationDot, styles.paginationDotActive, paginationIndicatorStyle]}
                 />
               </View>
             </View>
@@ -598,192 +495,151 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: '100%',
     height: '100%',
-    borderRadius: 40,
-    backgroundColor: COLORS.white,
+    borderRadius: 32,
+    backgroundColor: C.ivory,
     overflow: 'hidden',
   },
 
-  // Stack cards
   stackCard3: {
     zIndex: 1,
-    shadowColor: '#000',
+    shadowColor: C.charcoal,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 3,
   },
   stackCard2: {
     zIndex: 2,
-    shadowColor: '#000',
+    shadowColor: C.charcoal,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 5,
   },
 
-  // Next card preview
-  nextCard: {
-    zIndex: 3,
-    borderWidth: 2,
-    borderColor: COLORS.blueLight,
-    shadowColor: COLORS.blue,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 25,
-    elevation: 8,
-  },
-  nextCardImage: {
-    width: '100%',
-    height: '50%',
-    resizeMode: 'cover',
-    opacity: 0.2,
-  },
-  nextCardOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: COLORS.blueTint,
-  },
-  nextUpLabel: {
-    position: 'absolute',
-    top: 24,
-    right: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    opacity: 0.6,
-  },
-  nextUpText: {
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    fontSize: 10,
-    color: COLORS.blue,
-    letterSpacing: 1.5,
-  },
-
-  // Main card
   mainCard: {
     zIndex: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.22,
+    shadowColor: C.charcoal,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.12,
     shadowRadius: 30,
     elevation: 20,
   },
 
-  // Hero section
   heroSection: {
-    height: '48%',
+    height: '50%',
     position: 'relative',
   },
   heroImage: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
   },
   heroGradient: {
     ...StyleSheet.absoluteFillObject,
   },
 
-  // Badges
   topBadgesContainer: {
     position: 'absolute',
-    top: 24,
-    left: 24,
+    top: 20,
+    left: 20,
     gap: 8,
     flexDirection: 'row',
   },
   matchBadge: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    backgroundColor: C.olive,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 12,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
   },
   badgeText: {
-    fontSize: 10,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: COLORS.white,
-    letterSpacing: 1.2,
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#FFF',
+    letterSpacing: 0.5,
   },
   chefChoiceBadge: {
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
   chefChoiceBadgeText: {
-    fontSize: 10,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: COLORS.charcoal,
-    letterSpacing: 1,
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.charcoal,
+    letterSpacing: 0.3,
   },
 
-  // Favorite button
   favoriteButtonWrapper: {
     position: 'absolute',
-    top: 24,
-    right: 24,
+    top: 20,
+    right: 20,
   },
   favoriteButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   favoriteButtonActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-    shadowColor: COLORS.primary,
+    backgroundColor: C.terracotta,
+    borderColor: C.terracotta,
+    shadowColor: C.terracotta,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
   },
 
-  // Hero bottom info
   heroBottomInfo: {
     position: 'absolute',
-    bottom: 24,
-    left: 28,
-    right: 28,
+    bottom: 20,
+    left: 24,
+    right: 24,
   },
   recipeName: {
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    fontSize: 26,
-    color: COLORS.white,
-    marginBottom: 12,
-    lineHeight: 32,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 24,
+    color: '#FFF',
+    marginBottom: 10,
+    lineHeight: 30,
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 8,
   },
   metaRow: {
     flexDirection: 'row',
-    gap: 20,
+    alignItems: 'center',
+    gap: 12,
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
+  },
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.5)',
   },
   metaText: {
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.9)',
   },
 
-  // Ingredients section
   ingredientsSection: {
     flex: 1,
-    paddingHorizontal: 28,
-    paddingVertical: 28,
-    backgroundColor: COLORS.white,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    backgroundColor: C.ivory,
   },
   ingredientsGrid: {
     flexDirection: 'row',
@@ -795,51 +651,43 @@ const styles = StyleSheet.create({
   ingredientHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 10,
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   dotOlive: {
-    backgroundColor: COLORS.olive,
-    shadowColor: COLORS.olive,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
+    backgroundColor: C.olive,
   },
-  dotPrimary: {
-    backgroundColor: COLORS.primary,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
+  dotTerracotta: {
+    backgroundColor: C.terracotta,
   },
   ingredientLabel: {
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    fontSize: 11,
-    color: COLORS.gray400,
-    letterSpacing: 1.8,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 10,
+    color: C.muted,
+    letterSpacing: 1.5,
   },
   ingredientList: {
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    fontSize: 14,
-    color: COLORS.slate700,
-    lineHeight: 22,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: C.charcoal,
+    lineHeight: 20,
   },
   divider: {
     width: 1,
+    backgroundColor: C.hairline,
     marginHorizontal: 16,
   },
 
-  // Pagination
   paginationContainer: {
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 'auto',
-    paddingTop: 20,
+    paddingTop: 16,
   },
   paginationDots: {
     flexDirection: 'row',
@@ -851,14 +699,14 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: 'rgba(156, 163, 175, 0.3)',
+    backgroundColor: 'rgba(138, 133, 120, 0.25)',
   },
   paginationDotActive: {
     position: 'absolute',
-    width: 24,
+    width: 20,
     height: 6,
     borderRadius: 3,
-    backgroundColor: COLORS.charcoal,
+    backgroundColor: C.charcoal,
     left: 0,
   },
 });

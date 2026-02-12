@@ -6,27 +6,42 @@ import {
   Platform,
   ScrollView,
   Alert,
-  TouchableOpacity,
-  Animated,
+  Pressable,
 } from 'react-native';
-import { Text, Button } from '@rneui/themed';
+import { Text } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { AnimatedMeshGradient } from '@/components/ui/MeshGradient';
 import { useAuthStore } from '@/stores/authStore';
 import { firebaseService } from '@/services/firebase.service';
-import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { FormInput } from '@/components/auth/FormInput';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 
-// Email validation regex
+const C = {
+  bg: '#FAF7F2',
+  card: '#FFFFFF',
+  charcoal: '#1A1510',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+};
+
+const MESH_COLORS = [
+  { r: 0.96, g: 0.94, b: 0.91 },
+  { r: 0.78, g: 0.43, b: 0.31 },
+  { r: 0.83, g: 0.69, b: 0.22 },
+  { r: 0.95, g: 0.91, b: 0.87 },
+];
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AuthScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
-  const { signIn, signUp, signInWithGoogle, isLoading, clearError } = useAuthStore();
+  const { signIn, signUp, isLoading, clearError } = useAuthStore();
 
   const [isSignUp, setIsSignUp] = useState(params.mode === 'signup');
   const [email, setEmail] = useState('');
@@ -37,14 +52,12 @@ export default function AuthScreen() {
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Validation states - only show after user has typed
   const [touched, setTouched] = useState({
     email: false,
     password: false,
     fullName: false,
   });
 
-  // Validation logic
   const validation = useMemo(() => {
     const emailValid = EMAIL_REGEX.test(email.trim());
     const passwordValid = password.length >= 6;
@@ -53,48 +66,52 @@ export default function AuthScreen() {
     return {
       email: {
         isValid: emailValid,
-        error: touched.email && email.length > 0 && !emailValid
-          ? 'Please enter a valid email address'
-          : undefined,
+        error:
+          touched.email && email.length > 0 && !emailValid
+            ? 'Please enter a valid email'
+            : undefined,
       },
       password: {
         isValid: passwordValid,
-        error: touched.password && password.length > 0 && !passwordValid
-          ? 'Password must be at least 6 characters'
-          : undefined,
+        error:
+          touched.password && password.length > 0 && !passwordValid
+            ? 'At least 6 characters'
+            : undefined,
       },
       fullName: {
         isValid: nameValid,
-        error: touched.fullName && fullName.length > 0 && !nameValid
-          ? 'Name must be at least 2 characters'
-          : undefined,
+        error:
+          touched.fullName && fullName.length > 0 && !nameValid
+            ? 'At least 2 characters'
+            : undefined,
       },
     };
   }, [email, password, fullName, touched]);
 
   const isFormValid = useMemo(() => {
     if (isSignUp) {
-      return validation.email.isValid && validation.password.isValid && validation.fullName.isValid;
+      return (
+        validation.email.isValid &&
+        validation.password.isValid &&
+        validation.fullName.isValid
+      );
     }
     return validation.email.isValid && validation.password.isValid;
   }, [isSignUp, validation]);
 
   const handleSubmit = async () => {
-    // Mark all fields as touched to show any remaining errors
     setTouched({ email: true, password: true, fullName: true });
-
-    if (!isFormValid) {
-      return;
-    }
+    if (!isFormValid) return;
 
     setIsSubmitting(true);
     try {
       if (isSignUp) {
         await signUp(email.trim(), password, fullName.trim() || undefined);
+        router.replace('/onboarding');
       } else {
         await signIn(email.trim(), password);
+        router.replace('/(tabs)');
       }
-      router.replace('/(tabs)');
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Authentication failed');
     } finally {
@@ -104,8 +121,8 @@ export default function AuthScreen() {
 
   const handleForgotPassword = async () => {
     if (!validation.email.isValid) {
-      setTouched(prev => ({ ...prev, email: true }));
-      Alert.alert('Email Required', 'Please enter your email address to reset your password.');
+      setTouched((prev) => ({ ...prev, email: true }));
+      Alert.alert('Enter your email', 'Type your email address first, then tap reset.');
       return;
     }
 
@@ -128,47 +145,65 @@ export default function AuthScreen() {
     setTouched({ email: false, password: false, fullName: false });
   };
 
-  // Forgot Password View
+  // ── Forgot Password ──
   if (showForgotPassword) {
     return (
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]} keyboardShouldPersistTaps="handled">
-          <View style={styles.glowTop} />
-          <View style={styles.glowBottom} />
-
-          <TouchableOpacity
-            style={styles.backButton}
+        <AnimatedMeshGradient
+          colors={MESH_COLORS}
+          speed={0.6}
+          noise={0.1}
+          blur={0.5}
+          contrast={0.85}
+          style={StyleSheet.absoluteFill}
+        />
+        <LinearGradient
+          colors={['rgba(250,247,242,0.95)', 'rgba(250,247,242,0.75)', 'rgba(250,247,242,0.3)']}
+          locations={[0.4, 0.65, 1]}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 40 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Back */}
+          <Pressable
+            style={styles.backBtn}
             onPress={() => {
               setShowForgotPassword(false);
               setResetEmailSent(false);
             }}
+            hitSlop={8}
           >
-            <Ionicons name="arrow-back" size={24} color="#1C100D" />
-          </TouchableOpacity>
+            <Ionicons name="chevron-back" size={22} color={C.charcoal} />
+          </Pressable>
 
-          <View style={styles.header}>
-            <View style={styles.iconContainer}>
-              <Ionicons name="key" size={32} color="#FFF" />
-            </View>
-            <Text h2 style={styles.title}>Reset Password</Text>
-            <Text style={styles.subtitle}>
+          <View style={styles.headingBlock}>
+            <Text style={styles.heading}>Reset password</Text>
+            <Text style={styles.subheading}>
               {resetEmailSent
-                ? "We've sent you an email with instructions to reset your password."
-                : "Enter your email and we'll send you a link to reset your password."}
+                ? "Check your inbox — we've sent you a reset link."
+                : "Enter your email and we'll send a reset link."}
             </Text>
           </View>
 
           {!resetEmailSent ? (
-            <View style={styles.form}>
+            <View style={styles.formCard}>
               <FormInput
                 placeholder="Email"
                 value={email}
                 onChangeText={(text) => {
                   setEmail(text);
-                  if (!touched.email) setTouched(prev => ({ ...prev, email: true }));
+                  if (!touched.email)
+                    setTouched((prev) => ({ ...prev, email: true }));
                 }}
                 autoCapitalize="none"
                 keyboardType="email-address"
@@ -178,27 +213,30 @@ export default function AuthScreen() {
               />
 
               <PrimaryButton
-                title="Send Reset Link"
+                title="Send reset link"
                 onPress={handleForgotPassword}
                 loading={isSubmitting}
                 disabled={!validation.email.isValid}
-                style={{ marginTop: 8 }}
+                style={{ marginTop: 4 }}
               />
             </View>
           ) : (
-            <View style={styles.successContainer}>
-              <View style={styles.successIcon}>
-                <Ionicons name="checkmark-circle" size={64} color="#22C55E" />
+            <View style={styles.formCard}>
+              <View style={styles.successRow}>
+                <View style={styles.successIcon}>
+                  <Ionicons name="checkmark" size={24} color={C.card} />
+                </View>
+                <Text style={styles.successText}>Email sent!</Text>
               </View>
-              <Text style={styles.successText}>Check your inbox!</Text>
+
               <PrimaryButton
-                title="Back to Sign In"
+                title="Back to sign in"
                 onPress={() => {
                   setShowForgotPassword(false);
                   setResetEmailSent(false);
                 }}
                 variant="outline"
-                style={{ marginTop: 24 }}
+                style={{ marginTop: 8 }}
               />
             </View>
           )}
@@ -207,39 +245,66 @@ export default function AuthScreen() {
     );
   }
 
+  // ── Main Auth Screen ──
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <LoadingOverlay visible={isLoading} message="Please wait..." />
+      <AnimatedMeshGradient
+        colors={MESH_COLORS}
+        speed={0.6}
+        noise={0.1}
+        blur={0.5}
+        contrast={0.85}
+        style={StyleSheet.absoluteFill}
+      />
+      <LinearGradient
+        colors={['rgba(250,247,242,0.3)', 'rgba(250,247,242,0.75)', 'rgba(250,247,242,0.95)']}
+        locations={[0, 0.35, 0.6]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]} keyboardShouldPersistTaps="handled">
-        <View style={styles.glowTop} />
-        <View style={styles.glowBottom} />
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 40 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Back */}
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          hitSlop={8}
+        >
+          <Ionicons name="chevron-back" size={22} color={C.charcoal} />
+        </Pressable>
 
-        <View style={styles.header}>
-          <View style={styles.iconContainer}>
-            <Ionicons name="restaurant" size={32} color="#FFF" />
-          </View>
-          <Text h2 style={styles.title}>
-            {isSignUp ? 'Create Account' : 'Welcome Back'}
+        {/* Heading */}
+        <View style={styles.headingBlock}>
+          <Text style={styles.heading}>
+            {isSignUp ? 'Create account' : 'Welcome back'}
           </Text>
-          <Text style={styles.subtitle}>
+          <Text style={styles.subheading}>
             {isSignUp
-              ? 'Sign up to save your recipes and sync across devices'
-              : 'Sign in to access your recipes'}
+              ? 'Sign up to save and sync your recipes'
+              : 'Sign in to your account'}
           </Text>
         </View>
 
-        <View style={styles.form}>
+        {/* Form */}
+        <View style={styles.formCard}>
           {isSignUp && (
             <FormInput
-              placeholder="Full Name"
+              placeholder="Full name"
               value={fullName}
               onChangeText={(text) => {
                 setFullName(text);
-                if (!touched.fullName) setTouched(prev => ({ ...prev, fullName: true }));
+                if (!touched.fullName)
+                  setTouched((prev) => ({ ...prev, fullName: true }));
               }}
               autoCapitalize="words"
               leftIcon="person-outline"
@@ -253,7 +318,8 @@ export default function AuthScreen() {
             value={email}
             onChangeText={(text) => {
               setEmail(text);
-              if (!touched.email) setTouched(prev => ({ ...prev, email: true }));
+              if (!touched.email)
+                setTouched((prev) => ({ ...prev, email: true }));
             }}
             autoCapitalize="none"
             keyboardType="email-address"
@@ -267,7 +333,8 @@ export default function AuthScreen() {
             value={password}
             onChangeText={(text) => {
               setPassword(text);
-              if (!touched.password) setTouched(prev => ({ ...prev, password: true }));
+              if (!touched.password)
+                setTouched((prev) => ({ ...prev, password: true }));
             }}
             secureTextEntry={!showPassword}
             leftIcon="lock-closed-outline"
@@ -278,60 +345,37 @@ export default function AuthScreen() {
           />
 
           {!isSignUp && (
-            <TouchableOpacity
-              style={styles.forgotPassword}
+            <Pressable
+              style={styles.forgotBtn}
               onPress={() => setShowForgotPassword(true)}
             >
-              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-            </TouchableOpacity>
+              <Text style={styles.forgotText}>Forgot password?</Text>
+            </Pressable>
           )}
 
           <PrimaryButton
-            title={isSignUp ? 'Create Account' : 'Sign In'}
+            title={isSignUp ? 'Create account' : 'Sign in'}
             onPress={handleSubmit}
             loading={isSubmitting}
             disabled={!isFormValid}
             style={{ marginTop: isSignUp ? 8 : 0 }}
           />
-
-          <TouchableOpacity style={styles.toggleButton} onPress={toggleMode}>
-            <Text style={styles.toggleText}>
-              {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
-              <Text style={styles.toggleTextBold}>
-                {isSignUp ? 'Sign In' : 'Sign Up'}
-              </Text>
-            </Text>
-          </TouchableOpacity>
         </View>
 
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or continue with</Text>
-          <View style={styles.dividerLine} />
-        </View>
+        {/* Toggle mode */}
+        <Pressable
+          style={styles.toggleRow}
+          onPress={toggleMode}
+        >
+          <Text style={styles.toggleHint}>
+            {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
+          </Text>
+          <Text style={styles.toggleLink}>
+            {isSignUp ? 'Sign in' : 'Sign up'}
+          </Text>
+        </Pressable>
 
-        <View style={styles.socialButtons}>
-          <TouchableOpacity
-            style={styles.socialButton}
-            onPress={() => Alert.alert('Coming Soon', 'Apple Sign In coming soon!')}
-          >
-            <Ionicons name="logo-apple" size={24} color="#1C100D" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.socialButton}
-            onPress={async () => {
-              try {
-                await signInWithGoogle();
-                router.replace('/(tabs)');
-              } catch (err: any) {
-                Alert.alert('Error', err.message || 'Google sign in failed');
-              }
-            }}
-          >
-            <Ionicons name="logo-google" size={24} color="#DB4437" />
-          </TouchableOpacity>
-        </View>
-
+        {/* Terms */}
         <Text style={styles.terms}>
           By continuing, you agree to our Terms of Service and Privacy Policy
         </Text>
@@ -343,154 +387,102 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: C.bg,
+    overflow: 'hidden',
   },
-  content: {
-    paddingHorizontal: 24,
-    paddingBottom: 80,
+  scrollContent: {
+    paddingHorizontal: 20,
   },
-  header: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: C.card,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-    shadowColor: '#000',
+    marginBottom: 28,
+    shadowColor: C.charcoal,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
     elevation: 2,
   },
-  glowTop: {
-    position: 'absolute',
-    top: -120,
-    left: -120,
-    width: 240,
-    height: 200,
-    borderRadius: 120,
-    backgroundColor: 'rgba(242, 51, 13, 0.08)',
+  headingBlock: {
+    marginBottom: 28,
+    paddingHorizontal: 2,
   },
-  glowBottom: {
-    position: 'absolute',
-    bottom: -160,
-    right: -120,
-    width: 260,
-    height: 220,
-    borderRadius: 130,
-    backgroundColor: 'rgba(242, 51, 13, 0.08)',
-  },
-  iconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: '#F2330D',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#F2330D',
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  title: {
-    color: '#1C100D',
+  heading: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 30,
+    color: C.charcoal,
     marginBottom: 8,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
   },
-  subtitle: {
-    color: '#9C5749',
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 24,
-    fontFamily: 'NotoSans_500Medium',
-    maxWidth: 300,
+  subheading: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 15,
+    color: C.muted,
+    lineHeight: 22,
   },
-  form: {
-    marginBottom: 24,
-  },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginBottom: 16,
-    marginTop: -8,
-  },
-  forgotPasswordText: {
-    color: '#F2330D',
-    fontSize: 14,
-    fontFamily: 'NotoSans_600SemiBold',
-  },
-  toggleButton: {
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
-  toggleText: {
-    color: '#9C5749',
-    fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
-  },
-  toggleTextBold: {
-    color: '#F2330D',
-    fontFamily: 'NotoSans_700Bold',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E8D3CE',
-  },
-  dividerText: {
-    color: '#9C5749',
-    paddingHorizontal: 16,
-    fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
-  },
-  socialButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  socialButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+  formCard: {
+    backgroundColor: C.card,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: C.charcoal,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
     elevation: 2,
   },
-  successContainer: {
+  forgotBtn: {
+    alignSelf: 'flex-end',
+    marginBottom: 12,
+    marginTop: -2,
+  },
+  forgotText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 13,
+    color: C.terracotta,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 20,
   },
-  successIcon: {
-    marginBottom: 16,
+  toggleHint: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: C.muted,
   },
-  successText: {
-    fontSize: 18,
+  toggleLink: {
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    fontSize: 14,
+    color: C.terracotta,
   },
   terms: {
     textAlign: 'center',
-    color: '#C8B7B2',
-    fontSize: 12,
-    marginTop: 32,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 10,
+    color: 'rgba(138, 133, 120, 0.6)',
     lineHeight: 18,
-    fontFamily: 'NotoSans_500Medium',
+    paddingHorizontal: 20,
+  },
+  successRow: {
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 20,
+  },
+  successIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#22C55E',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 17,
+    color: C.charcoal,
   },
 });

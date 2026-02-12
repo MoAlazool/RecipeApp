@@ -4,11 +4,11 @@ import { Platform } from 'react-native';
 
 const MIN_IOS_VERSION = 16.2;
 const TIMER_CONFIG: LiveActivityConfig = {
-  backgroundColor: '#FFFFFF',
-  titleColor: '#1C100D',
-  subtitleColor: '#9C5749',
-  progressViewTint: '#F2330D',
-  progressViewLabelColor: '#F2330D',
+  backgroundColor: '#F8F6F5',
+  titleColor: '#1A1510',
+  subtitleColor: '#8A8578',
+  progressViewTint: '#D4AF37',
+  progressViewLabelColor: '#D4AF37',
   timerType: 'digital',
 };
 
@@ -49,11 +49,13 @@ let lastState: LiveActivityState | null = null;
 
 export const LiveActivity = {
   async startCooking(params: {
+    recipeId: string;
     stepInstruction: string;
     recipeName: string;
     stepNumber: number;
     totalSteps: number;
     timerEndTimeMs?: number;
+    isTimerDone?: boolean;
   }): Promise<boolean> {
     if (!isSupported()) return false;
 
@@ -62,11 +64,14 @@ export const LiveActivity = {
       title: params.stepInstruction,
       subtitle: buildSubtitle(params.recipeName, stepLabel),
       progress: params.stepNumber / params.totalSteps,
+      isTimerDone: params.isTimerDone,
     };
 
-    if (params.timerEndTimeMs) {
-      state.progressBar = { date: params.timerEndTimeMs };
-    }
+    // Explicitly set or clear the timer — omitting progressBar may leave
+    // the old timer visible on the Dynamic Island.
+    state.progressBar = params.timerEndTimeMs
+      ? { date: params.timerEndTimeMs }
+      : { date: 0 };
 
     lastState = state;
 
@@ -79,8 +84,13 @@ export const LiveActivity = {
       }
     }
 
+    const config: LiveActivityConfig = {
+      ...TIMER_CONFIG,
+      deepLinkUrl: `cooking/${params.recipeId}`,
+    };
+
     try {
-      const activityId = LiveActivityModule.startActivity(state, TIMER_CONFIG);
+      const activityId = LiveActivityModule.startActivity(state, config);
       if (activityId) {
         activeActivityId = activityId;
         activeKey = 'cooking';
@@ -101,6 +111,7 @@ export const LiveActivity = {
     startTimeMs: number;
     endTimeMs: number;
     key: string;
+    isTimerDone?: boolean;
   }): Promise<boolean> {
     if (!isSupported()) {
       return false;
@@ -112,6 +123,10 @@ export const LiveActivity = {
       stepLabel: params.stepLabel,
       endTimeMs: params.endTimeMs,
     });
+
+    // Explicitly add isTimerDone to the state
+    (state as any).isTimerDone = params.isTimerDone;
+
     lastState = state;
 
     if (activeKey === params.key && activeActivityId) {

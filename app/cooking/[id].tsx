@@ -1,23 +1,37 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback, type ComponentType } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
   Vibration,
   Pressable,
   Modal,
   TouchableWithoutFeedback,
-  Linking,
   Animated,
-  PanResponder,
   Dimensions,
+  AppState,
+  Linking,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+  interpolate,
+  Extrapolation,
+} from 'react-native-reanimated';
 import { Text } from '@rneui/themed';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
+import * as WebBrowser from 'expo-web-browser';
+import { getIngredientImage } from '@/utils/ingredientImages';
+import { getIngredientEmoji } from '@/utils/ingredientEmojis';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -32,11 +46,47 @@ import {
   scheduleTimerNotification,
 } from '@/services/notifications.service';
 
+// ============================================================
+// DESIGN TOKENS — Michelin-Star Luxury
+// ============================================================
+
+const C = {
+  ivory: '#FFFFFF',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+  glass: 'rgba(255, 255, 255, 0.85)',
+  glassStrong: 'rgba(255, 255, 255, 0.94)',
+  cardBg: 'rgba(26, 21, 16, 0.03)',
+};
+
+const SHADOW_SOFT = {
+  shadowColor: '#1A1510',
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 0.05,
+  shadowRadius: 20,
+  elevation: 6,
+};
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
+const EmbeddedWebView: ComponentType<any> | null = (() => {
+  try {
+    return require('react-native-webview').WebView as ComponentType<any>;
+  } catch (error) {
+    console.warn('[Cooking] react-native-webview native module is unavailable:', error);
+    return null;
+  }
+})();
 
 export default function CookingModeScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, laAction, laNonce } = useLocalSearchParams<{
+    id: string;
+    laAction?: string | string[];
+    laNonce?: string | string[];
+  }>();
   const router = useRouter();
   const layout = useScreenLayout({ hasTabBar: false, headerPadding: 12 });
   const { getRecipe, updateRecipe } = useRecipeStore();
@@ -48,6 +98,7 @@ export default function CookingModeScreen() {
     endSession,
     nextStep,
     previousStep,
+    goToStep,
     addTimer,
     setTimerNotification,
     removeTimer,
@@ -56,14 +107,21 @@ export default function CookingModeScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [showStepsModal, setShowStepsModal] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
   const [isListening, setIsListening] = useState(false);
+  const [miniPlayerUrl, setMiniPlayerUrl] = useState<string | null>(null);
+  const [miniPlayerExpanded, setMiniPlayerExpanded] = useState(false);
+  const [miniPlayerLoading, setMiniPlayerLoading] = useState(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastLiveActivityActionKeyRef = useRef<string | null>(null);
   const menuAnim = useRef(new Animated.Value(0)).current;
-  const swipeAnim = useRef(new Animated.Value(0)).current;
   const introAnim = useRef(new Animated.Value(0)).current;
-  const swipeHintAnim = useRef(new Animated.Value(0)).current;
+
   const listeningRef = useRef(false);
+
+  // Reanimated shared values for smooth swipe
+  const translateX = useSharedValue(0);
   const processedCountsRef = useRef<Record<string, number>>({});
   const isSpeakingRef = useRef(false);
   const speakingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -71,21 +129,35 @@ export default function CookingModeScreen() {
     Array.from({ length: 5 }, () => new Animated.Value(0.3))
   ).current;
 
+  // Compute totalSteps
+  const totalSteps = recipe?.steps?.length ?? 0;
+
+  const [completedTimers, setCompletedTimers] = useState<string[]>([]);
+
   // Find the timer for the current step
   const currentStepTimer = useMemo(() => {
     return timers.find((timer) => timer.label === `Step ${currentStep + 1}` && timer.is_active);
   }, [timers, currentStep]);
 
   const primaryTimer = useMemo(() => {
+    // Check for active timers first
     const activeTimers = timers.filter((timer) => timer.is_active);
-    if (activeTimers.length === 0) return null;
+    if (activeTimers.length > 0) {
+      return activeTimers.reduce((soonest, timer) => {
+        const timerEnd = new Date(timer.started_at).getTime() + timer.duration_seconds * 1000;
+        const soonestEnd = new Date(soonest.started_at).getTime() + soonest.duration_seconds * 1000;
+        return timerEnd < soonestEnd ? timer : soonest;
+      });
+    }
 
-    return activeTimers.reduce((soonest, timer) => {
-      const timerEnd = new Date(timer.started_at).getTime() + timer.duration_seconds * 1000;
-      const soonestEnd = new Date(soonest.started_at).getTime() + soonest.duration_seconds * 1000;
-      return timerEnd < soonestEnd ? timer : soonest;
-    });
-  }, [timers]);
+    // If no active, check for the most recently completed one that's still "sticky"
+    if (completedTimers.length > 0) {
+      const lastId = completedTimers[completedTimers.length - 1];
+      return timers.find(t => t.timer_id === lastId) || null;
+    }
+
+    return null;
+  }, [timers, completedTimers]);
 
   // Update countdown for current step timer
   useEffect(() => {
@@ -112,9 +184,30 @@ export default function CookingModeScreen() {
           timerIntervalRef.current = null;
         }
         Vibration.vibrate([0, 500, 200, 500]);
-        Alert.alert('Timer Done!', currentStepTimer.label);
-        cancelNotification(currentStepTimer.notification_id);
-        removeTimer(currentStepTimer.timer_id);
+
+        // Mark as completed for the UI/Live Activity
+        const tId = currentStepTimer.timer_id;
+        setCompletedTimers(prev => [...prev, tId]);
+
+        // IMMEDIATE UPDATE: Force-sync the Live Activity with the Done state
+        if (recipe) {
+          const step = recipe.steps[currentStep];
+          LiveActivity.startCooking({
+            recipeId: id!,
+            stepInstruction: step?.instruction || `Step ${currentStep + 1}`,
+            recipeName: recipe.title,
+            stepNumber: currentStep + 1,
+            totalSteps: recipe.steps.length,
+            timerEndTimeMs: endTime,
+            isTimerDone: true,
+          });
+        }
+
+        // Keep it for 10 seconds so the user sees the green checkmark
+        setTimeout(() => {
+          removeTimer(tId);
+          setCompletedTimers(prev => prev.filter(id => id !== tId));
+        }, 10000);
       }
     };
 
@@ -127,7 +220,7 @@ export default function CookingModeScreen() {
         timerIntervalRef.current = null;
       }
     };
-  }, [currentStepTimer?.timer_id, currentStepTimer?.started_at]);
+  }, [currentStepTimer?.timer_id, currentStepTimer?.started_at, recipe, currentStep]);
 
   useEffect(() => {
     loadRecipe();
@@ -144,13 +237,16 @@ export default function CookingModeScreen() {
     const timerEndTimeMs = primaryTimer
       ? new Date(primaryTimer.started_at).getTime() + primaryTimer.duration_seconds * 1000
       : undefined;
+    const isTimerDone = primaryTimer ? completedTimers.includes(primaryTimer.timer_id) : false;
 
     LiveActivity.startCooking({
+      recipeId: id!,
       stepInstruction: step?.instruction || `Step ${currentStep + 1}`,
       recipeName: recipe.title,
       stepNumber: currentStep + 1,
       totalSteps: recipe.steps.length,
       timerEndTimeMs,
+      isTimerDone,
     });
   }, [
     currentStep,
@@ -159,35 +255,59 @@ export default function CookingModeScreen() {
     primaryTimer?.duration_seconds,
     recipe?.steps.length,
     recipe?.title,
+    completedTimers,
   ]);
 
-  // Intro animation
+  // Sync Live Activity when app returns from background (timers may have expired)
   useEffect(() => {
-    if (showIntro && !isLoading && recipe) {
-      Animated.spring(introAnim, {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && recipe) {
+        // Check all running timers — mark any that expired while backgrounded
+        for (const timer of timers) {
+          const endTime = new Date(timer.started_at).getTime() + timer.duration_seconds * 1000;
+          if (Date.now() >= endTime && !completedTimers.includes(timer.timer_id)) {
+            setCompletedTimers(prev => {
+              if (prev.includes(timer.timer_id)) return prev;
+              return [...prev, timer.timer_id];
+            });
+          }
+        }
+
+        // Force an immediate Live Activity update with current state
+        const step = recipe.steps[currentStep];
+        const timerEndTimeMs = primaryTimer
+          ? new Date(primaryTimer.started_at).getTime() + primaryTimer.duration_seconds * 1000
+          : undefined;
+        const isTimerDone = primaryTimer
+          ? completedTimers.includes(primaryTimer.timer_id) || (timerEndTimeMs != null && Date.now() >= timerEndTimeMs)
+          : false;
+
+        LiveActivity.startCooking({
+          recipeId: id!,
+          stepInstruction: step?.instruction || `Step ${currentStep + 1}`,
+          recipeName: recipe.title,
+          stepNumber: currentStep + 1,
+          totalSteps: recipe.steps.length,
+          timerEndTimeMs,
+          isTimerDone,
+        });
+      }
+    });
+
+    return () => sub.remove();
+  }, [recipe, currentStep, timers, completedTimers, primaryTimer, id]);
+
+  // Voice hint banner — fade in then auto-dismiss
+  useEffect(() => {
+    if (showIntro && !isLoading && recipe && VOICE_AVAILABLE) {
+      Animated.timing(introAnim, {
         toValue: 1,
-        damping: 20,
-        stiffness: 150,
+        duration: 300,
         useNativeDriver: true,
       }).start();
 
-      const loopAnimation = () => {
-        Animated.sequence([
-          Animated.timing(swipeHintAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(swipeHintAnim, {
-            toValue: 0,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          if (showIntro) loopAnimation();
-        });
-      };
-      loopAnimation();
+      const timer = setTimeout(() => dismissIntro(), 6000);
+      return () => clearTimeout(timer);
     }
   }, [showIntro, isLoading, recipe]);
 
@@ -305,12 +425,12 @@ export default function CookingModeScreen() {
     // Split transcript into words and count command occurrences
     const words = transcript.split(/\s+/);
     const countMatches = (targets: string[]) =>
-      words.filter(w => targets.some(t => w.includes(t))).length;
+      words.filter((w: string) => targets.some(t => w.includes(t))).length;
 
     const commands: { key: string; targets: string[]; action: () => void }[] = [
       { key: 'next', targets: ['next', 'التالي'], action: () => { handleNext(); Vibration.vibrate(50); } },
       { key: 'back', targets: ['back', 'previous', 'السابق'], action: () => { handlePrevious(); Vibration.vibrate(50); } },
-      { key: 'timer', targets: ['timer'], action: () => { handleAddTimer(); Vibration.vibrate(50); } },
+      { key: 'start', targets: ['start', 'ابدأ'], action: () => { handleAddTimer(); Vibration.vibrate(50); } },
       { key: 'stop', targets: ['stop', 'أوقف'], action: () => { handleStopTimer(); Vibration.vibrate(50); } },
     ];
 
@@ -430,65 +550,174 @@ export default function CookingModeScreen() {
     previousStep();
   };
 
-  const handleOpenSourceVideo = () => {
-    if (recipe?.source_url) {
-      Linking.openURL(recipe.source_url);
+  const buildMiniPlayerUrl = useCallback((rawUrl: string) => {
+    const normalizedUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+
+    const youtubeVideoId = normalizedUrl.match(
+      /(?:youtu\.be\/|youtube\.com\/(?:watch\?.*v=|shorts\/|embed\/|live\/|v\/))([^&\s?#/]+)/i
+    )?.[1];
+    if (youtubeVideoId) {
+      return `https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&playsinline=1&rel=0&modestbranding=1&showinfo=0&iv_load_policy=3&controls=1`;
+    }
+
+    const instagramMatch = normalizedUrl.match(
+      /(?:instagram\.com|instagr\.am)\/(reel|reels|p|tv)\/([\w-]+)/i
+    );
+    if (instagramMatch?.[2]) {
+      const kind = instagramMatch[1]?.toLowerCase();
+      const mediaType = kind === 'tv' ? 'tv' : kind?.startsWith('reel') ? 'reel' : 'p';
+      return `https://www.instagram.com/${mediaType}/${instagramMatch[2]}/embed`;
+    }
+
+    const tiktokVideoId =
+      normalizedUrl.match(/tiktok\.com\/@[\w.-]+\/video\/(\d+)/i)?.[1] ||
+      normalizedUrl.match(/(?:m\.)?tiktok\.com\/v\/(\d+)/i)?.[1];
+    if (tiktokVideoId) {
+      return `https://www.tiktok.com/embed/v2/${tiktokVideoId}`;
+    }
+
+    return normalizedUrl;
+  }, []);
+
+  const resolveShareUrl = useCallback(async (url: string) => {
+    const needsResolve =
+      /(?:vm|vt)\.tiktok\.com\//i.test(url) ||
+      /tiktok\.com\/t\//i.test(url) ||
+      /instagram\.com\/share\//i.test(url);
+
+    if (!needsResolve) return url;
+
+    try {
+      const headResponse = await fetch(url, { method: 'HEAD' });
+      if (headResponse.url) return headResponse.url;
+    } catch { }
+
+    try {
+      const getResponse = await fetch(url);
+      if (getResponse.url) return getResponse.url;
+    } catch { }
+
+    return url;
+  }, []);
+
+  const handleOpenSourceVideo = async () => {
+    const rawVideoUrl = recipe?.source_url;
+    if (!rawVideoUrl) return;
+
+    const sourceUrl = rawVideoUrl.trim();
+    const resolvedUrl = await resolveShareUrl(sourceUrl);
+
+    try {
+      await Linking.openURL(resolvedUrl);
+    } catch {
+      Alert.alert('Unable to open video', 'Please check the source link and try again.');
     }
   };
 
-  // ============================================
-  // SWIPE GESTURES (hands-free navigation)
-  // ============================================
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dy) < 40;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        swipeAnim.setValue(gestureState.dx);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx < -SWIPE_THRESHOLD) {
-          Animated.timing(swipeAnim, {
-            toValue: -SCREEN_WIDTH,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => {
-            handleNext();
-            swipeAnim.setValue(0);
-            Vibration.vibrate(30);
-          });
-        } else if (gestureState.dx > SWIPE_THRESHOLD) {
-          Animated.timing(swipeAnim, {
-            toValue: SCREEN_WIDTH,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => {
-            handlePrevious();
-            swipeAnim.setValue(0);
-            Vibration.vibrate(30);
-          });
-        } else {
-          Animated.spring(swipeAnim, {
-            toValue: 0,
-            useNativeDriver: true,
-          }).start();
-        }
-      },
-    })
-  ).current;
+  const closeMiniPlayer = useCallback(() => {
+    setMiniPlayerUrl(null);
+    setMiniPlayerExpanded(false);
+    setMiniPlayerLoading(false);
+  }, []);
 
-  const swipeLeftOpacity = swipeAnim.interpolate({
-    inputRange: [-SWIPE_THRESHOLD, 0],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
+  const miniPlayerSource = useMemo(() => {
+    if (!miniPlayerUrl) return undefined;
+    return {
+      html: [
+        '<!DOCTYPE html><html><head>',
+        '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">',
+        '<style>*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden;background:#000}',
+        'iframe{width:100%;height:100%;border:none;position:fixed;top:0;left:0;right:0;bottom:0}</style>',
+        '</head><body>',
+        `<iframe src="${miniPlayerUrl}" allow="autoplay;encrypted-media;accelerometer;gyroscope;picture-in-picture" allowfullscreen frameborder="0"></iframe>`,
+        '</body></html>',
+      ].join(''),
+    };
+  }, [miniPlayerUrl]);
+
+  // ============================================
+  // SWIPE GESTURE (react-native-gesture-handler + reanimated)
+  // ============================================
+  const goToNextStep = useCallback(() => {
+    if (currentStep < totalSteps - 1) {
+      Vibration.vibrate(25);
+      nextStep();
+    }
+  }, [currentStep, totalSteps, nextStep]);
+
+  const goToPrevStep = useCallback(() => {
+    if (currentStep > 0) {
+      Vibration.vibrate(25);
+      previousStep();
+    }
+  }, [currentStep, previousStep]);
+
+  const swipeGesture = Gesture.Pan()
+    .activeOffsetX([-15, 15])
+    .failOffsetY([-20, 20])
+    .onUpdate((e) => {
+      // Add resistance at edges
+      let dx = e.translationX;
+      if ((currentStep === 0 && dx > 0) || (currentStep === totalSteps - 1 && dx < 0)) {
+        dx = dx * 0.25;
+      }
+      translateX.value = dx;
+    })
+    .onEnd((e) => {
+      const velocity = e.velocityX;
+      const translation = e.translationX;
+
+      // Swipe left -> next step
+      if ((translation < -SWIPE_THRESHOLD || velocity < -800) && currentStep < totalSteps - 1) {
+        // Quick exit then reset + change step
+        translateX.value = withTiming(-SCREEN_WIDTH * 0.4, { duration: 120 }, () => {
+          translateX.value = 0;
+          runOnJS(goToNextStep)();
+        });
+      }
+      // Swipe right -> prev step
+      else if ((translation > SWIPE_THRESHOLD || velocity > 800) && currentStep > 0) {
+        translateX.value = withTiming(SCREEN_WIDTH * 0.4, { duration: 120 }, () => {
+          translateX.value = 0;
+          runOnJS(goToPrevStep)();
+        });
+      }
+      // Spring back
+      else {
+        translateX.value = withSpring(0, { damping: 25, stiffness: 400 });
+      }
+    });
+
+  const cardAnimatedStyle = useAnimatedStyle(() => {
+    const absX = Math.abs(translateX.value);
+    return {
+      transform: [
+        { translateX: translateX.value },
+        {
+          rotateZ: `${interpolate(
+            translateX.value,
+            [-SCREEN_WIDTH * 0.5, 0, SCREEN_WIDTH * 0.5],
+            [-2.8, 0, 2.8],
+            Extrapolation.CLAMP
+          )}deg`,
+        },
+        {
+          scale: interpolate(absX, [0, SCREEN_WIDTH * 0.5], [1, 0.985], Extrapolation.CLAMP),
+        },
+      ],
+      opacity: interpolate(absX, [0, SCREEN_WIDTH * 0.5], [1, 0.95], Extrapolation.CLAMP),
+    };
   });
-  const swipeRightOpacity = swipeAnim.interpolate({
-    inputRange: [0, SWIPE_THRESHOLD],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
+
+  const leftSwipeCueStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.value, [0, 40, 110], [0, 0.5, 1], Extrapolation.CLAMP),
+    transform: [{ translateX: interpolate(translateX.value, [0, 100], [8, 0], Extrapolation.CLAMP) }],
+  }));
+
+  const rightSwipeCueStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.value, [-110, -40, 0], [1, 0.5, 0], Extrapolation.CLAMP),
+    transform: [{ translateX: interpolate(translateX.value, [-100, 0], [0, -8], Extrapolation.CLAMP) }],
+  }));
 
   // ============================================
   // MENU ANIMATION
@@ -523,16 +752,13 @@ export default function CookingModeScreen() {
   // ============================================
   // INTRO DISMISS
   // ============================================
-  const dismissIntro = useCallback((enableVoiceCommands: boolean) => {
-    if (enableVoiceCommands && VOICE_AVAILABLE) {
-      startListening();
-    }
+  const dismissIntro = useCallback(() => {
     Animated.timing(introAnim, {
       toValue: 0,
       duration: 200,
       useNativeDriver: true,
     }).start(() => setShowIntro(false));
-  }, [startListening]);
+  }, []);
 
   const handleToggleVoiceCommands = useCallback(() => {
     if (isListening) {
@@ -582,10 +808,10 @@ export default function CookingModeScreen() {
         {
           text: 'Exit',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             stopListening();
-            cancelAllTimerNotifications();
-            LiveActivity.endTimer();
+            await cancelAllTimerNotifications();
+            await LiveActivity.endTimer();
             endSession();
             router.back();
           },
@@ -595,6 +821,10 @@ export default function CookingModeScreen() {
   };
 
   const handleAddTimer = async () => {
+    // Guard: Don't add if this step already has an active timer
+    const existing = timers.find(t => t.label === `Step ${currentStep + 1}` && t.is_active);
+    if (existing) return;
+
     const step = recipe?.steps[currentStep];
     if (step?.duration_minutes) {
       const durationSeconds = step.duration_minutes * 60;
@@ -609,6 +839,33 @@ export default function CookingModeScreen() {
     }
   };
 
+  // Handle Live Activity quick actions (next/prev/timer) passed via deep link query params.
+  useEffect(() => {
+    const normalizedAction = Array.isArray(laAction) ? laAction[0] : laAction;
+    const normalizedNonce = Array.isArray(laNonce) ? laNonce[0] : laNonce;
+
+    if (!normalizedAction) return;
+    if (!recipe) return;
+
+    const actionKey = `${normalizedAction}:${normalizedNonce ?? 'no-nonce'}`;
+    if (lastLiveActivityActionKeyRef.current === actionKey) return;
+    lastLiveActivityActionKeyRef.current = actionKey;
+
+    if (normalizedAction === 'next') {
+      handleNext();
+      return;
+    }
+
+    if (normalizedAction === 'prev') {
+      handlePrevious();
+      return;
+    }
+
+    if (normalizedAction === 'timer') {
+      handleAddTimer();
+    }
+  }, [handleAddTimer, handleNext, handlePrevious, laAction, laNonce, recipe]);
+
   const handleStopTimer = () => {
     if (currentStepTimer) {
       cancelNotification(currentStepTimer.notification_id);
@@ -620,17 +877,23 @@ export default function CookingModeScreen() {
     await Promise.all(timers.map((timer) => cancelNotification(timer.notification_id)));
   };
 
+  const goToSpecificStep = useCallback((index: number) => {
+    if (!recipe || index < 0 || index >= totalSteps || index === currentStep) return;
+    Vibration.vibrate(20);
+    goToStep(index);
+  }, [currentStep, goToStep, recipe, totalSteps]);
+
   if (isLoading || !recipe) {
     return (
       <View style={styles.loadingContainer}>
-        <Text>Loading recipe...</Text>
+        <Ionicons name="restaurant-outline" size={28} color={C.gold} style={{ marginBottom: 12 }} />
+        <Text style={styles.loadingText}>Loading recipe...</Text>
       </View>
     );
   }
 
   const step = recipe.steps[currentStep];
   const stepNumber = String(currentStep + 1).padStart(2, '0');
-  const totalSteps = recipe.steps.length;
 
   const formatTimerDuration = (minutes: number) => {
     const mins = String(minutes).padStart(2, '0');
@@ -643,14 +906,121 @@ export default function CookingModeScreen() {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  const isTimerRunning = !!currentStepTimer && remainingSeconds !== null;
+
+  // ============================================
+  // Render a step card (reusable for current & peek)
+  // ============================================
+  const renderStepCard = (s: typeof step, sNumber: string, sIndex: number, showTimer: boolean) => {
+    const stepTimerForCard = showTimer ? timers.find(
+      (timer) => timer.label === `Step ${sIndex + 1}` && timer.is_active
+    ) : null;
+    const cardTimerRunning = !!stepTimerForCard && remainingSeconds !== null && sIndex === currentStep;
+
+    return (
+      <View style={styles.stepCard}>
+        <Text style={styles.stepWatermark}>{sNumber}</Text>
+
+        <View style={styles.stepBadge}>
+          <Text style={styles.stepBadgeText}>
+            STEP {sIndex + 1} OF {totalSteps}
+          </Text>
+        </View>
+
+        <Text style={styles.stepInstruction}>{s.instruction}</Text>
+
+        {recipe.ingredients?.length > 0 && (() => {
+          const instructionLower = s.instruction.toLowerCase();
+          const matched = recipe.ingredients.filter((ing: any) =>
+            ing.name && instructionLower.includes(ing.name.toLowerCase())
+          );
+          if (matched.length === 0) return null;
+          return (
+            <>
+              <View style={styles.goldDivider} />
+              <Text style={styles.ingredientsUsedLabel}>INGREDIENTS</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.ingredientSlider}
+                style={styles.ingredientSliderWrap}
+              >
+                {matched.map((ing: any, i: number) => {
+                  const ingImage = getIngredientImage(ing.name);
+                  const emoji = getIngredientEmoji(ing.name);
+                  const amount = `${ing.amount ?? ''} ${ing.unit ?? ''}`.trim();
+                  return (
+                    <View key={i} style={styles.ingredientCard}>
+                      <View style={styles.ingredientImageArea}>
+                        {ingImage ? (
+                          <Image
+                            source={ingImage}
+                            style={styles.ingredientPhoto}
+                            contentFit="cover"
+                            transition={200}
+                          />
+                        ) : (
+                          <Text style={styles.ingredientInitials}>{ing.name.slice(0, 2).toUpperCase()}</Text>
+                        )}
+                      </View>
+                      <Text style={styles.ingredientName} numberOfLines={1}>{ing.name}</Text>
+                      {amount ? <Text style={styles.ingredientAmount} numberOfLines={1}>{amount}</Text> : null}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </>
+          );
+        })()}
+
+        {s.temperature && (
+          <View style={styles.tipContainer}>
+            <View style={styles.tipBorderBar} />
+            <View style={styles.tipInner}>
+              <Ionicons name="bulb-outline" size={20} color={C.gold} />
+              <Text style={styles.tipText}>
+                Set your oven or stove to {s.temperature} for best results.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {showTimer && s.duration_minutes && (
+          <View style={[styles.timerCard, cardTimerRunning && styles.timerCardRunning]}>
+            <View style={styles.timerLeft}>
+              <View style={[styles.timerIconContainer, cardTimerRunning && styles.timerIconRunning]}>
+                <Ionicons name="timer-outline" size={28} color={C.gold} />
+              </View>
+              <View>
+                <Text style={styles.timerLabel}>
+                  {cardTimerRunning ? 'Time Left' : 'Timer'}
+                </Text>
+                <Text style={styles.timerValue}>
+                  {cardTimerRunning
+                    ? formatRemainingTime(remainingSeconds!)
+                    : formatTimerDuration(s.duration_minutes)}
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              style={[styles.startButton, cardTimerRunning && styles.stopButton]}
+              onPress={cardTimerRunning ? handleStopTimer : handleAddTimer}
+            >
+              <Text style={[styles.startButtonText, cardTimerRunning && styles.stopButtonText]}>
+                {cardTimerRunning ? 'STOP' : 'START'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, layout.headerStyle]}>
         <Pressable onPress={handleExit} style={styles.headerButton}>
-          <Ionicons name="close" size={24} color="#9CA3AF" />
+          <Ionicons name="close" size={24} color={C.muted} />
         </Pressable>
         <View style={styles.headerCenter}>
           {isListening ? (
@@ -674,19 +1044,11 @@ export default function CookingModeScreen() {
           )}
         </View>
         <Pressable onPress={openMenu} style={styles.headerButton}>
-          <Ionicons name="ellipsis-horizontal" size={24} color="#9CA3AF" />
+          <Ionicons name="ellipsis-horizontal" size={24} color={C.muted} />
         </Pressable>
       </View>
 
       {/* Swipe Direction Indicators */}
-      <Animated.View style={[styles.swipeIndicator, styles.swipeIndicatorLeft, { opacity: swipeRightOpacity }]} pointerEvents="none">
-        <Ionicons name="chevron-back" size={28} color="#F2330D" />
-        <Text style={styles.swipeIndicatorText}>PREV</Text>
-      </Animated.View>
-      <Animated.View style={[styles.swipeIndicator, styles.swipeIndicatorRight, { opacity: swipeLeftOpacity }]} pointerEvents="none">
-        <Text style={styles.swipeIndicatorText}>NEXT</Text>
-        <Ionicons name="chevron-forward" size={28} color="#F2330D" />
-      </Animated.View>
 
       {/* Options Menu Modal */}
       <Modal
@@ -703,10 +1065,12 @@ export default function CookingModeScreen() {
                   styles.menuContainer,
                   {
                     opacity: menuOpacity,
-                    transform: [{ scale: menuScale }, { translateY: menuAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-10, 0],
-                    }) }],
+                    transform: [{ scale: menuScale }, {
+                      translateY: menuAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-10, 0],
+                      })
+                    }],
                   },
                 ]}
               >
@@ -726,7 +1090,7 @@ export default function CookingModeScreen() {
                             <Ionicons
                               name={isListening ? 'mic' : 'mic-off'}
                               size={20}
-                              color={isListening ? '#F2330D' : '#64748B'}
+                              color={isListening ? C.gold : C.muted}
                             />
                           </View>
                           <View style={styles.menuItemText}>
@@ -743,47 +1107,6 @@ export default function CookingModeScreen() {
                       </>
                     )}
 
-                    {recipe.source_url && (
-                      <>
-                        <View style={styles.menuDivider} />
-                        <Pressable
-                          style={styles.menuItem}
-                          onPress={() => {
-                            closeMenu();
-                            handleOpenSourceVideo();
-                          }}
-                        >
-                          <View style={styles.menuIconContainer}>
-                            <Ionicons name="play-circle" size={20} color="#64748B" />
-                          </View>
-                          <View style={styles.menuItemText}>
-                            <Text style={styles.menuItemTitle}>Watch Video</Text>
-                            <Text style={styles.menuItemSubtitle}>Open original recipe video</Text>
-                          </View>
-                        </Pressable>
-                      </>
-                    )}
-
-                    <View style={styles.menuDivider} />
-
-                    {/* All Steps */}
-                    <Pressable
-                      style={styles.menuItem}
-                      onPress={() => {
-                        closeMenu();
-                      }}
-                    >
-                      <View style={styles.menuIconContainer}>
-                        <Ionicons name="list" size={20} color="#64748B" />
-                      </View>
-                      <View style={styles.menuItemText}>
-                        <Text style={styles.menuItemTitle}>All Steps</Text>
-                        <Text style={styles.menuItemSubtitle}>
-                          {`Step ${currentStep + 1} of ${recipe?.steps.length}`}
-                        </Text>
-                      </View>
-                    </Pressable>
-
                     <View style={styles.menuDivider} />
 
                     {/* Exit */}
@@ -795,10 +1118,10 @@ export default function CookingModeScreen() {
                       }}
                     >
                       <View style={styles.menuIconContainer}>
-                        <Ionicons name="exit-outline" size={20} color="#EF4444" />
+                        <Ionicons name="exit-outline" size={20} color={C.terracotta} />
                       </View>
                       <View style={styles.menuItemText}>
-                        <Text style={[styles.menuItemTitle, { color: '#EF4444' }]}>Exit Cooking</Text>
+                        <Text style={[styles.menuItemTitle, { color: C.terracotta }]}>Exit Cooking</Text>
                         <Text style={styles.menuItemSubtitle}>Progress won't be saved</Text>
                       </View>
                     </Pressable>
@@ -810,256 +1133,183 @@ export default function CookingModeScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* Intro Modal */}
-      {showIntro && (
-        <Modal transparent animationType="none" visible={showIntro}>
-          <View style={styles.introOverlay}>
-            <Animated.View
-              style={[
-                styles.introCard,
-                {
-                  opacity: introAnim,
-                  transform: [
-                    { scale: introAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
-                    { translateY: introAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) },
-                  ],
-                },
-              ]}
-            >
-              <View style={styles.introIconContainer}>
-                <Ionicons name="hand-left-outline" size={36} color="#F2330D" />
+      {/* All Steps Modal */}
+      <Modal
+        visible={showStepsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowStepsModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowStepsModal(false)}>
+          <View style={styles.stepsModalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.stepsModalCard}>
+                <View style={styles.stepsModalHeader}>
+                  <Text style={styles.stepsModalTitle}>All Steps</Text>
+                  <Pressable
+                    style={styles.stepsModalClose}
+                    onPress={() => setShowStepsModal(false)}
+                  >
+                    <Ionicons name="close" size={20} color={C.muted} />
+                  </Pressable>
+                </View>
+
+                <Text style={styles.stepsModalSubtitle}>
+                  Step {currentStep + 1} of {totalSteps}
+                </Text>
+
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.stepsListContent}
+                >
+                  {recipe.steps.map((item, index) => {
+                    const isActive = index === currentStep;
+                    return (
+                      <Pressable
+                        key={`${item.step_number}-${index}`}
+                        style={({ pressed }) => [
+                          styles.stepsListItem,
+                          isActive && styles.stepsListItemActive,
+                          pressed && { opacity: 0.8 },
+                        ]}
+                        onPress={() => {
+                          goToSpecificStep(index);
+                          setShowStepsModal(false);
+                        }}
+                      >
+                        <View style={[styles.stepsListNumberWrap, isActive && styles.stepsListNumberWrapActive]}>
+                          <Text style={[styles.stepsListNumber, isActive && styles.stepsListNumberActive]}>
+                            {String(index + 1).padStart(2, '0')}
+                          </Text>
+                        </View>
+                        <View style={styles.stepsListTextWrap}>
+                          <Text style={styles.stepsListLabel}>Step {index + 1}</Text>
+                          <Text style={styles.stepsListInstruction} numberOfLines={2}>
+                            {item.instruction}
+                          </Text>
+                        </View>
+                        {isActive && <Ionicons name="checkmark-circle" size={20} color={C.gold} />}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
               </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
 
-              <Text style={styles.introTitle}>Hands-Free Cooking</Text>
-              <Text style={styles.introSubtitle}>
-                Navigate steps without touching your phone
-              </Text>
+      {/* Main Content */}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Recipe Image — Fixed, doesn't move */}
+        {recipe.thumbnail_url && (
+          <Pressable
+            style={styles.imageContainer}
+            onPress={recipe.source_url ? handleOpenSourceVideo : undefined}
+            disabled={!recipe.source_url}
+          >
+            <Image
+              source={{ uri: recipe.thumbnail_url }}
+              style={styles.recipeImage}
+              contentFit="cover"
+              transition={300}
+            />
+            <View style={styles.imageGradient} />
+            {recipe.source_url ? (
+              <View style={styles.rewatchButton}>
+                <Ionicons name="play-circle" size={18} color="#FFF" />
+                <Text style={styles.rewatchText}>REWATCH</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        )}
 
-              {/* Feature: Swipe */}
-              <View style={styles.introFeature}>
-                <View style={styles.introFeatureIcon}>
-                  <Animated.View
-                    style={{
-                      transform: [{
-                        translateX: swipeHintAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [-12, 12],
-                        }),
-                      }],
+        {/* Voice Commands Hint */}
+        {showIntro && VOICE_AVAILABLE && (
+          <Animated.View style={[styles.voiceHint, { opacity: introAnim }]}>
+            <Ionicons name="mic-outline" size={18} color={C.gold} />
+            <View style={styles.voiceHintText}>
+              <Text style={styles.voiceHintTitle}>Voice commands available</Text>
+              <Text style={styles.voiceHintDesc}>Tap ⋯ menu to enable hands-free</Text>
+            </View>
+            <Pressable onPress={dismissIntro} style={styles.voiceHintClose}>
+              <Ionicons name="close" size={16} color={C.muted} />
+            </Pressable>
+          </Animated.View>
+        )}
+
+        {/* Step Card — Swipeable */}
+        <View style={styles.stepCardContainer}>
+          <GestureDetector gesture={swipeGesture}>
+            <ReAnimated.View style={cardAnimatedStyle}>
+              {renderStepCard(step, stepNumber, currentStep, true)}
+            </ReAnimated.View>
+          </GestureDetector>
+
+          <View pointerEvents="none" style={styles.swipeCueLayer}>
+            <ReAnimated.View style={[styles.swipeCue, styles.swipeCueLeft, leftSwipeCueStyle]}>
+              <Ionicons name="arrow-back" size={12} color={C.muted} />
+              <Text style={styles.swipeCueText}>Previous</Text>
+            </ReAnimated.View>
+            <ReAnimated.View style={[styles.swipeCue, styles.swipeCueRight, rightSwipeCueStyle]}>
+              <Text style={styles.swipeCueText}>Next</Text>
+              <Ionicons name="arrow-forward" size={12} color={C.muted} />
+            </ReAnimated.View>
+          </View>
+        </View>
+
+        {/* Active Timers from other steps */}
+        {timers.filter(t => t.label !== `Step ${currentStep + 1}`).length > 0 && (
+          <View style={styles.timersContainer}>
+            <Text style={styles.otherTimersLabel}>Other Active Timers</Text>
+            {timers
+              .filter(t => t.label !== `Step ${currentStep + 1}`)
+              .map((timer) => (
+                <View key={timer.timer_id} style={styles.otherTimerItem}>
+                  <View style={styles.otherTimerInfo}>
+                    <Ionicons name="timer-outline" size={18} color={C.gold} />
+                    <Text style={styles.otherTimerLabel}>{timer.label}</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      cancelNotification(timer.notification_id);
+                      removeTimer(timer.timer_id);
                     }}
                   >
-                    <Ionicons name="swap-horizontal" size={24} color="#F2330D" />
-                  </Animated.View>
-                </View>
-                <View style={styles.introFeatureText}>
-                  <Text style={styles.introFeatureTitle}>Swipe to Navigate</Text>
-                  <Text style={styles.introFeatureDesc}>
-                    Swipe left for next step, right for previous
-                  </Text>
-                </View>
-              </View>
-
-              {/* Feature: Voice Commands */}
-              <View style={[styles.introFeature, !VOICE_AVAILABLE && styles.introFeatureDisabled]}>
-                <View style={styles.introFeatureIcon}>
-                  <Ionicons name="mic" size={24} color={VOICE_AVAILABLE ? '#F2330D' : '#CBD5E1'} />
-                </View>
-                <View style={styles.introFeatureText}>
-                  <Text style={[styles.introFeatureTitle, !VOICE_AVAILABLE && { color: '#9CA3AF' }]}>
-                    Voice Commands
-                  </Text>
-                  <Text style={styles.introFeatureDesc}>
-                    {VOICE_AVAILABLE
-                      ? 'Say "next step", "go back", or "start timer"'
-                      : 'Requires a development build (run npx expo prebuild)'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Buttons */}
-              {VOICE_AVAILABLE ? (
-                <>
-                  <Pressable
-                    style={styles.introStartButton}
-                    onPress={() => dismissIntro(true)}
-                  >
-                    <Ionicons name="mic" size={20} color="#FFF" />
-                    <Text style={styles.introStartButtonText}>Start with Voice</Text>
+                    <Ionicons name="close-circle" size={22} color={C.muted} />
                   </Pressable>
-
-                  <Pressable
-                    style={styles.introSkipButton}
-                    onPress={() => dismissIntro(false)}
-                  >
-                    <Text style={styles.introSkipButtonText}>Start with Swipe Only</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <Pressable
-                    style={styles.introStartButton}
-                    onPress={() => dismissIntro(false)}
-                  >
-                    <Ionicons name="swap-horizontal" size={20} color="#FFF" />
-                    <Text style={styles.introStartButtonText}>Start Cooking</Text>
-                  </Pressable>
-
-                  <View style={styles.introBuildNote}>
-                    <Ionicons name="information-circle-outline" size={16} color="#9CA3AF" />
-                    <Text style={styles.introBuildNoteText}>
-                      Voice commands need a native build. Run{' '}
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold' }}>npx expo prebuild</Text>
-                      {' '}then build through Xcode.
-                    </Text>
-                  </View>
-                </>
-              )}
-            </Animated.View>
+                </View>
+              ))}
           </View>
-        </Modal>
-      )}
+        )}
+      </ScrollView>
 
-      {/* Main Content with swipe gesture */}
-      <Animated.View
-        style={[styles.content, { transform: [{ translateX: swipeAnim }] }]}
-        {...panResponder.panHandlers}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Recipe Image */}
-          {recipe.thumbnail_url && (
-            <Pressable
-              style={styles.imageContainer}
-              onPress={recipe.source_url ? handleOpenSourceVideo : undefined}
-              disabled={!recipe.source_url}
-            >
-              <Image
-                source={{ uri: recipe.thumbnail_url }}
-                style={styles.recipeImage}
-                contentFit="cover"
-                transition={300}
-              />
-              <View style={styles.imageGradient} />
-              {recipe.source_url ? (
-                <View style={styles.rewatchButton}>
-                  <Ionicons name="play-circle" size={18} color="#FFF" />
-                  <Text style={styles.rewatchText}>REWATCH</Text>
-                </View>
-              ) : null}
-            </Pressable>
-          )}
-
-          {/* Step Card */}
-          <View style={styles.stepCard}>
-            <Text style={styles.stepWatermark}>{stepNumber}</Text>
-
-            <View style={styles.stepBadge}>
-              <Text style={styles.stepBadgeText}>
-                STEP {currentStep + 1} OF {totalSteps}
-              </Text>
-            </View>
-
-            <Text style={styles.stepInstruction}>{step.instruction}</Text>
-
-            {recipe.ingredients?.length > 0 && (() => {
-              const instructionLower = step.instruction.toLowerCase();
-              const matched = recipe.ingredients.filter((ing: any) =>
-                ing.name && instructionLower.includes(ing.name.toLowerCase())
-              );
-              if (matched.length === 0) return null;
-              return (
-                <View style={styles.ingredientsUsedContainer}>
-                  <Text style={styles.ingredientsUsedLabel}>INGREDIENTS</Text>
-                  {matched.map((ing: any, i: number) => (
-                    <View key={i} style={styles.ingredientChip}>
-                      <Ionicons name="leaf-outline" size={13} color="#556B2F" />
-                      <Text style={styles.ingredientChipText}>
-                        {`${ing.amount ?? ''} ${ing.unit ?? ''} ${ing.name}`.trim()}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              );
-            })()}
-
-            {step.temperature && (
-              <View style={styles.tipContainer}>
-                <Ionicons name="bulb-outline" size={20} color="#F2330D" />
-                <Text style={styles.tipText}>
-                  Set your oven or stove to {step.temperature} for best results.
-                </Text>
-              </View>
-            )}
-
-            {step.duration_minutes && (
-              <View style={[styles.timerCard, isTimerRunning && styles.timerCardRunning]}>
-                <View style={styles.timerLeft}>
-                  <View style={[styles.timerIconContainer, isTimerRunning && styles.timerIconRunning]}>
-                    <Ionicons name="timer-outline" size={28} color="#FFF" />
-                  </View>
-                  <View>
-                    <Text style={styles.timerLabel}>
-                      {isTimerRunning ? 'Time Left' : 'Timer'}
-                    </Text>
-                    <Text style={styles.timerValue}>
-                      {isTimerRunning
-                        ? formatRemainingTime(remainingSeconds!)
-                        : formatTimerDuration(step.duration_minutes)}
-                    </Text>
-                  </View>
-                </View>
-                <Pressable
-                  style={[styles.startButton, isTimerRunning && styles.stopButton]}
-                  onPress={isTimerRunning ? handleStopTimer : handleAddTimer}
-                >
-                  <Text style={[styles.startButtonText, isTimerRunning && styles.stopButtonText]}>
-                    {isTimerRunning ? 'STOP' : 'START'}
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-          </View>
-
-          {/* Active Timers from other steps */}
-          {timers.filter(t => t.label !== `Step ${currentStep + 1}`).length > 0 && (
-            <View style={styles.timersContainer}>
-              <Text style={styles.otherTimersLabel}>Other Active Timers</Text>
-              {timers
-                .filter(t => t.label !== `Step ${currentStep + 1}`)
-                .map((timer) => (
-                  <View key={timer.timer_id} style={styles.otherTimerItem}>
-                    <View style={styles.otherTimerInfo}>
-                      <Ionicons name="timer-outline" size={18} color="#F2330D" />
-                      <Text style={styles.otherTimerLabel}>{timer.label}</Text>
-                    </View>
-                    <Pressable
-                      onPress={() => {
-                        cancelNotification(timer.notification_id);
-                        removeTimer(timer.timer_id);
-                      }}
-                    >
-                      <Ionicons name="close-circle" size={22} color="#9CA3AF" />
-                    </Pressable>
-                  </View>
-                ))}
-            </View>
-          )}
-        </ScrollView>
-      </Animated.View>
-
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation — Glass Dock */}
       <View style={[styles.bottomNav, layout.fixedBottomStyle]}>
+        <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
+        <View style={styles.dockGoldLine} />
+        <View style={styles.progressMetaRow}>
+          <Text style={styles.progressMetaText}>
+            Step {currentStep + 1} of {totalSteps}
+          </Text>
+        </View>
         <View style={styles.progressContainer}>
           {Array.from({ length: totalSteps }).map((_, index) => (
-            <View
+            <Pressable
               key={index}
-              style={[
-                styles.progressDot,
-                index <= currentStep && styles.progressDotActive,
-              ]}
-            />
+              style={styles.progressDotPressable}
+              onPress={() => goToSpecificStep(index)}
+            >
+              <View
+                style={[
+                  styles.progressDot,
+                  index <= currentStep && styles.progressDotActive,
+                ]}
+              />
+            </Pressable>
           ))}
         </View>
 
@@ -1070,32 +1320,99 @@ export default function CookingModeScreen() {
             disabled={currentStep === 0}
           >
             <Ionicons
-              name="arrow-back"
-              size={28}
-              color={currentStep === 0 ? '#CBD5E1' : '#64748B'}
+              name="chevron-back"
+              size={24}
+              color={currentStep === 0 ? '#CBD5E1' : C.charcoal}
             />
-            <Text style={[styles.backButtonText, currentStep === 0 && styles.backButtonTextDisabled]}>
-              BACK
-            </Text>
           </Pressable>
 
           <Pressable style={styles.nextButton} onPress={handleNext}>
-            <View style={styles.nextButtonContent}>
-              <Text style={styles.nextButtonKicker}>
-                {currentStep === totalSteps - 1 ? 'FINISH' : 'COMING UP'}
-              </Text>
-              <Text style={styles.nextButtonText}>
-                {currentStep === totalSteps - 1 ? 'Complete' : 'Next Step'}
-              </Text>
-            </View>
+            <Text style={styles.nextButtonText}>
+              {currentStep === totalSteps - 1 ? 'Complete' : 'Next Step'}
+            </Text>
             <Ionicons
               name={currentStep === totalSteps - 1 ? 'checkmark' : 'chevron-forward'}
-              size={32}
+              size={22}
               color="#FFF"
             />
           </Pressable>
         </View>
       </View>
+
+      {miniPlayerUrl && (
+        <View
+          style={[
+            styles.miniPlayerContainer,
+            { bottom: Math.max(layout.insets.bottom, 16) + 96 },
+            miniPlayerExpanded && styles.miniPlayerContainerExpanded,
+          ]}
+        >
+          <View style={styles.miniPlayerHeader}>
+            <Text style={styles.miniPlayerTitle} numberOfLines={1}>
+              {miniPlayerExpanded ? 'Recipe Video' : 'Mini Player'}
+            </Text>
+            <View style={styles.miniPlayerActions}>
+              <Pressable
+                style={styles.miniPlayerActionButton}
+                onPress={() => setMiniPlayerExpanded((prev) => !prev)}
+              >
+                <Ionicons
+                  name={miniPlayerExpanded ? 'contract-outline' : 'expand-outline'}
+                  size={16}
+                  color={C.ivory}
+                />
+              </Pressable>
+              <Pressable style={styles.miniPlayerActionButton} onPress={closeMiniPlayer}>
+                <Ionicons name="close" size={16} color={C.ivory} />
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.miniPlayerBody}>
+            {EmbeddedWebView ? (
+              <EmbeddedWebView
+                source={miniPlayerSource}
+                originWhitelist={['*']}
+                style={styles.miniPlayerWebView}
+                allowsInlineMediaPlayback
+                mediaPlaybackRequiresUserAction={false}
+                allowsFullscreenVideo
+                javaScriptEnabled
+                domStorageEnabled
+                setSupportMultipleWindows={false}
+                startInLoadingState
+                onLoadStart={() => setMiniPlayerLoading(true)}
+                onLoadEnd={() => setMiniPlayerLoading(false)}
+                onError={() => {
+                  setMiniPlayerLoading(false);
+                  Alert.alert('Video failed to load', 'Try another source video link for this recipe.');
+                }}
+                onShouldStartLoadWithRequest={(request: { url?: string }) => {
+                  const nextUrl = request.url?.toLowerCase() ?? '';
+                  return (
+                    nextUrl.startsWith('http://') ||
+                    nextUrl.startsWith('https://') ||
+                    nextUrl.startsWith('blob:') ||
+                    nextUrl.startsWith('about:') ||
+                    nextUrl.startsWith('data:')
+                  );
+                }}
+              />
+            ) : (
+              <View style={styles.miniPlayerFallback}>
+                <Text style={styles.miniPlayerFallbackText}>Mini player is unavailable in this build.</Text>
+              </View>
+            )}
+
+            {miniPlayerLoading && (
+              <View style={styles.miniPlayerLoadingOverlay}>
+                <ActivityIndicator color={C.ivory} size="small" />
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
     </View>
   );
 }
@@ -1103,13 +1420,18 @@ export default function CookingModeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FCFAF9',
+    backgroundColor: C.ivory,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FCFAF9',
+    backgroundColor: C.ivory,
+  },
+  loadingText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: C.muted,
   },
   // Header
   header: {
@@ -1118,12 +1440,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingBottom: 8,
+    backgroundColor: C.ivory,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(212, 175, 55, 0.18)',
   },
   headerButton: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: C.glassStrong,
+    borderWidth: 0.5,
+    borderColor: 'rgba(26, 21, 16, 0.1)',
+    borderRadius: 21,
   },
   headerCenter: {
     flex: 1,
@@ -1131,14 +1460,14 @@ const styles = StyleSheet.create({
   },
   recipeName: {
     fontSize: 12,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#9CA3AF',
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.muted,
     letterSpacing: 2,
   },
   listeningBadge: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
@@ -1153,9 +1482,9 @@ const styles = StyleSheet.create({
     width: 3,
     height: 20,
     borderRadius: 1.5,
-    backgroundColor: '#F2330D',
+    backgroundColor: C.gold,
   },
-  // Content
+  // Content — carousel layers
   content: {
     flex: 1,
   },
@@ -1163,39 +1492,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 220,
   },
-  // Swipe Indicators
-  swipeIndicator: {
-    position: 'absolute',
-    top: '45%',
-    zIndex: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 2,
-  },
-  swipeIndicatorLeft: {
-    left: 8,
-  },
-  swipeIndicatorRight: {
-    right: 8,
-  },
-  swipeIndicatorText: {
-    fontSize: 10,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#F2330D',
-    letterSpacing: 1,
-  },
   // Image
   imageContainer: {
     width: '100%',
     aspectRatio: 16 / 7,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
     marginBottom: 16,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: C.cardBg,
   },
   recipeImage: {
     width: '100%',
@@ -1229,16 +1533,44 @@ const styles = StyleSheet.create({
     fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.5,
   },
+  stepCardContainer: {
+    position: 'relative',
+  },
+  swipeCueLayer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+  },
+  swipeCue: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderWidth: 1,
+    borderColor: C.hairline,
+  },
+  swipeCueLeft: {
+    left: -6,
+  },
+  swipeCueRight: {
+    right: -6,
+  },
+  swipeCueText: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.muted,
+  },
   // Step Card
   stepCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.ivory,
     borderRadius: 32,
     padding: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.08,
-    shadowRadius: 40,
-    elevation: 8,
+    ...SHADOW_SOFT,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -1247,12 +1579,12 @@ const styles = StyleSheet.create({
     top: 20,
     right: 24,
     fontSize: 48,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: 'rgba(242, 51, 13, 0.1)',
+    fontFamily: 'PlayfairDisplay_800ExtraBold',
+    color: 'rgba(212, 175, 55, 0.12)',
   },
   stepBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
@@ -1261,84 +1593,117 @@ const styles = StyleSheet.create({
   stepBadgeText: {
     fontSize: 10,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#F2330D',
+    color: C.gold,
     letterSpacing: 1.5,
   },
   stepInstruction: {
     fontSize: 18,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#1C100D',
+    color: C.charcoal,
     lineHeight: 28,
     marginBottom: 20,
     paddingRight: 40,
   },
-  // Ingredients Used
-  ingredientsUsedContainer: {
-    gap: 8,
-    marginBottom: 20,
-    backgroundColor: '#F8F6F5',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#F0E6E2',
+  goldDivider: {
+    height: 1,
+    backgroundColor: 'rgba(212, 175, 55, 0.18)',
+    marginBottom: 16,
   },
+  // Ingredients — horizontal slider
   ingredientsUsedLabel: {
     fontSize: 10,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#9C5749',
+    color: C.gold,
     letterSpacing: 1.5,
-    marginBottom: 4,
+    marginBottom: 12,
   },
-  ingredientChip: {
+  ingredientSliderWrap: {
+    marginHorizontal: -28,
+    marginBottom: 20,
+  },
+  ingredientSlider: {
     flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 28,
+  },
+  ingredientCard: {
+    width: 80,
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(85, 107, 47, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
+  },
+  ingredientImageArea: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: '#F0E8DD',
     borderWidth: 1,
-    borderColor: 'rgba(85, 107, 47, 0.15)',
+    borderColor: C.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    ...SHADOW_SOFT,
   },
-  ingredientChipText: {
-    fontSize: 12,
+  ingredientPhoto: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+  },
+  ingredientInitials: {
+    fontSize: 18,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.terracotta,
+  },
+  ingredientName: {
+    fontSize: 11,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#556B2F',
+    color: C.charcoal,
+    textAlign: 'center',
   },
-  // Tip
+  ingredientAmount: {
+    fontSize: 10,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.muted,
+    textAlign: 'center',
+    marginTop: 1,
+  },
+  // Tip (gold left border bar pattern from StepList)
   tipContainer: {
+    flexDirection: 'row',
+    backgroundColor: C.cardBg,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  tipBorderBar: {
+    width: 3,
+    borderRadius: 1.5,
+    backgroundColor: C.gold,
+  },
+  tipInner: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    backgroundColor: '#F8F6F5',
     padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F0E6E2',
-    marginBottom: 20,
   },
   tipText: {
     flex: 1,
     fontSize: 14,
     fontFamily: 'PlusJakartaSans_500Medium',
-    color: '#64748B',
+    fontStyle: 'italic',
+    color: C.muted,
     lineHeight: 22,
   },
   // Timer Card
   timerCard: {
-    backgroundColor: '#F2330D',
+    backgroundColor: C.ivory,
     borderRadius: 24,
     padding: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 4,
-    borderColor: '#FFF',
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    borderWidth: 1,
+    borderColor: C.hairline,
+    ...SHADOW_SOFT,
   },
   timerLeft: {
     flexDirection: 'row',
@@ -1349,14 +1714,14 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(212, 175, 55, 0.10)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   timerLabel: {
     fontSize: 10,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: C.muted,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     marginBottom: 2,
@@ -1364,51 +1729,56 @@ const styles = StyleSheet.create({
   timerValue: {
     fontSize: 28,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#FFF',
+    color: C.charcoal,
     letterSpacing: -0.5,
   },
   startButton: {
-    backgroundColor: '#FFF',
+    backgroundColor: C.terracotta,
     paddingHorizontal: 28,
     paddingVertical: 16,
     borderRadius: 16,
-    shadowColor: '#000',
+    shadowColor: C.terracotta,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
   },
   startButtonText: {
     fontSize: 14,
     fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#F2330D',
+    color: '#FFF',
     letterSpacing: 0.5,
   },
   timerCardRunning: {
-    backgroundColor: '#1C100D',
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+    borderWidth: 1.5,
+    shadowColor: C.gold,
+    shadowOpacity: 0.12,
   },
   timerIconRunning: {
-    backgroundColor: 'rgba(242, 51, 13, 0.3)',
+    backgroundColor: 'rgba(212, 175, 55, 0.18)',
   },
   stopButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(212, 175, 55, 0.10)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: C.gold,
   },
   stopButtonText: {
-    color: '#FFF',
+    color: C.gold,
   },
   // Other Timers
   timersContainer: {
     marginTop: 20,
-    backgroundColor: '#FFF',
+    backgroundColor: C.cardBg,
     borderRadius: 16,
     padding: 16,
+    borderWidth: 1,
+    borderColor: C.hairline,
   },
   otherTimersLabel: {
     fontSize: 12,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#9CA3AF',
+    color: C.muted,
     marginBottom: 12,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -1419,7 +1789,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0E6E2',
+    borderBottomColor: C.hairline,
   },
   otherTimerInfo: {
     flexDirection: 'row',
@@ -1429,35 +1799,64 @@ const styles = StyleSheet.create({
   otherTimerLabel: {
     fontSize: 14,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#1C100D',
+    color: C.charcoal,
   },
-  // Bottom Navigation
+  // Bottom Navigation — Glass Dock
   bottomNav: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(252, 250, 249, 0.9)',
+    overflow: 'hidden',
+    backgroundColor: C.glassStrong,
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
     paddingHorizontal: 24,
-    paddingTop: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    paddingTop: 12,
+    shadowColor: '#1A1510',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 30,
+    elevation: 12,
+  },
+  dockGoldLine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(212, 175, 55, 0.22)',
+  },
+  progressMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 8,
+  },
+  progressMetaText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.muted,
   },
   progressContainer: {
     flexDirection: 'row',
     gap: 6,
-    marginBottom: 28,
+    marginBottom: 20,
     paddingHorizontal: 8,
   },
-  progressDot: {
+  progressDotPressable: {
     flex: 1,
+  },
+  progressDot: {
+    width: '100%',
     height: 6,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: 'rgba(26, 21, 16, 0.08)',
     borderRadius: 3,
   },
   progressDotActive: {
-    backgroundColor: '#F2330D',
-    shadowColor: '#F2330D',
+    backgroundColor: C.gold,
+    shadowColor: C.gold,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -1468,62 +1867,116 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
   },
   backButton: {
-    width: 80,
-    height: 80,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 24,
+    width: 56,
+    height: 56,
+    backgroundColor: '#FFF',
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: 'rgba(26, 21, 16, 0.12)',
+    ...SHADOW_SOFT,
   },
   backButtonDisabled: {
-    opacity: 0.5,
-  },
-  backButtonText: {
-    fontSize: 10,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#64748B',
-    marginTop: 4,
-    letterSpacing: 0.5,
-  },
-  backButtonTextDisabled: {
-    color: '#CBD5E1',
+    opacity: 0.4,
   },
   nextButton: {
     flex: 1,
-    height: 80,
-    backgroundColor: '#F2330D',
-    borderRadius: 24,
+    height: 56,
+    backgroundColor: C.terracotta,
+    borderRadius: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: C.terracotta,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  nextButtonText: {
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: '#FFF',
+  },
+  miniPlayerContainer: {
+    position: 'absolute',
+    right: 12,
+    width: Math.min(SCREEN_WIDTH * 0.48, 210),
+    height: Math.min(SCREEN_WIDTH * 0.82, 340),
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#0E0E0E',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    zIndex: 40,
+    ...SHADOW_SOFT,
+  },
+  miniPlayerContainerExpanded: {
+    left: 12,
+    right: 12,
+    width: undefined,
+    height: Math.min(SCREEN_WIDTH * 1.45, 560),
+  },
+  miniPlayerHeader: {
+    height: 38,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    paddingHorizontal: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.12)',
   },
-  nextButtonContent: {
-    alignItems: 'flex-start',
-  },
-  nextButtonKicker: {
-    fontSize: 10,
+  miniPlayerTitle: {
+    flex: 1,
+    fontSize: 11,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: 'rgba(255, 255, 255, 0.7)',
-    letterSpacing: 1,
-    marginBottom: 4,
+    color: C.ivory,
+    letterSpacing: 0.3,
   },
-  nextButtonText: {
-    fontSize: 20,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#FFF',
+  miniPlayerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 8,
+  },
+  miniPlayerActionButton: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  miniPlayerBody: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  miniPlayerFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    backgroundColor: '#121212',
+  },
+  miniPlayerFallbackText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: 'rgba(255, 255, 255, 0.75)',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  miniPlayerWebView: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  miniPlayerLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
   // Menu Modal
   menuOverlay: {
@@ -1537,18 +1990,14 @@ const styles = StyleSheet.create({
   menuContainer: {
     borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 10,
+    ...SHADOW_SOFT,
   },
   menuBlur: {
     borderRadius: 24,
     overflow: 'hidden',
   },
   menuContent: {
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: C.glass,
     padding: 8,
     minWidth: 260,
   },
@@ -1562,13 +2011,13 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    backgroundColor: C.cardBg,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
   menuIconActive: {
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
   },
   menuItemText: {
     flex: 1,
@@ -1576,17 +2025,17 @@ const styles = StyleSheet.create({
   menuItemTitle: {
     fontSize: 15,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#1C100D',
+    color: C.charcoal,
     marginBottom: 2,
   },
   menuItemSubtitle: {
     fontSize: 12,
     fontFamily: 'PlusJakartaSans_500Medium',
-    color: '#9CA3AF',
+    color: C.muted,
   },
   menuDivider: {
     height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    backgroundColor: C.hairline,
     marginHorizontal: 14,
   },
   menuToggle: {
@@ -1598,7 +2047,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuToggleActive: {
-    backgroundColor: '#F2330D',
+    backgroundColor: C.gold,
   },
   menuToggleKnob: {
     width: 20,
@@ -1613,128 +2062,137 @@ const styles = StyleSheet.create({
   menuToggleKnobActive: {
     alignSelf: 'flex-end',
   },
-  // Intro Modal
-  introOverlay: {
+  // All steps modal
+  stepsModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 40,
   },
-  introCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 32,
-    padding: 32,
-    width: '100%',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.15,
-    shadowRadius: 40,
-    elevation: 10,
-  },
-  introIconContainer: {
-    width: 72,
-    height: 72,
+  stepsModalCard: {
+    maxHeight: '80%',
     borderRadius: 24,
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
+    backgroundColor: C.ivory,
+    padding: 16,
+    ...SHADOW_SOFT,
   },
-  introTitle: {
-    fontSize: 24,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#1C100D',
-    marginBottom: 8,
-  },
-  introSubtitle: {
-    fontSize: 14,
-    fontFamily: 'PlusJakartaSans_500Medium',
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginBottom: 28,
-    lineHeight: 20,
-  },
-  introFeature: {
+  stepsModalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
-    backgroundColor: '#F8F6F5',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    gap: 14,
-  },
-  introFeatureDisabled: {
-    backgroundColor: '#F1F5F9',
-    opacity: 0.7,
-  },
-  introFeatureIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  introFeatureText: {
-    flex: 1,
-  },
-  introFeatureTitle: {
-    fontSize: 15,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    justifyContent: 'space-between',
     marginBottom: 2,
   },
-  introFeatureDesc: {
-    fontSize: 12,
-    fontFamily: 'PlusJakartaSans_500Medium',
-    color: '#9CA3AF',
-    lineHeight: 18,
+  stepsModalTitle: {
+    fontSize: 24,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
   },
-  introStartButton: {
-    flexDirection: 'row',
+  stepsModalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#F2330D',
-    borderRadius: 16,
-    paddingVertical: 16,
-    width: '100%',
-    marginTop: 16,
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    backgroundColor: C.cardBg,
+    borderWidth: 1,
+    borderColor: C.hairline,
   },
-  introStartButtonText: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#FFF',
-  },
-  introSkipButton: {
-    paddingVertical: 14,
-    marginTop: 4,
-  },
-  introSkipButtonText: {
-    fontSize: 14,
+  stepsModalSubtitle: {
+    fontSize: 12,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#9CA3AF',
+    color: C.muted,
+    marginBottom: 12,
   },
-  introBuildNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+  stepsListContent: {
     gap: 8,
-    marginTop: 16,
-    paddingHorizontal: 4,
+    paddingBottom: 8,
   },
-  introBuildNoteText: {
+  stepsListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    padding: 10,
+    backgroundColor: C.cardBg,
+    borderWidth: 1,
+    borderColor: C.hairline,
+  },
+  stepsListItemActive: {
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    borderColor: 'rgba(212, 175, 55, 0.3)',
+  },
+  stepsListNumberWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: C.hairline,
+  },
+  stepsListNumberWrapActive: {
+    borderColor: 'rgba(212, 175, 55, 0.45)',
+  },
+  stepsListNumber: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.charcoal,
+    letterSpacing: 0.3,
+  },
+  stepsListNumberActive: {
+    color: C.gold,
+  },
+  stepsListTextWrap: {
     flex: 1,
+  },
+  stepsListLabel: {
+    fontSize: 11,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.muted,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  stepsListInstruction: {
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.charcoal,
+    lineHeight: 19,
+  },
+  // Voice hint banner
+  voiceHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.2)',
+  },
+  voiceHintText: {
+    flex: 1,
+  },
+  voiceHintTitle: {
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.charcoal,
+  },
+  voiceHintDesc: {
     fontSize: 12,
     fontFamily: 'PlusJakartaSans_500Medium',
-    color: '#9CA3AF',
-    lineHeight: 18,
+    color: C.muted,
+    marginTop: 1,
+  },
+  voiceHintClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(26, 21, 16, 0.05)',
   },
 });

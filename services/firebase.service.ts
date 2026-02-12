@@ -6,6 +6,9 @@ import {
   inMemoryPersistence,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  OAuthProvider,
+  GoogleAuthProvider,
+  signInWithCredential,
   signOut as firebaseSignOut,
   sendPasswordResetEmail,
   onAuthStateChanged,
@@ -28,7 +31,9 @@ import {
   orderBy,
   limit as firestoreLimit,
   Timestamp,
-  QueryDocumentSnapshot
+  QueryDocumentSnapshot,
+  arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import {
   getStorage,
@@ -45,7 +50,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
-import type { Recipe, User, ShoppingList, ShoppingItem, FridgeScan, DetectedIngredient } from '@/utils/types';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import { FREE_PLAN_LIMITS, type Recipe, type User, type ShoppingList, type ShoppingItem, type FridgeScan, type DetectedIngredient, type Cookbook } from '@/utils/types';
 
 // Firebase configuration from environment variables
 const firebaseConfig = {
@@ -89,6 +95,12 @@ class FirebaseService {
     this.storage = getStorage(this.app);
   }
 
+  private removeUndefinedFields<T extends Record<string, any>>(obj: T): Partial<T> {
+    return Object.fromEntries(
+      Object.entries(obj).filter(([, value]) => value !== undefined)
+    ) as Partial<T>;
+  }
+
   // ============================================
   // ERROR HANDLING
   // ============================================
@@ -100,6 +112,8 @@ class FirebaseService {
       'auth/weak-password': 'Password should be at least 6 characters',
       'auth/invalid-email': 'Invalid email address',
       'auth/invalid-credential': 'Invalid email or password',
+      'auth/account-exists-with-different-credential': 'An account already exists with this email using another sign in method',
+      'auth/missing-or-invalid-nonce': 'Apple Sign In failed due to a nonce mismatch. Please retry. If it continues, reinstall the latest build with Sign In with Apple enabled.',
       'auth/too-many-requests': 'Too many attempts. Please try again later',
       'permission-denied': 'Permission denied',
       'not-found': 'Document not found',
@@ -195,132 +209,216 @@ class FirebaseService {
     }
   }
 
-  async signInWithGoogle() {
+  async signInWithApple() {
     try {
-      const redirectTo = AuthSession.makeRedirectUri({
-        scheme: 'recipeapp',
-        path: 'auth/callback',
-      });
-
-      // Use Firebase's Google Sign-In with OAuth
-      // For now, we'll throw a helpful error since full Google OAuth setup requires additional configuration
-      const googleClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-      if (!googleClientId) {
-        throw new Error('Google Web Client ID not configured. Please add EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID to .env');
+      const isAvailable = await AppleAuthentication.isAvailableAsync();
+      if (!isAvailable) {
+        throw new Error('Apple Sign In is not available on this device');
       }
 
-      // Build Google OAuth URL
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
-        client_id: googleClientId,
-        redirect_uri: redirectTo,
-        response_type: 'code',
-        scope: 'openid email profile',
-        state: Crypto.randomUUID(),
-      })}`;
+      // Generate nonce — use fallback if Crypto.randomUUID is unavailable
+      let rawNonce: string;
+      try {
+        rawNonce = `${Crypto.randomUUID()}${Crypto.randomUUID()}`.replace(/-/g, '');
+      } catch {
+        const chars = 'abcdef0123456789';
+        rawNonce = Array.from({ length: 64 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      }
 
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectTo);
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce
+      );
 
-      if (result.type !== 'success' || !result.url) {
+      let appleCredential;
+      let credentialRawNonce: string | undefined = rawNonce;
+      try {
+        appleCredential = await AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+          nonce: hashedNonce,
+        });
+      } catch (appleError: any) {
+        const appleErrorCode = String(appleError?.code || '');
+        const appleErrorMessage = String(appleError?.message || '');
+
+        // Handle Apple-specific errors before they reach Firebase handler
+        if (appleErrorCode === 'ERR_REQUEST_CANCELED' || appleErrorCode === 'ERR_CANCELED') {
+          const canceledError = new Error('Apple sign in cancelled');
+          (canceledError as any).code = 'ERR_REQUEST_CANCELED';
+          (canceledError as any).nativeCode = appleErrorCode;
+          (canceledError as any).nativeMessage = appleErrorMessage;
+          throw canceledError;
+        }
+
+        const normalizedAppleMessage = appleErrorMessage.toLowerCase();
+        if (
+          appleErrorCode === 'ERR_REQUEST_FAILED' ||
+          appleErrorCode === 'ERR_REQUEST_UNKNOWN' ||
+          normalizedAppleMessage.includes('authorization attempt failed')
+        ) {
+          // Fallback: retry without nonce to handle edge cases in dev/TestFlight builds.
+          try {
+            appleCredential = await AppleAuthentication.signInAsync({
+              requestedScopes: [
+                AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+                AppleAuthentication.AppleAuthenticationScope.EMAIL,
+              ],
+            });
+            credentialRawNonce = undefined;
+          } catch (fallbackError: any) {
+            const fallbackCode = String(fallbackError?.code || '');
+            const fallbackMessage = String(fallbackError?.message || '');
+            const requestFailedError = new Error(
+              `Apple Sign In failed. Confirm you are signed into your Apple ID in iOS Settings, and that this build has Sign In with Apple capability/provisioning configured. Then try again. Native error: ${fallbackCode || 'UNKNOWN'} ${fallbackMessage}`.trim()
+            );
+            (requestFailedError as any).code = appleErrorCode || 'ERR_REQUEST_FAILED';
+            (requestFailedError as any).nativeCode = fallbackCode || appleErrorCode;
+            (requestFailedError as any).nativeMessage = fallbackMessage || appleErrorMessage;
+            throw requestFailedError;
+          }
+          // Retry succeeded — fall through out of catch to continue with Firebase credential creation
+        } else if (appleErrorCode || appleErrorMessage) {
+          const requestError = new Error(
+            `Apple Sign In failed (${appleErrorCode || 'UNKNOWN'}). ${appleErrorMessage || 'Please try again.'}`
+          );
+          (requestError as any).code = appleErrorCode || 'ERR_APPLE_AUTH';
+          (requestError as any).nativeCode = appleErrorCode;
+          (requestError as any).nativeMessage = appleErrorMessage;
+          throw requestError;
+        } else {
+          throw appleError;
+        }
+      }
+
+      if (!appleCredential.identityToken) {
+        throw new Error('Apple Sign In failed. Missing identity token.');
+      }
+
+      const provider = new OAuthProvider('apple.com');
+      const credentialPayload: { idToken: string; rawNonce?: string } = {
+        idToken: appleCredential.identityToken,
+      };
+      if (credentialRawNonce) {
+        credentialPayload.rawNonce = credentialRawNonce;
+      }
+      const firebaseCredential = provider.credential(credentialPayload);
+
+      const userCredential = await signInWithCredential(this.auth, firebaseCredential);
+      const displayName = [
+        appleCredential.fullName?.givenName,
+        appleCredential.fullName?.middleName,
+        appleCredential.fullName?.familyName,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+
+      return {
+        user: {
+          id: userCredential.user.uid,
+          email: userCredential.user.email || appleCredential.email || '',
+          user_metadata: {
+            full_name: displayName || userCredential.user.displayName || undefined,
+            name: displayName || userCredential.user.displayName || undefined,
+            apple_user: appleCredential.user,
+          }
+        }
+      };
+    } catch (error: any) {
+      if (error?.code === 'ERR_REQUEST_CANCELED') {
+        throw error;
+      }
+
+      if (typeof error?.code === 'string' && error.code.startsWith('ERR_')) {
+        throw error;
+      }
+
+      this.handleFirebaseError(error);
+    }
+  }
+
+  async signInWithGoogle() {
+    try {
+      const googleClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+      if (!googleClientId) {
+        throw new Error('Google iOS Client ID not configured. Please add EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID to .env');
+      }
+
+      const discovery = {
+        authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+        tokenEndpoint: 'https://oauth2.googleapis.com/token',
+      };
+
+      // Reversed client ID as redirect scheme (standard for iOS OAuth)
+      const clientIdPrefix = googleClientId.split('.apps.googleusercontent.com')[0];
+      const reversedClientId = `com.googleusercontent.apps.${clientIdPrefix}`;
+      const redirectUri = `${reversedClientId}:/oauthredirect`;
+
+      // Build auth request with PKCE (required for mobile OAuth)
+      const request = new AuthSession.AuthRequest({
+        clientId: googleClientId,
+        redirectUri,
+        scopes: ['openid', 'profile', 'email'],
+        responseType: AuthSession.ResponseType.Code,
+        usePKCE: true,
+      });
+
+      const result = await request.promptAsync(discovery);
+
+      if (result.type !== 'success') {
         throw new Error('Authentication cancelled');
       }
 
-      // Extract the authorization code from the redirect URL
-      const url = new URL(result.url);
-      const code = url.searchParams.get('code');
-
+      const code = result.params.code;
       if (!code) {
         throw new Error('No authorization code received');
       }
 
-      // Exchange code for tokens with Google
-      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
+      // Exchange code for tokens using PKCE code_verifier
+      const tokenResult = await AuthSession.exchangeCodeAsync(
+        {
+          clientId: googleClientId,
           code,
-          client_id: googleClientId,
-          redirect_uri: redirectTo,
-          grant_type: 'authorization_code',
-        }),
-      });
-
-      if (!tokenResponse.ok) {
-        throw new Error('Failed to exchange authorization code');
-      }
-
-      const tokens = await tokenResponse.json();
-
-      // Get user info from Google
-      const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-        headers: {
-          Authorization: `Bearer ${tokens.access_token}`,
+          redirectUri,
+          extraParams: {
+            code_verifier: request.codeVerifier!,
+          },
         },
-      });
+        discovery
+      );
 
-      if (!userInfoResponse.ok) {
-        throw new Error('Failed to get user info');
+      if (!tokenResult.idToken) {
+        throw new Error('No ID token received from Google');
       }
 
-      const userInfo = await userInfoResponse.json();
+      // Sign in to Firebase with the Google ID token
+      const credential = GoogleAuthProvider.credential(tokenResult.idToken);
+      const userCredential = await signInWithCredential(this.auth, credential);
 
-      // Create or sign in user with Firebase using custom token
-      // For simplicity, we'll create an account with email/password using a random password
-      // In production, you'd want to use Firebase Admin SDK to create custom tokens
+      // Get display name and photo from Firebase user (populated by Google)
+      const displayName = userCredential.user.displayName || '';
+      const photoURL = userCredential.user.photoURL || '';
 
-      // Try to sign in first
-      try {
-        const randomPassword = Crypto.randomUUID() + Crypto.randomUUID();
-        const userCredential = await signInWithEmailAndPassword(this.auth, userInfo.email, randomPassword);
-
-        // Update avatar if user has a Google picture
-        if (userInfo.picture) {
-          await this.updateProfile(userCredential.user.uid, {
-            avatar_url: userInfo.picture,
-          });
-        }
-
-        return {
-          user: {
-            id: userCredential.user.uid,
-            email: userCredential.user.email!,
-            user_metadata: {
-              full_name: userInfo.name,
-              name: userInfo.name,
-              avatar_url: userInfo.picture,
-            }
+      return {
+        user: {
+          id: userCredential.user.uid,
+          email: userCredential.user.email || '',
+          user_metadata: {
+            full_name: displayName,
+            name: displayName,
+            avatar_url: photoURL,
           }
-        };
-      } catch (signInError: any) {
-        // If sign in fails, create a new account
-        if (signInError.code === 'auth/user-not-found' || signInError.code === 'auth/wrong-password') {
-          const randomPassword = Crypto.randomUUID() + Crypto.randomUUID();
-          const userCredential = await createUserWithEmailAndPassword(this.auth, userInfo.email, randomPassword);
-
-          // Store the Google user info in the profile, including avatar
-          await this.createProfile({
-            id: userCredential.user.uid,
-            email: userInfo.email,
-            full_name: userInfo.name,
-            avatar_url: userInfo.picture, // Save Google profile picture
-          });
-
-          return {
-            user: {
-              id: userCredential.user.uid,
-              email: userCredential.user.email!,
-              user_metadata: {
-                full_name: userInfo.name,
-                name: userInfo.name,
-                avatar_url: userInfo.picture,
-              }
-            }
-          };
         }
-        throw signInError;
+      };
+    } catch (error: any) {
+      if (error?.code === 'ERR_REQUEST_CANCELED') {
+        const canceledError = new Error('Google sign in cancelled');
+        (canceledError as any).code = error.code;
+        throw canceledError;
       }
-    } catch (error) {
       this.handleFirebaseError(error);
     }
   }
@@ -351,16 +449,18 @@ class FirebaseService {
       const now = new Date().toISOString();
       const userId = profile.id!;
 
-      const defaultProfile: Partial<User> = {
+      const defaultProfile: Partial<User> = this.removeUndefinedFields({
         ...profile,
         default_servings: profile.default_servings || 2,
         is_premium: profile.is_premium || false,
         weekly_recipe_count: profile.weekly_recipe_count || 0,
         weekly_scan_count: profile.weekly_scan_count || 0,
         week_reset_at: profile.week_reset_at || now,
+        daily_ai_chat_count: profile.daily_ai_chat_count || 0,
+        chat_reset_at: profile.chat_reset_at || now,
         created_at: profile.created_at || now,
         updated_at: now,
-      };
+      });
 
       await setDoc(doc(this.db, 'users', userId), defaultProfile, { merge: true });
 
@@ -373,8 +473,9 @@ class FirebaseService {
   async updateProfile(userId: string, updates: Partial<User>) {
     try {
       const docRef = doc(this.db, 'users', userId);
+      const safeUpdates = this.removeUndefinedFields(updates);
       await updateDoc(docRef, {
-        ...updates,
+        ...safeUpdates,
         updated_at: new Date().toISOString(),
       });
 
@@ -443,6 +544,15 @@ class FirebaseService {
       const docRef = await addDoc(collection(this.db, 'recipes'), newRecipe);
 
       return { id: docRef.id, ...newRecipe } as Recipe;
+    } catch (error) {
+      this.handleFirebaseError(error);
+    }
+  }
+
+  async updateRecipeThumbnail(id: string, thumbnailUrl: string): Promise<void> {
+    try {
+      const docRef = doc(this.db, 'recipes', id);
+      await updateDoc(docRef, { thumbnail_url: thumbnailUrl, updated_at: new Date().toISOString() });
     } catch (error) {
       this.handleFirebaseError(error);
     }
@@ -593,48 +703,63 @@ class FirebaseService {
   // USAGE TRACKING (for free tier limits)
   // ============================================
   async checkUsageLimits(): Promise<{
-    canExtractRecipe: boolean;
-    canScanFridge: boolean;
-    recipesRemaining: number;
+    canScan: boolean;
+    canChat: boolean;
+    canGenerateRecipe: boolean;
+    canUseWeekPlanner: boolean;
     scansRemaining: number;
+    chatsRemaining: number;
+    recipesRemaining: number;
   }> {
     try {
       const session = await this.getSession();
       if (!session) {
-        return {
-          canExtractRecipe: false,
-          canScanFridge: false,
-          recipesRemaining: 0,
-          scansRemaining: 0,
-        };
+        return { canScan: false, canChat: false, canGenerateRecipe: false, canUseWeekPlanner: false, scansRemaining: 0, chatsRemaining: 0, recipesRemaining: 0 };
       }
 
       const profile = await this.getProfile(session.user.id);
       if (profile?.is_premium) {
-        return {
-          canExtractRecipe: true,
-          canScanFridge: true,
-          recipesRemaining: 999,
-          scansRemaining: 999,
-        };
+        return { canScan: true, canChat: true, canGenerateRecipe: true, canUseWeekPlanner: true, scansRemaining: 999, chatsRemaining: 999, recipesRemaining: 999 };
       }
 
-      // Free tier limits
-      const recipesRemaining = Math.max(0, 5 - (profile?.weekly_recipe_count || 0));
-      const scansRemaining = Math.max(0, 1 - (profile?.weekly_scan_count || 0));
+      // Auto-reset: weekly counters after 7 days
+      const now = new Date();
+      const weekReset = profile?.week_reset_at ? new Date(profile.week_reset_at) : new Date(0);
+      const daysSinceWeekReset = (now.getTime() - weekReset.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSinceWeekReset >= 7 && profile) {
+        await this.updateProfile(session.user.id, {
+          weekly_recipe_count: 0,
+          weekly_scan_count: 0,
+          daily_ai_chat_count: 0,
+          chat_reset_at: now.toISOString(),
+          week_reset_at: now.toISOString(),
+        });
+        if (profile) {
+          profile.weekly_recipe_count = 0;
+          profile.weekly_scan_count = 0;
+          profile.daily_ai_chat_count = 0;
+        }
+      }
+
+      const scansRemaining = Math.max(0, FREE_PLAN_LIMITS.scans_per_week - (profile?.weekly_scan_count || 0));
+      const chatsRemaining = Math.max(0, FREE_PLAN_LIMITS.ai_chats_per_week - (profile?.daily_ai_chat_count || 0));
+      const recipesRemaining = Math.max(0, FREE_PLAN_LIMITS.recipes_per_week - (profile?.weekly_recipe_count || 0));
 
       return {
-        canExtractRecipe: recipesRemaining > 0,
-        canScanFridge: scansRemaining > 0,
-        recipesRemaining,
+        canScan: scansRemaining > 0,
+        canChat: chatsRemaining > 0,
+        canGenerateRecipe: recipesRemaining > 0,
+        canUseWeekPlanner: false, // Week planner is Pro only
         scansRemaining,
+        chatsRemaining,
+        recipesRemaining,
       };
     } catch (error) {
       this.handleFirebaseError(error);
     }
   }
 
-  async incrementUsage(type: 'recipe' | 'scan'): Promise<void> {
+  async incrementUsage(type: 'recipe' | 'scan' | 'ai_chat'): Promise<void> {
     try {
       const session = await this.getSession();
       if (!session) return;
@@ -642,10 +767,14 @@ class FirebaseService {
       const profile = await this.getProfile(session.user.id);
       if (!profile) return;
 
-      const updates =
-        type === 'recipe'
-          ? { weekly_recipe_count: (profile.weekly_recipe_count || 0) + 1 }
-          : { weekly_scan_count: (profile.weekly_scan_count || 0) + 1 };
+      let updates: Partial<User>;
+      if (type === 'recipe') {
+        updates = { weekly_recipe_count: (profile.weekly_recipe_count || 0) + 1 };
+      } else if (type === 'scan') {
+        updates = { weekly_scan_count: (profile.weekly_scan_count || 0) + 1 };
+      } else {
+        updates = { daily_ai_chat_count: (profile.daily_ai_chat_count || 0) + 1 };
+      }
 
       await this.updateProfile(session.user.id, updates);
     } catch (error) {
@@ -719,6 +848,9 @@ class FirebaseService {
 
   async getFridgeScan(id: string): Promise<FridgeScan | null> {
     try {
+      const session = await this.getSession();
+      if (!session?.user) return null;
+
       console.log('[Firebase] Getting fridge scan:', id);
       const docRef = doc(this.db, 'fridge_scans', id);
       const docSnap = await getDoc(docRef);
@@ -736,6 +868,21 @@ class FirebaseService {
       console.error('[Firebase] Error code:', error?.code);
       console.error('[Firebase] Error message:', error?.message);
       return null;
+    }
+  }
+
+  async updateFridgeScanIngredients(id: string, ingredients: any[]): Promise<void> {
+    try {
+      const session = await this.getSession();
+      if (!session?.user) throw new Error('Not authenticated');
+
+      const docRef = doc(this.db, 'fridge_scans', id);
+      await updateDoc(docRef, {
+        ingredients,
+        total_items: ingredients.length,
+      });
+    } catch (error) {
+      this.handleFirebaseError(error);
     }
   }
 
@@ -805,6 +952,109 @@ class FirebaseService {
 
       const docRef = doc(this.db, 'user_pantry', session.user.id);
       await setDoc(docRef, pantry, { merge: true });
+    } catch (error) {
+      this.handleFirebaseError(error);
+    }
+  }
+
+  // ============================================
+  // COOKBOOKS
+  // ============================================
+  async getCookbooks(): Promise<Cookbook[]> {
+    try {
+      const session = await this.getSession();
+      if (!session) return [];
+
+      const cookbooksRef = collection(this.db, 'cookbooks');
+      const q = query(
+        cookbooksRef,
+        where('user_id', '==', session.user.id),
+        orderBy('created_at', 'desc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      } as Cookbook));
+    } catch (error) {
+      this.handleFirebaseError(error);
+    }
+  }
+
+  async createCookbook(data: { name: string; emoji?: string }): Promise<Cookbook> {
+    try {
+      const session = await this.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const now = new Date().toISOString();
+      const newCookbook = {
+        user_id: session.user.id,
+        name: data.name,
+        emoji: data.emoji || '',
+        recipe_ids: [],
+        created_at: now,
+        updated_at: now,
+      };
+
+      const docRef = await addDoc(collection(this.db, 'cookbooks'), newCookbook);
+      return { id: docRef.id, ...newCookbook } as Cookbook;
+    } catch (error) {
+      this.handleFirebaseError(error);
+    }
+  }
+
+  async updateCookbook(id: string, updates: Partial<Pick<Cookbook, 'name' | 'emoji'>>): Promise<void> {
+    try {
+      const docRef = doc(this.db, 'cookbooks', id);
+      await updateDoc(docRef, {
+        ...updates,
+        updated_at: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.handleFirebaseError(error);
+    }
+  }
+
+  async deleteCookbook(id: string): Promise<void> {
+    try {
+      const session = await this.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const docRef = doc(this.db, 'cookbooks', id);
+      const docSnap = await getDoc(docRef);
+      if (!docSnap.exists()) return;
+
+      const data = docSnap.data();
+      if (data.user_id !== session.user.id) {
+        throw new Error('You can only delete your own cookbooks');
+      }
+
+      await deleteDoc(docRef);
+    } catch (error) {
+      this.handleFirebaseError(error);
+    }
+  }
+
+  async addRecipeToCookbook(cookbookId: string, recipeId: string): Promise<void> {
+    try {
+      const docRef = doc(this.db, 'cookbooks', cookbookId);
+      await updateDoc(docRef, {
+        recipe_ids: arrayUnion(recipeId),
+        updated_at: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.handleFirebaseError(error);
+    }
+  }
+
+  async removeRecipeFromCookbook(cookbookId: string, recipeId: string): Promise<void> {
+    try {
+      const docRef = doc(this.db, 'cookbooks', cookbookId);
+      await updateDoc(docRef, {
+        recipe_ids: arrayRemove(recipeId),
+        updated_at: new Date().toISOString(),
+      });
     } catch (error) {
       this.handleFirebaseError(error);
     }

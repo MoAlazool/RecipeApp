@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { messagingService } from '@/services/messaging.service';
-import type { Conversation, Message } from '@/utils/types';
+import type { Conversation, Message, SharedMealPlanData, SharedShoppingListData } from '@/utils/types';
 import type { Unsubscribe } from 'firebase/firestore';
 
 interface MessagingState {
@@ -40,6 +40,22 @@ interface MessagingState {
   sendRecipeMessage: (
     recipientId: string,
     recipeData: { id: string; title: string; thumbnail_url?: string; total_time_minutes?: number; difficulty?: string }
+  ) => Promise<Message | null>;
+  sendMealPlanMessage: (
+    recipientId: string,
+    mealPlanData: SharedMealPlanData
+  ) => Promise<Message | null>;
+  sendMealPlanToConversation: (
+    conversationId: string,
+    mealPlanData: SharedMealPlanData
+  ) => Promise<Message | null>;
+  sendShoppingListMessage: (
+    recipientId: string,
+    shoppingListData: SharedShoppingListData
+  ) => Promise<Message | null>;
+  sendShoppingListToConversation: (
+    conversationId: string,
+    shoppingListData: SharedShoppingListData
   ) => Promise<Message | null>;
 
   markAsRead: (conversationId: string) => Promise<void>;
@@ -274,6 +290,50 @@ export const useMessagingStore = create<MessagingState>()(
           return message;
         } catch (error: any) {
           set({ error: error.message || 'Failed to send recipe' });
+          return null;
+        }
+      },
+
+      sendMealPlanMessage: async (recipientId, mealPlanData) => {
+        try {
+          set({ error: null });
+          const message = await messagingService.sendMealPlanMessage(recipientId, mealPlanData);
+          return message;
+        } catch (error: any) {
+          set({ error: error.message || 'Failed to send meal plan' });
+          return null;
+        }
+      },
+
+      sendMealPlanToConversation: async (conversationId, mealPlanData) => {
+        try {
+          set({ error: null });
+          const message = await messagingService.sendMealPlanToConversation(conversationId, mealPlanData);
+          return message;
+        } catch (error: any) {
+          set({ error: error.message || 'Failed to send meal plan' });
+          return null;
+        }
+      },
+
+      sendShoppingListMessage: async (recipientId, shoppingListData) => {
+        try {
+          set({ error: null });
+          const message = await messagingService.sendShoppingListMessage(recipientId, shoppingListData);
+          return message;
+        } catch (error: any) {
+          set({ error: error.message || 'Failed to send shopping list' });
+          return null;
+        }
+      },
+
+      sendShoppingListToConversation: async (conversationId, shoppingListData) => {
+        try {
+          set({ error: null });
+          const message = await messagingService.sendShoppingListToConversation(conversationId, shoppingListData);
+          return message;
+        } catch (error: any) {
+          set({ error: error.message || 'Failed to send shopping list' });
           return null;
         }
       },

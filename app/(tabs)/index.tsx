@@ -5,21 +5,42 @@ import {
   StyleSheet,
   RefreshControl,
   TouchableOpacity,
+  Pressable,
   TextInput,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { Text, Button } from '@rneui/themed';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Text } from '@rneui/themed';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useCookbookStore } from '@/stores/cookbookStore';
+import { useUsageStore } from '@/stores/usageStore';
+import { FREE_PLAN_LIMITS } from '@/utils/types';
 import { RecipeCard } from '@/components/recipe/RecipeCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
+
+const { width: SCREEN_W } = Dimensions.get('window');
+const RECENT_CARD_W = SCREEN_W * 0.68;
+const RECENT_CARD_H = RECENT_CARD_W * 1.15;
+
+const C = {
+  bg: '#FAF7F2',
+  card: '#FFFFFF',
+  charcoal: '#1A1510',
+  muted: '#8A8578',
+  terracotta: '#B8845C',
+  gold: '#D4AF37',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+};
 
 export default function RecipesScreen() {
   const router = useRouter();
@@ -27,7 +48,17 @@ export default function RecipesScreen() {
   const bottomTabBarHeight = useBottomTabBarHeight();
   const { recipes, isLoading, fetchRecipes } = useRecipeStore();
   const { user } = useAuthStore();
+  const { fetchCookbooks } = useCookbookStore();
+  const isPremium = user?.is_premium ?? false;
+  const recipesUsed = useUsageStore((s) => s.recipesUsed);
+  const scansUsed = useUsageStore((s) => s.scansUsed);
+  const chatsUsed = useUsageStore((s) => s.chatsUsed);
+  const recipesLeft = Math.max(0, FREE_PLAN_LIMITS.recipes_per_week - recipesUsed);
+  const scansLeft = Math.max(0, FREE_PLAN_LIMITS.scans_per_week - scansUsed);
+  const chatsLeft = Math.max(0, FREE_PLAN_LIMITS.ai_chats_per_week - chatsUsed);
+  const daysUntilReset = useUsageStore((s) => s.getDaysUntilReset());
   const [search, setSearch] = useState('');
+  const [usageExpanded, setUsageExpanded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [allRecipesOffset, setAllRecipesOffset] = useState<number | null>(null);
   const listRef = useRef<FlatList<any>>(null);
@@ -38,9 +69,20 @@ export default function RecipesScreen() {
 
   const recentRecipes = useMemo(() => filteredRecipes.slice(0, 5), [filteredRecipes]);
 
+  // Fetch cookbooks on mount
+  useState(() => { fetchCookbooks(); });
+
+  // Sync usage on focus; close usage card on blur
+  useFocusEffect(
+    useCallback(() => {
+      useUsageStore.getState().syncFromFirebase();
+      return () => setUsageExpanded(false);
+    }, [])
+  );
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchRecipes();
+    await Promise.all([fetchRecipes(), fetchCookbooks(), useUsageStore.getState().syncFromFirebase()]);
     setRefreshing(false);
   }, []);
 
@@ -78,8 +120,11 @@ export default function RecipesScreen() {
     />
   );
 
+  const hasRecipes = recipes.length > 0;
+
   const header = (
     <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      {/* Top bar */}
       <View style={styles.topBar}>
         <View style={styles.userBlock}>
           <View style={styles.avatar}>
@@ -88,181 +133,233 @@ export default function RecipesScreen() {
             </Text>
           </View>
           <View>
-            <Text style={styles.greeting}>Welcome back,</Text>
+            <Text style={styles.greeting}>{hasRecipes ? 'WELCOME BACK,' : 'WELCOME,'}</Text>
             <Text style={styles.name}>{user?.full_name || 'Chef'}</Text>
           </View>
         </View>
-        <View style={styles.topBarActions}>
-          <TouchableOpacity
-            style={styles.topBarAddButton}
-            onPress={() => router.push('/add-recipe')}
-          >
-            <Ionicons name="add" size={24} color="#FFFFFF" />
+        <TouchableOpacity
+          style={styles.usagePill}
+          onPress={() => setUsageExpanded((v) => !v)}
+          activeOpacity={0.8}
+        >
+          {isPremium ? (
+            <Ionicons name="infinite" size={18} color="#FFFFFF" />
+          ) : (
+            <Text style={styles.usagePillText}>
+              {recipesLeft}/{FREE_PLAN_LIMITS.recipes_per_week}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Expandable glass usage card */}
+      {usageExpanded && (
+        <>
+          <View style={styles.usageGlassWrap}>
+            <BlurView intensity={60} tint="light" style={styles.usageGlass}>
+              <View style={styles.usageGlassInner}>
+                {([
+                  { icon: 'restaurant-outline' as const, label: 'Recipes', remaining: recipesLeft, total: FREE_PLAN_LIMITS.recipes_per_week, color: '#C66E4E' },
+                  { icon: 'scan-outline' as const, label: 'Scans', remaining: scansLeft, total: FREE_PLAN_LIMITS.scans_per_week, color: '#D4AF37' },
+                  { icon: 'chatbubbles-outline' as const, label: 'AI Chat', remaining: chatsLeft, total: FREE_PLAN_LIMITS.ai_chats_per_week, color: '#6B8E23' },
+                ] as const).map((item, index, arr) => {
+                  const progress = isPremium ? 1 : Math.min(item.remaining / item.total, 1);
+                  return (
+                    <View key={item.label} style={[styles.usageRow, index < arr.length - 1 && styles.usageRowBorder]}>
+                      <View style={[styles.usageIconDot, { backgroundColor: `${item.color}18` }]}>
+                        <Ionicons name={item.icon} size={14} color={item.color} />
+                      </View>
+                      <Text style={styles.usageRowLabel}>{item.label}</Text>
+                      <View style={styles.usageBarBg}>
+                        <View style={[styles.usageBarFill, { width: `${progress * 100}%` as any, backgroundColor: item.color }]} />
+                      </View>
+                      {isPremium ? (
+                        <Ionicons name="infinite" size={16} color={item.color} />
+                      ) : (
+                        <Text style={styles.usageRowCount}>{item.remaining}/{item.total}</Text>
+                      )}
+                    </View>
+                  );
+                })}
+                {!isPremium && (
+                  <View style={styles.usageFooter}>
+                    <Ionicons name="time-outline" size={12} color={C.muted} />
+                    <Text style={styles.usageFooterText}>
+                      {daysUntilReset === 0 ? 'Resets today' : `Resets in ${daysUntilReset}d`}
+                    </Text>
+                    <TouchableOpacity onPress={() => router.push('/paywall')} style={styles.usageUpgradeLink}>
+                      <Text style={styles.usageUpgradeLinkText}>Upgrade</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </BlurView>
+          </View>
+        </>
+      )}
+
+      {/* Search bar — only when there are recipes to search */}
+      {hasRecipes && (
+        <View style={styles.searchWrapper}>
+          <Ionicons name="search" size={18} color={C.muted} style={styles.searchIcon} />
+          <TextInput
+            placeholder="Search your recipes..."
+            placeholderTextColor={C.muted}
+            value={search}
+            onChangeText={setSearch}
+            style={styles.searchInput}
+          />
+        </View>
+      )}
+
+      {/* Quick actions — only when user has recipes (avoids duplication with Get Started) */}
+      {hasRecipes && (
+        <View style={styles.quickGrid}>
+          <TouchableOpacity style={styles.quickCard} onPress={handlePasteLink} activeOpacity={0.8}>
+            <View style={[styles.quickIcon, { backgroundColor: 'rgba(198, 110, 78, 0.10)' }]}>
+              <Ionicons name="link" size={17} color={C.terracotta} />
+            </View>
+            <Text style={styles.quickLabel}>Paste Link</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.quickCard} onPress={() => router.push('/fridge-scan')} activeOpacity={0.8}>
+            <View style={[styles.quickIcon, { backgroundColor: 'rgba(212, 175, 55, 0.10)' }]}>
+              <MaterialCommunityIcons name="crop-free" size={17} color={C.gold} />
+            </View>
+            <Text style={styles.quickLabel}>Scan Fridge</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.quickCard} onPress={() => router.push('/cookbook-scan')} activeOpacity={0.8}>
+            <View style={[styles.quickIcon, { backgroundColor: 'rgba(26, 21, 16, 0.06)' }]}>
+              <Ionicons name="reader-outline" size={17} color={C.charcoal} />
+            </View>
+            <Text style={styles.quickLabel}>Scan Book</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      )}
 
-      <View style={styles.searchWrapper}>
-        <Ionicons name="search" size={20} color="#F2330D" style={styles.searchIcon} />
-        <TextInput
-          placeholder="Search recipes or paste link..."
-          placeholderTextColor="#9C5749"
-          value={search}
-          onChangeText={setSearch}
-          style={styles.searchInput}
-        />
-        <TouchableOpacity
-          style={styles.searchMic}
-          onPress={() => router.push('/add-recipe')}
-        >
-          <Ionicons name="link-outline" size={18} color="#9C5749" />
-        </TouchableOpacity>
-      </View>
-
-      <TouchableOpacity
-        style={styles.heroCard}
-        onPress={() => router.push('/add-recipe')}
-        activeOpacity={0.95}
-      >
-        <View style={styles.heroAccent} />
-        <View style={styles.heroContent}>
-          <View style={styles.heroTopRow}>
-            <View style={styles.heroIconRow}>
-              <View style={[styles.heroIcon, styles.heroIconSmall]}>
-                <Ionicons name="logo-youtube" size={18} color="#FF0000" />
-              </View>
-              <View style={[styles.heroIcon, styles.heroIconSmall]}>
-                <Ionicons name="logo-tiktok" size={18} color="#000000" />
-              </View>
-              <View style={[styles.heroIcon, styles.heroIconSmall]}>
-                <Ionicons name="logo-instagram" size={18} color="#E4405F" />
-              </View>
-            </View>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>New</Text>
-            </View>
-          </View>
-          <Text style={styles.heroTitle}>Turn Any Video into a Recipe</Text>
-          <Text style={styles.heroSubtitle}>
-            Paste a link from YouTube, TikTok, or Instagram to extract ingredients and steps with AI.
-          </Text>
-          <View style={styles.heroButtons}>
-            <TouchableOpacity
-              style={styles.heroPrimary}
-              onPress={handlePasteLink}
-            >
-              <Ionicons name="link" size={16} color="#FFFFFF" />
-              <Text style={styles.heroPrimaryText}>Paste Link</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.heroSecondary} onPress={handlePasteLink}>
-              <Ionicons name="clipboard-outline" size={18} color="#1C100D" />
+      {hasRecipes ? (
+        <>
+          {/* Recent section */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent</Text>
+            <TouchableOpacity onPress={scrollToAllRecipes}>
+              <Text style={styles.sectionLink}>See all</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </TouchableOpacity>
 
-      <View style={styles.quickGrid}>
-        <TouchableOpacity
-          style={styles.quickCard}
-          onPress={() => router.push('/fridge-scan')}
-        >
-          <View style={styles.quickIconSecondary}>
-            <Ionicons name="camera" size={22} color="#556B2F" />
-          </View>
-          <Text style={styles.quickTitle}>Scan Fridge</Text>
-          <Text style={styles.quickSubtitle}>Cook with what you have</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.quickCard}
-          onPress={() => router.push('/cookbook-scan')}
-        >
-          <View style={[styles.quickIconSecondary, { backgroundColor: 'rgba(242, 51, 13, 0.12)' }]}>
-            <Ionicons name="book" size={22} color="#F2330D" />
-          </View>
-          <Text style={styles.quickTitle}>Scan Cookbook</Text>
-          <Text style={styles.quickSubtitle}>Extract from pages</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Recently Saved</Text>
-        <TouchableOpacity onPress={scrollToAllRecipes}>
-          <Text style={styles.sectionLink}>View All</Text>
-        </TouchableOpacity>
-      </View>
-
-      {recentRecipes.length > 0 ? (
-        <FlatList
-          data={recentRecipes}
-          horizontal
-          keyExtractor={(item) => item.id}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.recentList}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.recentCard}
-              onPress={() => router.push(`/recipe/${item.id}`)}
-              activeOpacity={0.95}
-            >
-              <View style={[styles.recentImage, styles.recentImageRadius]}>
+          <FlatList
+            data={recentRecipes}
+            horizontal
+            keyExtractor={(item) => item.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.recentList}
+            snapToInterval={RECENT_CARD_W + 12}
+            decelerationRate="fast"
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.recentCard}
+                onPress={() => router.push(`/recipe/${item.id}`)}
+                activeOpacity={0.95}
+              >
                 <Image
-                  source={{ uri: item.thumbnail_url || 'https://via.placeholder.com/300x200' }}
+                  source={{ uri: item.thumbnail_url }}
                   style={StyleSheet.absoluteFillObject}
                   contentFit="cover"
                   transition={300}
                 />
-                <View style={styles.recentOverlay} />
-                <TouchableOpacity style={styles.favoriteButton}>
-                  <Ionicons
-                    name={item.is_favorite ? "heart" : "heart-outline"}
-                    size={20}
-                    color={item.is_favorite ? "#F2330D" : "#9CA3AF"}
-                  />
-                </TouchableOpacity>
-                <View style={styles.recentMeta}>
-                  <Ionicons name="time-outline" size={14} color="#FFFFFF" />
-                  <Text style={styles.recentMetaText}>
-                    {item.total_time_minutes || 15} min
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.recentBody}>
-                <View style={styles.recentTags}>
-                  {item.difficulty ? (
-                    <View style={styles.tagChip}>
-                      <Text style={styles.tagChipText}>{item.difficulty}</Text>
-                    </View>
-                  ) : null}
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.65)']}
+                  style={styles.recentGradient}
+                />
+                <View style={styles.recentContent}>
                   {item.cuisine_type ? (
-                    <View style={styles.tagChipMuted}>
-                      <Text style={styles.tagChipTextMuted}>{item.cuisine_type}</Text>
-                    </View>
+                    <Text style={styles.recentCuisine}>{item.cuisine_type.toUpperCase()}</Text>
                   ) : null}
-                </View>
-                <Text style={styles.recentTitle} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                {item.description ? (
-                  <Text style={styles.recentDescription} numberOfLines={2}>
-                    {item.description}
+                  <Text style={styles.recentTitle} numberOfLines={2}>
+                    {item.title}
                   </Text>
-                ) : null}
-              </View>
+                  <View style={styles.recentMeta}>
+                    <Ionicons name="time-outline" size={12} color="rgba(255,255,255,0.7)" />
+                    <Text style={styles.recentMetaText}>
+                      {item.total_time_minutes || 15} min
+                    </Text>
+                    {item.difficulty ? (
+                      <>
+                        <Text style={styles.recentMetaDot}>&middot;</Text>
+                        <Text style={styles.recentMetaText}>{item.difficulty}</Text>
+                      </>
+                    ) : null}
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
+          />
+
+          {/* All recipes */}
+          <View
+            style={styles.sectionHeader}
+            onLayout={(event) => setAllRecipesOffset(event.nativeEvent.layout.y)}
+          >
+            <Text style={styles.sectionTitle}>All Recipes</Text>
+            <TouchableOpacity onPress={() => router.push('/cookbooks' as any)}>
+              <Text style={styles.sectionLink}>See All</Text>
             </TouchableOpacity>
-          )}
-        />
+          </View>
+        </>
       ) : (
-        <View style={styles.recentEmpty}>
-          <Text style={styles.recentEmptyText}>No recent recipes yet.</Text>
+        /* ── New user: Get Started section ── */
+        <View style={styles.getStartedSection}>
+          <Text style={styles.getStartedTitle}>Start your collection</Text>
+          <Text style={styles.getStartedSubtitle}>
+            Add your first recipe to get cooking
+          </Text>
+
+          <View style={styles.getStartedCards}>
+            <TouchableOpacity
+              style={styles.getStartedCard}
+              onPress={handlePasteLink}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.getStartedCardIcon, { backgroundColor: 'rgba(198, 110, 78, 0.10)' }]}>
+                <Ionicons name="link" size={22} color={C.terracotta} />
+              </View>
+              <Text style={styles.getStartedCardTitle}>Paste a link</Text>
+              <Text style={styles.getStartedCardDesc}>
+                Copy a recipe URL from TikTok, Instagram, or any website
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.getStartedCard}
+              onPress={() => router.push('/fridge-scan')}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.getStartedCardIcon, { backgroundColor: 'rgba(212, 175, 55, 0.10)' }]}>
+                <MaterialCommunityIcons name="crop-free" size={22} color={C.gold} />
+              </View>
+              <Text style={styles.getStartedCardTitle}>Scan your fridge</Text>
+              <Text style={styles.getStartedCardDesc}>
+                Take a photo and get recipe ideas from what you have
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.getStartedCard}
+              onPress={() => router.push('/cookbook-scan')}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.getStartedCardIcon, { backgroundColor: 'rgba(26, 21, 16, 0.06)' }]}>
+                <Ionicons name="reader-outline" size={22} color={C.charcoal} />
+              </View>
+              <Text style={styles.getStartedCardTitle}>Scan a cookbook</Text>
+              <Text style={styles.getStartedCardDesc}>
+                Point your camera at a recipe page to save it
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
-
-      <View
-        style={styles.sectionHeader}
-        onLayout={(event) => setAllRecipesOffset(event.nativeEvent.layout.y)}
-      >
-        <Text style={styles.sectionTitle}>All Recipes</Text>
-      </View>
     </View>
   );
 
@@ -280,23 +377,18 @@ export default function RecipesScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         ListEmptyComponent={
-          !isLoading ? (
+          !isLoading && hasRecipes ? (
             <EmptyState
-              icon="book-outline"
-              title="No recipes yet"
-              subtitle="Add your first recipe from a video URL"
-              action={
-                <Button
-                  title="Add Recipe"
-                  onPress={() => router.push('/add-recipe')}
-                  buttonStyle={styles.addButton}
-                  titleStyle={styles.addButtonText}
-                />
-              }
+              icon="search-outline"
+              title="No matches"
+              subtitle="Try a different search term"
             />
           ) : null
         }
       />
+      {usageExpanded && (
+        <Pressable style={styles.usageDismiss} onPress={() => setUsageExpanded(false)} />
+      )}
     </TabScreenTransition>
   );
 }
@@ -304,29 +396,30 @@ export default function RecipesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: C.bg,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingHorizontal: 18,
+    paddingBottom: 6,
   },
+
+  // ── Top bar ──
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   userBlock: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F2330D',
+    backgroundColor: C.charcoal,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -336,342 +429,313 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   greeting: {
-    color: '#9C5749',
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 12,
+    color: C.muted,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   name: {
-    color: '#1C100D',
+    color: C.charcoal,
     fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 16,
+    fontSize: 15,
+    marginTop: 1,
   },
-  topBarActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  topBarAddButton: {
-    width: 40,
+  usagePill: {
     height: 40,
+    minWidth: 40,
+    paddingHorizontal: 14,
     borderRadius: 20,
-    backgroundColor: '#F2330D',
+    backgroundColor: C.terracotta,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  usagePillText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+
+  // ── Usage glass card ──
+  usageDismiss: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  usageGlassWrap: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  usageGlass: {
+    overflow: 'hidden',
+  },
+  usageGlassInner: {
+    padding: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  usageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 9,
+  },
+  usageRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(26, 21, 16, 0.08)',
+  },
+  usageIconDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  usageRowLabel: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: C.charcoal,
+    width: 58,
+  },
+  usageBarBg: {
+    flex: 1,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(26, 21, 16, 0.07)',
+    overflow: 'hidden',
+  },
+  usageBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  usageRowCount: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: C.muted,
+    minWidth: 28,
+    textAlign: 'right',
+  },
+  usageFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingTop: 10,
+    marginTop: 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(26, 21, 16, 0.08)',
+  },
+  usageFooterText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 11,
+    color: C.muted,
+    flex: 1,
+  },
+  usageUpgradeLink: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: 'rgba(198, 110, 78, 0.12)',
+  },
+  usageUpgradeLinkText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: C.terracotta,
+  },
+
+  // ── Search ──
   searchWrapper: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
+    borderRadius: 14,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 2,
   },
   searchIcon: {
-    marginRight: 6,
+    marginRight: 7,
   },
   searchInput: {
     flex: 1,
-    height: 52,
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 15,
-    color: '#1C100D',
+    height: 42,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: C.charcoal,
   },
-  searchMic: {
-    padding: 6,
-    borderRadius: 12,
-  },
-  heroCard: {
-    marginTop: 16,
-    borderRadius: 32,
-    backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 3,
-  },
-  heroAccent: {
-    position: 'absolute',
-    top: -30,
-    right: -40,
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(242, 51, 13, 0.08)',
-  },
-  heroContent: {
-    padding: 20,
-  },
-  heroTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  heroIconRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  heroIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(242, 51, 13, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroIconSmall: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-  },
-  heroBadge: {
-    backgroundColor: 'rgba(85, 107, 47, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  heroBadgeText: {
-    color: '#556B2F',
-    fontFamily: 'NotoSans_700Bold',
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  heroTitle: {
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    fontSize: 20,
-    color: '#1C100D',
-    marginBottom: 6,
-  },
-  heroSubtitle: {
-    color: '#9C5749',
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  heroButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 16,
-  },
-  heroPrimary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#F2330D',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flex: 1,
-  },
-  heroPrimaryText: {
-    color: '#FFFFFF',
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 13,
-  },
-  heroSecondary: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#F7F1EE',
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
+  // ── Quick actions ──
   quickGrid: {
     flexDirection: 'row',
-    gap: 14,
-    marginTop: 16,
+    gap: 8,
+    marginTop: 12,
   },
   quickCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
+    backgroundColor: C.card,
+    borderRadius: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+    gap: 6,
+    shadowColor: C.charcoal,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
     elevation: 2,
   },
-  quickIconSecondary: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: 'rgba(85, 107, 47, 0.12)',
+  quickIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
-  quickIconAccent: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
+  quickLabel: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: C.charcoal,
   },
-  quickTitle: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 14,
-    color: '#1C100D',
-  },
-  quickSubtitle: {
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 12,
-    color: '#9C5749',
-    marginTop: 4,
-  },
+
+  // ── Section headers ──
   sectionHeader: {
-    marginTop: 20,
+    marginTop: 22,
+    marginBottom: 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   sectionTitle: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 18,
-    color: '#1C100D',
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 22,
+    color: C.charcoal,
   },
   sectionLink: {
-    fontFamily: 'NotoSans_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     fontSize: 12,
-    color: '#F2330D',
+    color: C.terracotta,
   },
+  sectionCount: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: C.muted,
+  },
+
+  // ── Recent recipe cards ──
   recentList: {
-    paddingVertical: 16,
-    gap: 14,
-  },
-  recentTags: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 6,
-  },
-  tagChip: {
-    backgroundColor: 'rgba(85, 107, 47, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  tagChipText: {
-    fontFamily: 'NotoSans_700Bold',
-    fontSize: 9,
-    textTransform: 'uppercase',
-    color: '#556B2F',
-  },
-  tagChipMuted: {
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  tagChipTextMuted: {
-    fontFamily: 'NotoSans_700Bold',
-    fontSize: 9,
-    textTransform: 'uppercase',
-    color: '#F59E0B',
+    paddingTop: 10,
+    paddingBottom: 2,
+    gap: 12,
   },
   recentCard: {
-    width: 280,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
+    width: RECENT_CARD_W,
+    height: RECENT_CARD_H,
+    borderRadius: 22,
     overflow: 'hidden',
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 3,
+    backgroundColor: '#E8E2D8',
   },
-  recentImage: {
-    height: 176,
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  favoriteButton: {
+  recentGradient: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: RECENT_CARD_H * 0.55,
   },
-  recentImageRadius: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+  recentContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
   },
-  recentOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+  recentCuisine: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 1.2,
+    marginBottom: 4,
+  },
+  recentTitle: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 18,
+    color: '#FFFFFF',
+    lineHeight: 23,
+    marginBottom: 6,
   },
   recentMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    margin: 10,
-    alignSelf: 'flex-start',
+    gap: 4,
   },
   recentMetaText: {
-    color: '#FFFFFF',
-    fontFamily: 'NotoSans_600SemiBold',
-    fontSize: 11,
-  },
-  recentBody: {
-    padding: 16,
-  },
-  recentTitle: {
-    color: '#1C100D',
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 15,
-  },
-  recentDescription: {
-    color: '#9C5749',
-    fontFamily: 'NotoSans_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 12,
-    marginTop: 6,
+    color: 'rgba(255,255,255,0.7)',
   },
-  recentEmpty: {
-    backgroundColor: '#FFFFFF',
+  recentMetaDot: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+  },
+
+  // ── Get Started (new user) ──
+  getStartedSection: {
+    marginTop: 28,
+  },
+  getStartedTitle: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 24,
+    color: C.charcoal,
+    marginBottom: 6,
+  },
+  getStartedSubtitle: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: C.muted,
+    marginBottom: 18,
+  },
+  getStartedCards: {
+    gap: 10,
+  },
+  getStartedCard: {
+    backgroundColor: C.card,
     borderRadius: 18,
-    padding: 16,
-    marginTop: 12,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
+    padding: 18,
+    flexDirection: 'column',
+    shadowColor: C.charcoal,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
     elevation: 2,
   },
-  recentEmptyText: {
-    color: '#9C5749',
-    fontFamily: 'NotoSans_500Medium',
+  getStartedCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
-  list: {
-    // paddingBottom is set dynamically via useBottomTabBarHeight()
+  getStartedCardTitle: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 15,
+    color: C.charcoal,
+    marginBottom: 4,
   },
-  addButton: {
-    backgroundColor: '#F2330D',
+  getStartedCardDesc: {
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: 13,
+    color: C.muted,
+    lineHeight: 18,
+  },
+
+  // ── List / empty ──
+  list: {},
+  ctaButton: {
+    backgroundColor: C.charcoal,
     borderRadius: 16,
     paddingHorizontal: 28,
     paddingVertical: 12,
-  },
-  addButtonText: {
-    fontFamily: 'PlusJakartaSans_700Bold',
   },
 });

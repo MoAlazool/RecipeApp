@@ -1,6 +1,15 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+
+// Michelin-star Design Tokens
+const C = {
+  ivory: '#FFFEFB',
+  charcoal: '#1A1510',
+  terracotta: '#C66E4E',
+  gold: '#D4AF37',
+  muted: '#8A8578',
+};
 
 type MealType = 'Breakfast' | 'Lunch' | 'Dinner';
 
@@ -38,18 +47,14 @@ export const MealTypeTabs: React.FC<MealTypeTabsProps> = ({
         >
           <Ionicons
             name={type.icon}
-            size={20}
-            color={activeType === type.id ? '#FFFFFF' : isDark ? '#9CA3AF' : '#6B7280'}
+            size={18}
+            color={activeType === type.id ? C.ivory : isDark ? C.muted : C.muted}
           />
           <Text
             style={[
               styles.tabText,
               {
-                color: activeType === type.id
-                  ? '#FFFFFF'
-                  : isDark
-                  ? '#9CA3AF'
-                  : '#6B7280',
+                color: activeType === type.id ? C.ivory : isDark ? C.muted : C.muted,
               },
             ]}
           >
@@ -64,7 +69,7 @@ export const MealTypeTabs: React.FC<MealTypeTabsProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
     paddingVertical: 16,
   },
   tab: {
@@ -72,30 +77,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 16,
-    gap: 6,
+    paddingVertical: 14,
+    borderRadius: 14,
+    gap: 8,
     borderWidth: 1,
   },
   tabActive: {
-    backgroundColor: '#FF4B2B',
-    borderColor: '#FF4B2B',
-    shadowColor: '#FF4B2B',
+    backgroundColor: C.terracotta,
+    borderColor: C.terracotta,
+    shadowColor: C.terracotta,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
     elevation: 6,
   },
   tabInactive: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
+    backgroundColor: C.ivory,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
   },
   tabInactiveDark: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   tabText: {
-    fontSize: 12,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    letterSpacing: 0.2,
   },
 });

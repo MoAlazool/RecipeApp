@@ -192,7 +192,7 @@ class TikTokService {
         timeout: 15000,
         headers: {
           'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (compatible; RecipeApp/1.0)',
+          'User-Agent': 'Mozilla/5.0 (compatible; EITO/1.0)',
         }
       });
 

@@ -31,6 +31,8 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { useShoppingStore } from '@/stores/shoppingStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -39,6 +41,8 @@ import type { Recipe, RecipeSourceType, Ingredient } from '@/utils/types';
 import { getIngredientEmoji, CATEGORY_BG_COLORS } from '@/utils/ingredientEmojis';
 import { getIngredientImage } from '@/utils/ingredientImages';
 import AskAIChefSheet from '@/components/recipe/AskAIChefSheet';
+import ShareToStorySheet from '@/components/recipe/ShareToStorySheet';
+import AddToCookbookSheet from '@/components/recipe/AddToCookbookSheet';
 import { previewRecipe } from '@/utils/previewRecipe';
 import { Image as ExpoImage } from 'expo-image';
 
@@ -181,7 +185,7 @@ const AnimatedIngredientCard = React.memo(function AnimatedIngredientCard({
             transition={200}
           />
         ) : (
-          <Text style={styles.ingredientEmoji}>{emoji}</Text>
+          <Text style={styles.ingredientInitials}>{ingredient.name.slice(0, 2).toUpperCase()}</Text>
         )}
         <View style={[styles.ingredientNotch, isChecked && styles.ingredientNotchSelected]}>
           <Ionicons name={isChecked ? 'checkmark' : 'add'} size={14} color="#FFF" />
@@ -205,6 +209,8 @@ export default function RecipeDetailScreen() {
   const insets = useSafeAreaInsets();
   const moreSheetRef = useRef<BottomSheetModal>(null);
   const aiChefSheetRef = useRef<BottomSheetModal>(null);
+  const shareSheetRef = useRef<BottomSheetModal>(null);
+  const cookbookSheetRef = useRef<BottomSheetModal>(null);
   const { recipes, getRecipe, updateRecipe, deleteRecipe, toggleFavorite, saveRecipeToMyList, generateRecipeImage, isGeneratingImage } = useRecipeStore();
   const { addItemsFromRecipe } = useShoppingStore();
   const { user } = useAuthStore();
@@ -374,7 +380,27 @@ export default function RecipeDetailScreen() {
 
   const handleShareLink = async () => {
     if (!recipe) return;
-    try { await Share.share({ message: recipe.source_url ? `${recipe.title}\n${recipe.source_url}` : recipe.title, title: recipe.title }); } catch {}
+    try {
+      const message = recipe.source_url ? `${recipe.title}\n${recipe.source_url}` : recipe.title;
+
+      // Try sharing with image if available
+      if (recipe.thumbnail_url && await Sharing.isAvailableAsync()) {
+        try {
+          const ext = recipe.thumbnail_url.includes('.png') ? 'png' : 'jpg';
+          const localUri = `${FileSystem.cacheDirectory}share_recipe_${recipe.id}.${ext}`;
+          const { uri } = await FileSystem.downloadAsync(recipe.thumbnail_url, localUri);
+          await Sharing.shareAsync(uri, {
+            mimeType: `image/${ext === 'png' ? 'png' : 'jpeg'}`,
+            dialogTitle: recipe.title,
+          });
+          return;
+        } catch {
+          // Fall back to text-only share
+        }
+      }
+
+      await Share.share({ message, title: recipe.title });
+    } catch {}
   };
 
   const handleSaveToMyList = async () => {
@@ -552,7 +578,7 @@ export default function RecipeDetailScreen() {
           {/* Action pills */}
           <View style={styles.actionRow}>
             {!isPreview && (
-              <Pressable style={({ pressed }) => [styles.actionPill, pressed && { transform: [{ scale: 0.95 }], opacity: 0.6 }]} onPress={() => handleSheetAction(handleSendToFriend)}>
+              <Pressable style={({ pressed }) => [styles.actionPill, pressed && { transform: [{ scale: 0.95 }], opacity: 0.6 }]} onPress={handleSendToFriend}>
                 <Ionicons name="paper-plane-outline" size={16} color={C.charcoal} />
                 <Text style={styles.actionPillText}>SEND</Text>
               </Pressable>
@@ -810,52 +836,21 @@ export default function RecipeDetailScreen() {
       >
         <BottomSheetView style={styles.sheetContent}>
           {/* Actions */}
-          <Pressable style={styles.sheetRow} onPress={() => handleSheetAction(handleFavorite)}>
-            <Ionicons name={recipe.is_favorite ? 'heart' : 'heart-outline'} size={22} color={recipe.is_favorite ? '#EF4444' : C.charcoal} />
-            <Text style={styles.sheetRowText}>{recipe.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}</Text>
+          <Pressable style={styles.sheetRow} onPress={() => handleSheetAction(() => shareSheetRef.current?.present())}>
+            <Ionicons name="logo-instagram" size={22} color={C.charcoal} />
+            <Text style={styles.sheetRowText}>Share to Story & Apps</Text>
           </Pressable>
 
-          <Pressable style={styles.sheetRow} onPress={() => handleSheetAction(handleSendToFriend)}>
-            <Ionicons name="paper-plane-outline" size={22} color={C.charcoal} />
-            <Text style={styles.sheetRowText}>Send to Friend</Text>
-          </Pressable>
-
-          <Pressable style={styles.sheetRow} onPress={() => handleSheetAction(handleShareLink)}>
-            <Ionicons name="share-outline" size={22} color={C.charcoal} />
-            <Text style={styles.sheetRowText}>Share Link</Text>
-          </Pressable>
-
-          <Pressable style={styles.sheetRow} onPress={() => handleSheetAction(handleAsk)}>
-            <Ionicons name="sparkles-outline" size={22} color={C.gold} />
-            <Text style={styles.sheetRowText}>Ask AI Chef</Text>
+          <Pressable style={styles.sheetRow} onPress={() => handleSheetAction(() => cookbookSheetRef.current?.present())}>
+            <Ionicons name="folder-outline" size={22} color={C.charcoal} />
+            <Text style={styles.sheetRowText}>Add to Cookbook</Text>
           </Pressable>
 
           {isOwner && (
-            <>
-              <Pressable style={styles.sheetRow} onPress={handleGenerateImage} disabled={isGenerating}>
-                <Ionicons name="image-outline" size={22} color={C.gold} />
-                <Text style={styles.sheetRowText}>{isGenerating ? 'Generating...' : 'Generate Image with AI'}</Text>
-                {isGenerating && <ActivityIndicator size="small" color={C.gold} style={{ marginLeft: 'auto' }} />}
-              </Pressable>
-
-              <Pressable style={styles.sheetRow} onPress={() => handleSheetAction(() => router.push({ pathname: '/edit-recipe' as any, params: { recipeId: recipe.id } }))}>
-                <Ionicons name="create-outline" size={22} color={C.charcoal} />
-                <Text style={styles.sheetRowText}>Edit Recipe</Text>
-              </Pressable>
-
-              <View style={styles.sheetDivider} />
-
-              <Pressable style={styles.sheetRow} onPress={() => handleSheetAction(handleDelete)}>
-                <Ionicons name="trash-outline" size={22} color="#EF4444" />
-                <Text style={[styles.sheetRowText, { color: '#EF4444' }]}>Delete Recipe</Text>
-              </Pressable>
-            </>
-          )}
-
-          {!isOwner && (
-            <Pressable style={[styles.sheetRow, isAlreadySaved && { opacity: 0.5 }]} onPress={isAlreadySaved ? undefined : () => handleSheetAction(handleSaveToMyList)} disabled={isAlreadySaved}>
-              <Ionicons name={isAlreadySaved ? "bookmark" : "bookmark-outline"} size={22} color={isAlreadySaved ? C.gold : C.charcoal} />
-              <Text style={[styles.sheetRowText, isAlreadySaved && { color: C.gold }]}>{isAlreadySaved ? 'Already Saved' : 'Save to My Recipes'}</Text>
+            <Pressable style={styles.sheetRow} onPress={handleGenerateImage} disabled={isGenerating}>
+              <Ionicons name="image-outline" size={22} color={C.gold} />
+              <Text style={styles.sheetRowText}>{isGenerating ? 'Generating...' : 'Generate Image with AI'}</Text>
+              {isGenerating && <ActivityIndicator size="small" color={C.gold} style={{ marginLeft: 'auto' }} />}
             </Pressable>
           )}
 
@@ -871,6 +866,12 @@ export default function RecipeDetailScreen() {
 
       {/* ── Ask AI Chef Bottom Sheet ── */}
       {!isPreview && <AskAIChefSheet ref={aiChefSheetRef} recipe={recipe} onPreviewOpen={() => { reopenSheetRef.current = true; }} />}
+
+      {/* ── Share Story Bottom Sheet ── */}
+      {!isPreview && <ShareToStorySheet ref={shareSheetRef} recipe={recipe} />}
+
+      {/* ── Add to Cookbook Bottom Sheet ── */}
+      {!isPreview && <AddToCookbookSheet ref={cookbookSheetRef} recipeId={recipe.id} />}
     </View>
   );
 }
@@ -977,7 +978,7 @@ const styles = StyleSheet.create({
     ...SHADOW_SOFT,
   },
   ingredientImageAreaSelected: { borderColor: C.gold },
-  ingredientEmoji: { fontSize: 32 },
+  ingredientInitials: { fontSize: 20, fontFamily: 'PlusJakartaSans_700Bold', color: '#B8845C' },
   ingredientPhoto: { width: '100%', height: '100%', borderRadius: 18 },
   ingredientNotch: {
     position: 'absolute', bottom: 6, right: 6,

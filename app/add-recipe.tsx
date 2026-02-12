@@ -1,12 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { View, ScrollView, StyleSheet, Alert, KeyboardAvoidingView, Platform, TouchableOpacity, Animated, Image, TextInput } from 'react-native';
-import { Text, Button } from '@rneui/themed';
+import { Text } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { socialService, SocialPlatform, SocialVideoMetadata } from '@/services/social.service';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { RecipePreview } from '@/components/recipe/RecipePreview';
+import { useUsageGate } from '@/hooks/useUsageGate';
+import UsageLimitSheet from '@/components/ui/UsageLimitSheet';
+import { useUsageStore } from '@/stores/usageStore';
+import { useAuthStore } from '@/stores/authStore';
+import { FREE_PLAN_LIMITS } from '@/utils/types';
 import type { ExtractedRecipe } from '@/utils/types';
 
 type ExtractionStage = 'idle' | 'extracting' | 'needsManualInput' | 'extracted';
@@ -24,8 +29,8 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
   youtube: {
     name: 'YouTube',
     icon: 'logo-youtube',
-    color: '#F2330D',
-    bgColor: 'rgba(242, 51, 13, 0.12)',
+    color: '#FF0000',
+    bgColor: 'rgba(255, 0, 0, 0.08)',
     placeholder: 'https://youtube.com/watch?v=...',
     tips: [
       'Use videos with clear spoken instructions',
@@ -38,7 +43,7 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
     name: 'TikTok',
     icon: 'logo-tiktok',
     color: '#000000',
-    bgColor: 'rgba(0, 0, 0, 0.08)',
+    bgColor: 'rgba(0, 0, 0, 0.06)',
     placeholder: 'https://tiktok.com/@user/video/...',
     tips: [
       'Videos with recipe descriptions work best',
@@ -51,7 +56,7 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
     name: 'Instagram',
     icon: 'logo-instagram',
     color: '#E4405F',
-    bgColor: 'rgba(228, 64, 95, 0.12)',
+    bgColor: 'rgba(228, 64, 95, 0.08)',
     placeholder: 'https://instagram.com/p/... or /reel/...',
     tips: [
       'Posts, Reels, and IGTV with recipe captions work best',
@@ -63,8 +68,8 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
   website: {
     name: 'Website',
     icon: 'globe-outline',
-    color: '#4A90D9',
-    bgColor: 'rgba(74, 144, 217, 0.12)',
+    color: '#1A1510',
+    bgColor: 'rgba(26, 21, 16, 0.06)',
     placeholder: 'https://example.com/recipe/...',
     tips: [
       'Works best with recipe blogs and cooking websites',
@@ -76,8 +81,8 @@ const PLATFORM_CONFIGS: Record<SocialPlatform, PlatformConfig> = {
   unknown: {
     name: 'Link',
     icon: 'link',
-    color: '#9C5749',
-    bgColor: 'rgba(156, 87, 73, 0.12)',
+    color: '#8A8578',
+    bgColor: 'rgba(26, 21, 16, 0.06)',
     placeholder: 'Paste a link...',
     tips: [
       'Supported: YouTube, TikTok, Instagram, and recipe websites',
@@ -90,8 +95,8 @@ export default function AddRecipeScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ platform?: string; mode?: string; url?: string; autoExtract?: string; shareFail?: string }>();
   const { addRecipe } = useRecipeStore();
+  const { checkGate, limitSheetRef, limitInfo } = useUsageGate();
 
-  // Determine initial platform from URL params
   const initialPlatform = (params.platform as SocialPlatform) || 'unknown';
 
   const initialUrlParam = Array.isArray(params.url) ? params.url[0] : params.url;
@@ -114,10 +119,8 @@ export default function AddRecipeScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const hasAutoExtracted = useRef(false);
 
-  // Get platform config based on detected platform
   const platformConfig = PLATFORM_CONFIGS[detectedPlatform] || PLATFORM_CONFIGS.unknown;
 
-  // Auto-detect platform when URL changes
   useEffect(() => {
     if (url.trim()) {
       const detected = socialService.detectPlatform(url.trim());
@@ -127,38 +130,19 @@ export default function AddRecipeScreen() {
     }
   }, [url]);
 
-  // Animation for extraction
   useEffect(() => {
     if (stage === 'extracting') {
-      // Shimmer animation for progress bar
       Animated.loop(
         Animated.sequence([
-          Animated.timing(shimmerAnim, {
-            toValue: 1,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(shimmerAnim, {
-            toValue: 0,
-            duration: 0,
-            useNativeDriver: true,
-          }),
+          Animated.timing(shimmerAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+          Animated.timing(shimmerAnim, { toValue: 0, duration: 0, useNativeDriver: true }),
         ])
       ).start();
 
-      // Pulse animation for AI badge
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.05,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
+          Animated.timing(pulseAnim, { toValue: 1.05, duration: 1500, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
         ])
       ).start();
     }
@@ -166,15 +150,9 @@ export default function AddRecipeScreen() {
 
   const handleExtract = async (inputUrl?: string) => {
     const urlValue = inputUrl ?? url ?? '';
-    if (typeof urlValue !== 'string') {
-      Alert.alert('Error', 'Please enter a link');
-      return;
-    }
+    if (typeof urlValue !== 'string') { Alert.alert('Error', 'Please enter a link'); return; }
     const urlToProcess = urlValue.trim();
-    if (!urlToProcess) {
-      Alert.alert('Error', 'Please enter a link');
-      return;
-    }
+    if (!urlToProcess) { Alert.alert('Error', 'Please enter a link'); return; }
 
     const platform = socialService.detectPlatform(urlToProcess);
     if (platform === 'unknown') {
@@ -182,10 +160,12 @@ export default function AddRecipeScreen() {
       return;
     }
 
+    // Gate check for free users
+    const allowed = await checkGate('recipe');
+    if (!allowed) return;
+
     try {
-      if (inputUrl) {
-        setUrl(urlToProcess);
-      }
+      if (inputUrl) setUrl(urlToProcess);
       setStage('extracting');
       setExtractingProgress(0);
       setErrorMessage('');
@@ -196,12 +176,9 @@ export default function AddRecipeScreen() {
         setExtractingStage(progress.stage);
       });
 
-      // Update metadata and thumbnail
       if (result.metadata) {
         setVideoMetadata(result.metadata);
-        if (result.metadata.thumbnailUrl) {
-          setVideoThumbnail(result.metadata.thumbnailUrl);
-        }
+        if (result.metadata.thumbnailUrl) setVideoThumbnail(result.metadata.thumbnailUrl);
       }
 
       if (result.success && result.recipe) {
@@ -210,7 +187,6 @@ export default function AddRecipeScreen() {
         setSourceUrl(urlToProcess);
         setStage('extracted');
       } else if (result.needsManualInput) {
-        // Need to fall back to manual input
         setStage('needsManualInput');
         setErrorMessage(result.error || 'Could not extract recipe automatically.');
       } else {
@@ -233,17 +209,15 @@ export default function AddRecipeScreen() {
 
   useEffect(() => {
     if (!shouldShowShareFail) return;
-    Alert.alert(
-      'No Link Found',
-      'We couldn’t detect a shareable link. In Instagram, tap “Copy Link” and paste it here.'
-    );
+    Alert.alert('No Link Found', 'We couldn\'t detect a shareable link. In Instagram, tap "Copy Link" and paste it here.');
   }, [shouldShowShareFail]);
 
   const handleManualExtract = async () => {
-    if (!manualDescription.trim()) {
-      Alert.alert('Error', 'Please enter the recipe description');
-      return;
-    }
+    if (!manualDescription.trim()) { Alert.alert('Error', 'Please enter the recipe description'); return; }
+
+    // Gate check for free users
+    const allowed = await checkGate('recipe');
+    if (!allowed) return;
 
     try {
       setStage('extracting');
@@ -253,10 +227,7 @@ export default function AddRecipeScreen() {
       const result = await socialService.extractRecipeFromManualInput(
         manualDescription.trim(),
         videoMetadata || undefined,
-        (progress) => {
-          setExtractingProgress(progress.progress);
-          setExtractingStage(progress.stage);
-        }
+        (progress) => { setExtractingProgress(progress.progress); setExtractingStage(progress.stage); }
       );
 
       if (result.success && result.recipe) {
@@ -280,18 +251,18 @@ export default function AddRecipeScreen() {
       return;
     }
 
+    // Gate check for free users
+    const allowed = await checkGate('recipe');
+    if (!allowed) return;
+
     try {
       setStage('extracting');
       setExtractingProgress(20);
       setExtractingStage('Analyzing video thumbnail...');
 
       const result = await socialService.extractRecipeFromVision(
-        videoThumbnail,
-        videoMetadata,
-        (progress) => {
-          setExtractingProgress(progress.progress);
-          setExtractingStage(progress.stage);
-        }
+        videoThumbnail, videoMetadata,
+        (progress) => { setExtractingProgress(progress.progress); setExtractingStage(progress.stage); }
       );
 
       if (result.success && result.recipe) {
@@ -311,16 +282,12 @@ export default function AddRecipeScreen() {
 
   const handleSave = async () => {
     if (!extractedRecipe) return;
-
     try {
       setIsSaving(true);
-
       await addRecipe(extractedRecipe, sourceUrl);
-
+      await useUsageStore.getState().incrementUsage('recipe');
       setIsSaving(false);
-      Alert.alert('Success', 'Recipe saved!', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      Alert.alert('Success', 'Recipe saved!', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (error: any) {
       setIsSaving(false);
       Alert.alert('Error', error.message || 'Failed to save recipe');
@@ -341,7 +308,10 @@ export default function AddRecipeScreen() {
     setDetectedPlatform(initialPlatform);
   };
 
-  // Extracted recipe preview
+  const isPremium = useAuthStore((s) => s.user?.is_premium);
+  const recipesRemaining = useUsageStore((s) => s.getRecipesRemaining());
+
+  // ── Extracted ──
   if (stage === 'extracted' && extractedRecipe) {
     return (
       <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -351,67 +321,52 @@ export default function AddRecipeScreen() {
           onEdit={() => {}}
           onDiscard={handleReset}
           isSaving={isSaving}
+          usageBanner={!isPremium ? { remaining: recipesRemaining, total: FREE_PLAN_LIMITS.recipes_per_week } : undefined}
         />
       </View>
     );
   }
 
-  // Manual input fallback UI
+  // ── Manual Input ──
   if (stage === 'needsManualInput') {
     return (
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}>
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12 }]}>
           <View style={styles.topBar}>
-            <TouchableOpacity
-              style={styles.backButtonTouch}
-              onPress={handleReset}
-            >
-              <Ionicons name="arrow-back" size={20} color="#1C100D" />
+            <TouchableOpacity style={styles.backBtn} onPress={handleReset}>
+              <Ionicons name="arrow-back" size={22} color="#1A1510" />
             </TouchableOpacity>
             <Text style={styles.topTitle}>Add Details</Text>
             <View style={styles.topSpacer} />
           </View>
 
-          {/* Thumbnail Preview */}
           {videoThumbnail ? (
-            <View style={styles.thumbnailPreview}>
-              <Image source={{ uri: videoThumbnail }} style={styles.thumbnailSmall} />
-              <View style={styles.thumbnailInfo}>
-                <Text style={styles.thumbnailTitle} numberOfLines={2}>
-                  {videoMetadata?.title || 'Video'}
-                </Text>
-                <Text style={styles.thumbnailAuthor}>
-                  {videoMetadata?.author || platformConfig.name}
-                </Text>
+            <View style={styles.thumbRow}>
+              <Image source={{ uri: videoThumbnail }} style={styles.thumbImg} />
+              <View style={styles.thumbInfo}>
+                <Text style={styles.thumbTitle} numberOfLines={2}>{videoMetadata?.title || 'Video'}</Text>
+                <Text style={styles.thumbAuthor}>{videoMetadata?.author || platformConfig.name}</Text>
               </View>
             </View>
           ) : null}
 
-          {/* Error Message */}
-          <View style={styles.errorBox}>
-            <Ionicons name="information-circle" size={24} color="#F2330D" />
-            <Text style={styles.errorText}>
+          <View style={styles.infoBox}>
+            <Ionicons name="information-circle" size={20} color="#C66E4E" />
+            <Text style={styles.infoText}>
               {errorMessage || "We couldn't extract the recipe automatically. Please provide the recipe details below."}
             </Text>
           </View>
 
-          {/* Vision Fallback Option */}
           {videoThumbnail && (
-            <TouchableOpacity style={styles.visionButton} onPress={handleTryVision}>
-              <Ionicons name="eye" size={20} color="#9C5749" />
-              <Text style={styles.visionButtonText}>Try AI Vision Analysis</Text>
+            <TouchableOpacity style={styles.visionBtn} onPress={handleTryVision}>
+              <Ionicons name="eye-outline" size={18} color="#1A1510" />
+              <Text style={styles.visionBtnText}>Try AI Vision Analysis</Text>
             </TouchableOpacity>
           )}
 
-          {/* Manual Input */}
-          <View style={styles.inputSection}>
-            <Text style={styles.inputLabel}>Recipe Description</Text>
-            <Text style={styles.inputHint}>
-              Include ingredients, amounts, and cooking steps
-            </Text>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Recipe Description</Text>
+            <Text style={styles.fieldHint}>Include ingredients, amounts, and cooking steps</Text>
             <TextInput
               style={styles.manualInput}
               placeholder="Example: 2 cups flour, 1 cup sugar, 2 eggs. Mix dry ingredients, add eggs, bake at 350F for 30 minutes..."
@@ -420,137 +375,105 @@ export default function AddRecipeScreen() {
               multiline
               numberOfLines={8}
               textAlignVertical="top"
-              placeholderTextColor="#9C5749"
+              placeholderTextColor="#D5D1CB"
             />
           </View>
 
           <TouchableOpacity
-            style={[styles.extractButton, !manualDescription.trim() && styles.extractButtonDisabled]}
+            style={[styles.primaryBtn, !manualDescription.trim() && styles.primaryBtnDisabled]}
             onPress={handleManualExtract}
             disabled={!manualDescription.trim()}
-            activeOpacity={0.9}
           >
-            <Ionicons name="sparkles" size={20} color="#FFFFFF" />
-            <Text style={styles.extractButtonText}>Extract Recipe</Text>
+            <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+            <Text style={styles.primaryBtnText}>Extract Recipe</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.cancelButton} onPress={handleReset}>
-            <Text style={styles.cancelButtonText}>Start Over</Text>
+          <TouchableOpacity style={styles.textBtn} onPress={handleReset}>
+            <Text style={styles.textBtnText}>Start Over</Text>
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     );
   }
 
-  // Extracting state UI
+  // ── Extracting ──
   if (stage === 'extracting') {
     return (
       <View style={styles.container}>
-        <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}>
-          {/* Top Bar */}
+        <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12 }]}>
           <View style={styles.topBar}>
-            <TouchableOpacity
-              style={styles.backButtonTouch}
-              onPress={() => {
-                setStage('idle');
-                handleReset();
-              }}
-            >
-              <Ionicons name="arrow-back" size={20} color="#1C100D" />
+            <TouchableOpacity style={styles.backBtn} onPress={() => { setStage('idle'); handleReset(); }}>
+              <Ionicons name="arrow-back" size={22} color="#1A1510" />
             </TouchableOpacity>
             <Text style={styles.topTitle}>New Recipe</Text>
             <View style={styles.topSpacer} />
           </View>
 
-          {/* Input Section (read-only) */}
-          <View style={styles.inputSection}>
-            <Text style={styles.inputLabel}>Video Link</Text>
-            <View style={styles.readOnlyInput}>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Link</Text>
+            <View style={styles.readOnly}>
               <Text style={styles.readOnlyText} numberOfLines={1}>{url}</Text>
-              <View style={styles.linkIconContainer}>
-                <Ionicons name="link" size={20} color="#9C5749" />
-              </View>
+              <Ionicons name="link" size={18} color="#B5B0A7" />
             </View>
-            <TouchableOpacity style={styles.extractingButton} disabled>
-              <Ionicons name="sync" size={20} color="#FFFFFF" style={styles.spinIcon} />
-              <Text style={styles.extractingButtonText}>Extracting...</Text>
-            </TouchableOpacity>
           </View>
 
-          <View style={styles.divider} />
-
-          {/* AI Feedback Zone */}
-          <Animated.View style={[styles.aiFeedbackZone, { transform: [{ scale: pulseAnim }] }]}>
-            <View style={styles.thumbnailContainer}>
+          {/* AI Feedback */}
+          <Animated.View style={[styles.aiFeedback, { transform: [{ scale: pulseAnim }] }]}>
+            <View style={styles.thumbContainer}>
               {videoThumbnail ? (
-                <Image source={{ uri: videoThumbnail }} style={styles.thumbnail} />
+                <Image source={{ uri: videoThumbnail }} style={styles.thumbLarge} />
               ) : (
-                <View style={[styles.thumbnail, styles.thumbnailPlaceholder]}>
-                  <Ionicons name={platformConfig.icon} size={40} color={platformConfig.color} />
+                <View style={[styles.thumbLarge, styles.thumbPlaceholder]}>
+                  <Ionicons name={platformConfig.icon} size={36} color={platformConfig.color} />
                 </View>
               )}
-              <View style={styles.thumbnailOverlay} />
+              <View style={styles.thumbOverlay} />
               <View style={styles.aiBadge}>
-                <Ionicons name="sparkles" size={18} color="#F2330D" />
-                <Text style={styles.aiBadgeText}>AI Chef is active</Text>
+                <Ionicons name="sparkles" size={14} color="#D4AF37" />
+                <Text style={styles.aiBadgeText}>AI extracting</Text>
               </View>
             </View>
 
-            <View style={styles.extractingInfo}>
-              <Text style={styles.extractingTitle}>Cooking up your recipe...</Text>
-              <Text style={styles.extractingSubtitle}>
-                Our AI is analyzing the {detectedPlatform === 'website' ? 'webpage' : `${platformConfig.name} video`} and identifying ingredients for you.
-              </Text>
-            </View>
+            <Text style={styles.extractingTitle}>Analyzing recipe...</Text>
+            <Text style={styles.extractingSub}>
+              Our AI is reading the {detectedPlatform === 'website' ? 'webpage' : `${platformConfig.name} content`} and identifying ingredients.
+            </Text>
           </Animated.View>
 
-          {/* Progress Bar */}
-          <View style={styles.progressSection}>
-            <View style={styles.progressHeader}>
+          {/* Progress */}
+          <View style={styles.progressWrap}>
+            <View style={styles.progressHead}>
               <Text style={styles.progressLabel}>{extractingStage}</Text>
-              <Text style={styles.progressPercent}>{extractingProgress}%</Text>
+              <Text style={styles.progressPct}>{extractingProgress}%</Text>
             </View>
             <View style={styles.progressTrack}>
-              <Animated.View
-                style={[
-                  styles.progressFill,
-                  { width: `${extractingProgress}%` },
-                ]}
-              >
+              <Animated.View style={[styles.progressFill, { width: `${extractingProgress}%` }]}>
                 <Animated.View
-                  style={[
-                    styles.progressShimmer,
-                    {
-                      transform: [{
-                        translateX: shimmerAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [-100, 200],
-                        }),
-                      }],
-                    },
-                  ]}
+                  style={[styles.progressShimmer, {
+                    transform: [{ translateX: shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [-100, 200] }) }],
+                  }]}
                 />
               </Animated.View>
             </View>
           </View>
 
-          {/* Skeleton Content */}
-          <View style={styles.skeletonSection}>
-            <View style={styles.skeletonGroup}>
-              <View style={styles.skeletonLabel} />
-              <View style={styles.skeletonTags}>
-                <View style={[styles.skeletonTag, { width: 80 }]} />
-                <View style={[styles.skeletonTag, { width: 112 }]} />
-                <View style={[styles.skeletonTag, { width: 64 }]} />
+          {/* Skeleton */}
+          <View style={styles.skeleton}>
+            <View style={styles.skelGroup}>
+              <View style={styles.skelLabel} />
+              <View style={styles.skelTags}>
+                <View style={[styles.skelTag, { width: 80 }]} />
+                <View style={[styles.skelTag, { width: 112 }]} />
+                <View style={[styles.skelTag, { width: 64 }]} />
               </View>
             </View>
-            <View style={styles.skeletonGroup}>
-              <View style={styles.skeletonLabel} />
-              <View style={styles.skeletonStep}>
-                <View style={styles.skeletonCircle} />
-                <View style={styles.skeletonLines}>
-                  <View style={styles.skeletonLine} />
-                  <View style={[styles.skeletonLine, { width: '90%' }]} />
+            <View style={styles.skelGroup}>
+              <View style={styles.skelLabel} />
+              <View style={styles.skelStep}>
+                <View style={styles.skelCircle} />
+                <View style={styles.skelLines}>
+                  <View style={styles.skelLine} />
+                  <View style={[styles.skelLine, { width: '90%' }]} />
                 </View>
               </View>
             </View>
@@ -560,38 +483,31 @@ export default function AddRecipeScreen() {
     );
   }
 
-  // Default input state
+  // ── Default / Idle ──
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12 }]}>
         <View style={styles.topBar}>
-          <TouchableOpacity
-            style={styles.backButtonTouch}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={20} color="#1C100D" />
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={22} color="#1A1510" />
           </TouchableOpacity>
           <Text style={styles.topTitle}>New Recipe</Text>
           <View style={styles.topSpacer} />
         </View>
 
-        <View style={styles.header}>
-          <View style={[styles.iconContainer, { backgroundColor: platformConfig.bgColor }]}>
-            <Ionicons name={platformConfig.icon} size={32} color={platformConfig.color} />
+        <View style={styles.idleHeader}>
+          <View style={[styles.platformIcon, { backgroundColor: platformConfig.bgColor }]}>
+            <Ionicons name={platformConfig.icon} size={28} color={platformConfig.color} />
           </View>
-
-          <Text style={styles.title}>Add from {platformConfig.name}</Text>
-          <Text style={styles.subtitle}>
+          <Text style={styles.idleTitle}>Add from {platformConfig.name}</Text>
+          <Text style={styles.idleSub}>
             Paste a {detectedPlatform === 'website' ? 'website link' : `${platformConfig.name.toLowerCase()} link`} and we'll extract the recipe automatically.
           </Text>
         </View>
 
-        <View style={styles.inputSection}>
-          <Text style={styles.inputLabel}>Video Link</Text>
-          <View style={styles.urlInputContainer}>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>Link</Text>
+          <View style={styles.urlInputWrap}>
             <TextInput
               placeholder={platformConfig.placeholder}
               value={url}
@@ -600,41 +516,47 @@ export default function AddRecipeScreen() {
               autoCorrect={false}
               keyboardType="url"
               style={styles.urlInput}
-              placeholderTextColor="#9C5749"
+              placeholderTextColor="#D5D1CB"
             />
-            <View style={styles.linkIconContainer}>
-              <Ionicons name="link" size={20} color="#9C5749" />
+            <View style={styles.urlIconWrap}>
+              <Ionicons name="link" size={18} color="#B5B0A7" />
             </View>
           </View>
 
-          {/* Platform Detection Badge */}
           {url.trim() && detectedPlatform !== 'unknown' && detectedPlatform !== initialPlatform && (
-            <View style={styles.platformBadge}>
-              <Ionicons name={PLATFORM_CONFIGS[detectedPlatform].icon} size={14} color={PLATFORM_CONFIGS[detectedPlatform].color} />
-              <Text style={styles.platformBadgeText}>
-                Detected: {PLATFORM_CONFIGS[detectedPlatform].name}
-              </Text>
+            <View style={styles.detectedBadge}>
+              <Ionicons name={PLATFORM_CONFIGS[detectedPlatform].icon} size={13} color={PLATFORM_CONFIGS[detectedPlatform].color} />
+              <Text style={styles.detectedText}>Detected: {PLATFORM_CONFIGS[detectedPlatform].name}</Text>
             </View>
           )}
         </View>
 
         <TouchableOpacity
-          style={[styles.extractButton, !url.trim() && styles.extractButtonDisabled]}
+          style={[styles.primaryBtn, !url.trim() && styles.primaryBtnDisabled]}
           onPress={() => handleExtract()}
           disabled={!url.trim()}
-          activeOpacity={0.9}
         >
-          <Ionicons name="sparkles" size={20} color="#FFFFFF" />
-          <Text style={styles.extractButtonText}>Extract Recipe</Text>
+          <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+          <Text style={styles.primaryBtnText}>Extract Recipe</Text>
         </TouchableOpacity>
 
         <View style={styles.tips}>
-          <Text style={styles.tipsTitle}>Tips for best results:</Text>
+          <Text style={styles.tipsLabel}>Tips for best results</Text>
           {platformConfig.tips.map((tip, index) => (
-            <Text key={index} style={styles.tip}>• {tip}</Text>
+            <View key={index} style={styles.tipRow}>
+              <View style={styles.tipDot} />
+              <Text style={styles.tipText}>{tip}</Text>
+            </View>
           ))}
         </View>
       </ScrollView>
+
+      <UsageLimitSheet
+        ref={limitSheetRef}
+        limitType={limitInfo.type}
+        used={limitInfo.used}
+        total={limitInfo.total}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -642,400 +564,356 @@ export default function AddRecipeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: '#FAFAF8',
   },
-  content: {
+  scroll: {
     paddingHorizontal: 20,
     paddingBottom: 80,
   },
+
+  // ── Top Bar ──
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 20,
   },
-  backButtonTouch: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'transparent',
+  backBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   topTitle: {
-    color: '#1C100D',
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 18,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 16,
+    color: '#1A1510',
     flex: 1,
     textAlign: 'center',
   },
   topSpacer: {
-    width: 48,
+    width: 42,
   },
-  header: {
+
+  // ── Idle Header ──
+  idleHeader: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 28,
   },
-  iconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
+  platformIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
-  title: {
-    textAlign: 'center',
-    marginBottom: 12,
-    color: '#1C100D',
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
+  idleTitle: {
+    fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 24,
-  },
-  subtitle: {
+    color: '#1A1510',
     textAlign: 'center',
-    color: '#9C5749',
+    marginBottom: 8,
+  },
+  idleSub: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 14,
-    lineHeight: 22,
+    color: '#B5B0A7',
+    textAlign: 'center',
+    lineHeight: 21,
     paddingHorizontal: 16,
-    fontFamily: 'NotoSans_500Medium',
   },
 
-  // Input Section
-  inputSection: {
+  // ── Field Group ──
+  fieldGroup: {
     marginBottom: 16,
   },
-  inputLabel: {
-    color: '#1C100D',
-    fontFamily: 'NotoSans_600SemiBold',
-    fontSize: 15,
+  fieldLabel: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: '#B5B0A7',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
     marginBottom: 8,
+    marginLeft: 4,
   },
-  inputHint: {
-    color: '#9C5749',
-    fontFamily: 'NotoSans_500Medium',
+  fieldHint: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 13,
+    color: '#B5B0A7',
     marginBottom: 8,
   },
-  urlInputContainer: {
+
+  // ── URL Input ──
+  urlInputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
     borderRadius: 14,
     overflow: 'hidden',
   },
   urlInput: {
     flex: 1,
-    height: 56,
+    height: 52,
     paddingHorizontal: 16,
-    fontFamily: 'NotoSans_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 15,
-    color: '#1C100D',
+    color: '#1A1510',
   },
-  linkIconContainer: {
+  urlIconWrap: {
     paddingHorizontal: 16,
-    height: 56,
+    height: 52,
     justifyContent: 'center',
     alignItems: 'center',
-    borderLeftWidth: 1,
-    borderLeftColor: '#E8D3CE',
-    backgroundColor: '#FFFFFF',
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: 'rgba(26, 21, 16, 0.06)',
   },
-  readOnlyInput: {
+
+  // ── Read Only ──
+  readOnly: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    backgroundColor: 'rgba(26, 21, 16, 0.03)',
     borderRadius: 14,
-    overflow: 'hidden',
-    opacity: 0.8,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 10,
     marginBottom: 12,
   },
   readOnlyText: {
     flex: 1,
-    height: 56,
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 15,
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#8A8578',
   },
-  platformBadge: {
+
+  // ── Detected Badge ──
+  detectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#F7F1EE',
+    backgroundColor: 'rgba(26, 21, 16, 0.03)',
     borderRadius: 12,
     alignSelf: 'flex-start',
   },
-  platformBadgeText: {
-    color: '#9C5749',
-    fontFamily: 'NotoSans_500Medium',
+  detectedText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 12,
+    color: '#8A8578',
   },
 
-  // Manual Input
+  // ── Manual Input ──
   manualInput: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
     borderRadius: 14,
     padding: 16,
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 15,
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#1A1510',
     minHeight: 160,
   },
 
-  // Extract Button
-  extractButton: {
+  // ── Primary Button ──
+  primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#F2330D',
-    borderRadius: 14,
+    backgroundColor: '#C66E4E',
+    borderRadius: 20,
     height: 52,
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  extractButtonDisabled: {
-    backgroundColor: 'rgba(242, 51, 13, 0.5)',
-    shadowOpacity: 0,
+  primaryBtnDisabled: {
+    backgroundColor: 'rgba(198, 110, 78, 0.4)',
   },
-  extractButtonText: {
+  primaryBtnText: {
     fontFamily: 'PlusJakartaSans_700Bold',
     fontSize: 15,
     color: '#FFFFFF',
   },
 
-  // Extracting Button
-  extractingButton: {
-    flexDirection: 'row',
+  // ── Text Button ──
+  textBtn: {
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(242, 51, 13, 0.9)',
-    borderRadius: 14,
-    height: 52,
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  extractingButtonText: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 15,
-    color: '#FFFFFF',
-  },
-  spinIcon: {
-    // Note: React Native doesn't have CSS animations, we'd need Animated for spin
-  },
-
-  // Cancel Button
-  cancelButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 16,
-    marginTop: 8,
+    marginTop: 4,
   },
-  cancelButtonText: {
-    fontFamily: 'NotoSans_600SemiBold',
-    fontSize: 15,
-    color: '#9C5749',
+  textBtnText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 14,
+    color: '#8A8578',
   },
 
-  // Vision Button
-  visionButton: {
+  // ── Vision Button ──
+  visionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#F7F1EE',
-    borderRadius: 12,
+    backgroundColor: 'rgba(26, 21, 16, 0.03)',
+    borderRadius: 14,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
   },
-  visionButtonText: {
-    fontFamily: 'NotoSans_600SemiBold',
-    fontSize: 14,
-    color: '#9C5749',
+  visionBtnText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 13,
+    color: '#1A1510',
   },
 
-  // Error Box
-  errorBox: {
+  // ── Info Box ──
+  infoBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
     padding: 16,
-    backgroundColor: 'rgba(242, 51, 13, 0.08)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(198, 110, 78, 0.06)',
+    borderRadius: 14,
     marginBottom: 16,
   },
-  errorText: {
+  infoText: {
     flex: 1,
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 14,
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: '#1A1510',
     lineHeight: 20,
   },
 
-  // Thumbnail Preview
-  thumbnailPreview: {
+  // ── Thumbnail Row ──
+  thumbRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     padding: 12,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(26, 21, 16, 0.06)',
     marginBottom: 16,
   },
-  thumbnailSmall: {
-    width: 80,
-    height: 60,
-    borderRadius: 8,
+  thumbImg: {
+    width: 72,
+    height: 54,
+    borderRadius: 10,
   },
-  thumbnailInfo: {
+  thumbInfo: {
     flex: 1,
   },
-  thumbnailTitle: {
-    fontFamily: 'NotoSans_600SemiBold',
-    fontSize: 14,
-    color: '#1C100D',
-    marginBottom: 4,
+  thumbTitle: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 13,
+    color: '#1A1510',
+    marginBottom: 3,
   },
-  thumbnailAuthor: {
-    fontFamily: 'NotoSans_500Medium',
+  thumbAuthor: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 12,
-    color: '#9C5749',
+    color: '#B5B0A7',
   },
 
-  divider: {
-    height: 1,
-    backgroundColor: '#E8D3CE',
-    marginVertical: 16,
-  },
-
-  // AI Feedback Zone
-  aiFeedbackZone: {
+  // ── AI Feedback ──
+  aiFeedback: {
     alignItems: 'center',
     paddingVertical: 24,
   },
-  thumbnailContainer: {
+  thumbContainer: {
     width: '100%',
-    maxWidth: 360,
     aspectRatio: 16 / 9,
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#E8D3CE',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
     marginBottom: 24,
   },
-  thumbnail: {
+  thumbLarge: {
     width: '100%',
     height: '100%',
   },
-  thumbnailPlaceholder: {
+  thumbPlaceholder: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F7F1EE',
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
   },
-  thumbnailOverlay: {
+  thumbOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
   aiBadge: {
     position: 'absolute',
-    bottom: 16,
-    left: 16,
+    bottom: 14,
+    left: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderRadius: 20,
   },
   aiBadgeText: {
-    fontFamily: 'NotoSans_600SemiBold',
-    fontSize: 13,
-    color: '#1C100D',
-  },
-  extractingInfo: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 12,
+    color: '#1A1510',
   },
   extractingTitle: {
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 20,
-    color: '#1C100D',
+    color: '#1A1510',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  extractingSubtitle: {
-    fontFamily: 'NotoSans_500Medium',
-    fontSize: 14,
-    color: '#9C5749',
+  extractingSub: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: '#B5B0A7',
     textAlign: 'center',
     lineHeight: 20,
+    paddingHorizontal: 16,
   },
 
-  // Progress Bar
-  progressSection: {
-    paddingHorizontal: 8,
+  // ── Progress ──
+  progressWrap: {
     marginBottom: 24,
   },
-  progressHeader: {
+  progressHead: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   progressLabel: {
-    fontFamily: 'NotoSans_700Bold',
-    fontSize: 12,
-    color: '#F2330D',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: '#C66E4E',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  progressPercent: {
-    fontFamily: 'NotoSans_700Bold',
-    fontSize: 12,
-    color: '#9C5749',
+  progressPct: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: '#B5B0A7',
   },
   progressTrack: {
-    height: 8,
-    backgroundColor: '#E8D3CE',
-    borderRadius: 4,
+    height: 6,
+    backgroundColor: 'rgba(26, 21, 16, 0.06)',
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#F2330D',
-    borderRadius: 4,
+    backgroundColor: '#C66E4E',
+    borderRadius: 3,
     overflow: 'hidden',
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
   },
   progressShimmer: {
     position: 'absolute',
@@ -1047,68 +925,82 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
 
-  // Skeleton
-  skeletonSection: {
-    paddingHorizontal: 8,
+  // ── Skeleton ──
+  skeleton: {
     gap: 24,
   },
-  skeletonGroup: {
+  skelGroup: {
     gap: 12,
   },
-  skeletonLabel: {
-    height: 20,
+  skelLabel: {
+    height: 16,
     width: 96,
-    backgroundColor: '#E8D3CE',
+    backgroundColor: 'rgba(26, 21, 16, 0.06)',
     borderRadius: 4,
   },
-  skeletonTags: {
+  skelTags: {
     flexDirection: 'row',
     gap: 8,
   },
-  skeletonTag: {
-    height: 32,
-    backgroundColor: '#F7F1EE',
+  skelTag: {
+    height: 28,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
     borderRadius: 8,
   },
-  skeletonStep: {
+  skelStep: {
     flexDirection: 'row',
     gap: 12,
   },
-  skeletonCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#E8D3CE',
+  skelCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(26, 21, 16, 0.06)',
   },
-  skeletonLines: {
+  skelLines: {
     flex: 1,
     gap: 8,
   },
-  skeletonLine: {
-    height: 16,
+  skelLine: {
+    height: 14,
     width: '100%',
-    backgroundColor: '#F7F1EE',
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
     borderRadius: 4,
   },
 
-  // Tips
+  // ── Tips ──
   tips: {
     marginTop: 24,
-    padding: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(26, 21, 16, 0.03)',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    padding: 18,
+    gap: 8,
   },
-  tipsTitle: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
-    marginBottom: 12,
+  tipsLabel: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: '#B5B0A7',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
-  tip: {
-    color: '#9C5749',
-    fontSize: 14,
-    lineHeight: 26,
-    fontFamily: 'NotoSans_500Medium',
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  tipDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D5D1CB',
+    marginTop: 7,
+  },
+  tipText: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: '#8A8578',
+    lineHeight: 20,
   },
 });

@@ -17,7 +17,7 @@ import {
 } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import type { UserProfile, Follow } from '@/utils/types';
+import type { UserProfile } from '@/utils/types';
 import { firebaseService } from './firebase.service';
 
 // Firebase configuration from environment variables
@@ -36,6 +36,12 @@ class UserService {
   constructor() {
     const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
     this.db = getFirestore(app);
+  }
+
+  private removeUndefinedFields<T extends Record<string, any>>(obj: T): Partial<T> {
+    return Object.fromEntries(
+      Object.entries(obj).filter(([, value]) => value !== undefined)
+    ) as Partial<T>;
   }
 
   // ============================================
@@ -207,8 +213,6 @@ class UserService {
         avatar_url: data.avatar_url,
         bio: data.bio,
         is_public: data.is_public ?? true,
-        followers_count: 0,
-        following_count: 0,
         recipes_count: 0,
         created_at: data.created_at,
         updated_at: data.updated_at,
@@ -224,6 +228,10 @@ class UserService {
   // ============================================
   async getUserProfile(userId: string): Promise<UserProfile | null> {
     try {
+      if (!this.getCurrentUserId()) {
+        return null;
+      }
+
       const docRef = doc(this.db, 'users', userId);
       const docSnap = await getDoc(docRef);
 
@@ -232,12 +240,6 @@ class UserService {
       }
 
       const data = docSnap.data();
-
-      // Get follower/following counts
-      const [followersCount, followingCount] = await Promise.all([
-        this.getFollowersCount(userId),
-        this.getFollowingCount(userId),
-      ]);
 
       // Get recipes count
       const recipesRef = collection(this.db, 'recipes');
@@ -252,15 +254,18 @@ class UserService {
         avatar_url: data.avatar_url,
         bio: data.bio,
         is_public: data.is_public ?? true,
-        followers_count: followersCount,
-        following_count: followingCount,
         recipes_count: recipesSnap.size,
         is_online: data.is_online,
         last_seen_at: data.last_seen_at,
         created_at: data.created_at,
         updated_at: data.updated_at,
       };
-    } catch (error) {
+    } catch (error: any) {
+      // During sign-out and route transitions, auth can drop mid-request.
+      // Treat permission-denied as "profile unavailable" instead of throwing.
+      if (error?.code === 'permission-denied') {
+        return null;
+      }
       this.handleError(error);
     }
   }
@@ -278,215 +283,75 @@ class UserService {
       const usersRef = collection(this.db, 'users');
       const results: Map<string, UserProfile> = new Map();
 
-      // Check if searching by username (starts with @)
       const isUsernameSearch = normalizedQuery.startsWith('@');
       const cleanQuery = isUsernameSearch ? normalizedQuery.slice(1) : normalizedQuery;
 
-      // Search by username if query starts with @ or looks like a username
+      const docToProfile = (d: any): UserProfile => {
+        const data = d.data();
+        return {
+          id: d.id,
+          email: data.email || '',
+          username: data.username,
+          full_name: data.full_name,
+          avatar_url: data.avatar_url,
+          bio: data.bio,
+          is_public: data.is_public ?? true,
+          recipes_count: 0,
+          created_at: data.created_at,
+          updated_at: data.updated_at,
+        } as UserProfile;
+      };
+
+      // Build all queries to run in parallel
+      const queries: Promise<any>[] = [];
+
+      // Username prefix search
       if (isUsernameSearch || /^[a-z0-9_]+$/.test(cleanQuery)) {
-        const usernameQuery = query(
-          usersRef,
-          where('username', '>=', cleanQuery),
-          where('username', '<=', cleanQuery + '\uf8ff'),
-          firestoreLimit(limitCount)
+        queries.push(
+          getDocs(query(
+            usersRef,
+            where('username', '>=', cleanQuery),
+            where('username', '<=', cleanQuery + '\uf8ff'),
+            firestoreLimit(limitCount)
+          ))
         );
-
-        const usernameSnapshot = await getDocs(usernameQuery);
-        usernameSnapshot.docs.forEach(doc => {
-          if (doc.id !== currentUserId) {
-            const data = doc.data();
-            results.set(doc.id, {
-              id: doc.id,
-              email: data.email || '',
-              username: data.username,
-              full_name: data.full_name,
-              avatar_url: data.avatar_url,
-              bio: data.bio,
-              is_public: data.is_public ?? true,
-              followers_count: 0,
-              following_count: 0,
-              recipes_count: 0,
-              created_at: data.created_at,
-              updated_at: data.updated_at,
-            } as UserProfile);
-          }
-        });
       }
 
-      // Also search by full_name if not a pure username search
-      if (!isUsernameSearch) {
-        const nameQuery = query(
-          usersRef,
-          orderBy('full_name'),
-          startAt(searchQuery),
-          endAt(searchQuery + '\uf8ff'),
-          firestoreLimit(limitCount)
-        );
+      // Full name search — run multiple case variants in parallel
+      if (!isUsernameSearch && cleanQuery.length > 0) {
+        const capitalised = cleanQuery.charAt(0).toUpperCase() + cleanQuery.slice(1);
+        const variants = new Set([searchQuery.trim(), cleanQuery, capitalised]);
 
-        const nameSnapshot = await getDocs(nameQuery);
-        nameSnapshot.docs.forEach(doc => {
-          if (doc.id !== currentUserId && !results.has(doc.id)) {
-            const data = doc.data();
-            results.set(doc.id, {
-              id: doc.id,
-              email: data.email || '',
-              username: data.username,
-              full_name: data.full_name,
-              avatar_url: data.avatar_url,
-              bio: data.bio,
-              is_public: data.is_public ?? true,
-              followers_count: 0,
-              following_count: 0,
-              recipes_count: 0,
-              created_at: data.created_at,
-              updated_at: data.updated_at,
-            } as UserProfile);
-          }
-        });
+        for (const variant of variants) {
+          queries.push(
+            getDocs(query(
+              usersRef,
+              orderBy('full_name'),
+              startAt(variant),
+              endAt(variant + '\uf8ff'),
+              firestoreLimit(limitCount)
+            ))
+          );
+        }
       }
 
-      return Array.from(results.values()).slice(0, limitCount);
+      // Execute all queries in parallel
+      const snapshots = await Promise.all(queries);
+
+      for (const snapshot of snapshots) {
+        for (const d of snapshot.docs) {
+          if (d.id !== currentUserId && !results.has(d.id)) {
+            results.set(d.id, docToProfile(d));
+          }
+        }
+      }
+
+      return Array.from(results.values())
+        .filter(u => u.is_public !== false)
+        .slice(0, limitCount);
     } catch (error) {
       console.error('[UserService] Search error:', error);
       return [];
-    }
-  }
-
-  // ============================================
-  // FOLLOW SYSTEM
-  // ============================================
-  private getFollowId(followerId: string, followingId: string): string {
-    return `${followerId}_${followingId}`;
-  }
-
-  async followUser(targetUserId: string): Promise<void> {
-    try {
-      const userId = this.requireAuth();
-
-      if (userId === targetUserId) {
-        throw new Error('You cannot follow yourself');
-      }
-
-      const followId = this.getFollowId(userId, targetUserId);
-      const followRef = doc(this.db, 'follows', followId);
-
-      // Check if already following
-      const existingFollow = await getDoc(followRef);
-      if (existingFollow.exists()) {
-        throw new Error('Already following this user');
-      }
-
-      const now = new Date().toISOString();
-      const followData: Omit<Follow, 'id'> = {
-        follower_id: userId,
-        following_id: targetUserId,
-        created_at: now,
-      };
-
-      await setDoc(followRef, followData);
-    } catch (error) {
-      this.handleError(error);
-    }
-  }
-
-  async unfollowUser(targetUserId: string): Promise<void> {
-    try {
-      const userId = this.requireAuth();
-
-      const followId = this.getFollowId(userId, targetUserId);
-      const followRef = doc(this.db, 'follows', followId);
-
-      await deleteDoc(followRef);
-    } catch (error) {
-      this.handleError(error);
-    }
-  }
-
-  async isFollowing(targetUserId: string): Promise<boolean> {
-    try {
-      const userId = this.getCurrentUserId();
-      if (!userId) return false;
-
-      const followId = this.getFollowId(userId, targetUserId);
-      const followRef = doc(this.db, 'follows', followId);
-      const followSnap = await getDoc(followRef);
-
-      return followSnap.exists();
-    } catch (error) {
-      console.error('[UserService] isFollowing error:', error);
-      return false;
-    }
-  }
-
-  async getFollowers(userId: string, limitCount = 50): Promise<UserProfile[]> {
-    try {
-      const followsRef = collection(this.db, 'follows');
-      const q = query(
-        followsRef,
-        where('following_id', '==', userId),
-        orderBy('created_at', 'desc'),
-        firestoreLimit(limitCount)
-      );
-
-      const querySnapshot = await getDocs(q);
-      const followerIds = querySnapshot.docs.map(doc => doc.data().follower_id);
-
-      // Fetch user profiles
-      const profiles = await Promise.all(
-        followerIds.map(id => this.getUserProfile(id))
-      );
-
-      return profiles.filter((p): p is UserProfile => p !== null);
-    } catch (error) {
-      console.error('[UserService] getFollowers error:', error);
-      return [];
-    }
-  }
-
-  async getFollowing(userId: string, limitCount = 50): Promise<UserProfile[]> {
-    try {
-      const followsRef = collection(this.db, 'follows');
-      const q = query(
-        followsRef,
-        where('follower_id', '==', userId),
-        orderBy('created_at', 'desc'),
-        firestoreLimit(limitCount)
-      );
-
-      const querySnapshot = await getDocs(q);
-      const followingIds = querySnapshot.docs.map(doc => doc.data().following_id);
-
-      // Fetch user profiles
-      const profiles = await Promise.all(
-        followingIds.map(id => this.getUserProfile(id))
-      );
-
-      return profiles.filter((p): p is UserProfile => p !== null);
-    } catch (error) {
-      console.error('[UserService] getFollowing error:', error);
-      return [];
-    }
-  }
-
-  private async getFollowersCount(userId: string): Promise<number> {
-    try {
-      const followsRef = collection(this.db, 'follows');
-      const q = query(followsRef, where('following_id', '==', userId));
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.size;
-    } catch {
-      return 0;
-    }
-  }
-
-  private async getFollowingCount(userId: string): Promise<number> {
-    try {
-      const followsRef = collection(this.db, 'follows');
-      const q = query(followsRef, where('follower_id', '==', userId));
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.size;
-    } catch {
-      return 0;
     }
   }
 
@@ -537,12 +402,6 @@ class UserService {
         created_at: now,
       });
 
-      // Also unfollow if following
-      try {
-        await this.unfollowUser(targetUserId);
-      } catch {
-        // Ignore if not following
-      }
     } catch (error) {
       this.handleError(error);
     }
@@ -616,9 +475,10 @@ class UserService {
     try {
       const userId = this.requireAuth();
       const userRef = doc(this.db, 'users', userId);
+      const safeUpdates = this.removeUndefinedFields(updates);
 
       await updateDoc(userRef, {
-        ...updates,
+        ...safeUpdates,
         updated_at: new Date().toISOString(),
       });
     } catch (error) {

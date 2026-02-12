@@ -13,10 +13,11 @@ interface EmptyStateProps {
 export function EmptyState({ icon, title, subtitle, action }: EmptyStateProps) {
   return (
     <View style={styles.container}>
-      <View style={styles.iconContainer}>
-        <Ionicons name={icon} size={64} color="#CCC" />
+      <View style={styles.iconWrap}>
+        <Ionicons name={icon} size={36} color="#C66E4E" />
       </View>
-      <Text h4 style={styles.title}>{title}</Text>
+      <View style={styles.line} />
+      <Text style={styles.title}>{title}</Text>
       {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
       {action && <View style={styles.actionContainer}>{action}</View>}
     </View>
@@ -25,33 +26,42 @@ export function EmptyState({ icon, title, subtitle, action }: EmptyStateProps) {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    paddingVertical: 48,
+    paddingHorizontal: 40,
   },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
+  iconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    backgroundColor: 'rgba(198, 110, 78, 0.08)',
     alignItems: 'center',
-    marginBottom: 24,
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  line: {
+    width: 32,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(26, 21, 16, 0.08)',
+    marginBottom: 20,
   },
   title: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 20,
+    color: '#1A1510',
     textAlign: 'center',
-    color: '#1A1A2E',
     marginBottom: 8,
   },
   subtitle: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#B5B0A7',
     textAlign: 'center',
-    color: '#888',
-    fontSize: 16,
-    lineHeight: 24,
+    lineHeight: 21,
     marginBottom: 24,
   },
   actionContainer: {
-    marginTop: 8,
+    marginTop: 4,
   },
 });

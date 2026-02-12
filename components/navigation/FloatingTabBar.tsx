@@ -18,6 +18,7 @@ import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useMessagingStore } from '@/stores/messagingStore';
+import { useAuthStore } from '@/stores/authStore';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -26,15 +27,18 @@ const BAR_HEIGHT = 74;
 const BAR_MARGIN = 16;
 const BAR_RADIUS = 37;
 
-// Tab configuration (5 items - includes messages)
+// Tab configuration
 const TAB_CONFIG: Record<string, { label: string; icon: IconName; iconActive: IconName }> = {
   index: { label: 'Recipes', icon: 'book-outline', iconActive: 'book' },
   messages: { label: 'Messages', icon: 'chatbubble-outline', iconActive: 'chatbubble' },
-  shopping: { label: 'Shopping', icon: 'cart-outline', iconActive: 'cart' },
+  planner: { label: 'Planner', icon: 'calendar-outline', iconActive: 'calendar' },
+  shopping: { label: 'Grocery', icon: 'receipt-outline', iconActive: 'receipt' },
+  pro: { label: 'Pro', icon: 'sparkles-outline', iconActive: 'sparkles' },
   profile: { label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 };
 
-const TAB_ORDER = ['index', 'messages', 'shopping', 'profile'];
+const BASE_TAB_ORDER = ['index', 'messages', 'planner', 'shopping', 'profile'];
+const PREMIUM_TAB_ORDER = ['index', 'messages', 'planner', 'shopping', 'pro', 'profile'];
 
 interface FloatingTabBarProps extends BottomTabBarProps {
   primaryColor?: string;
@@ -105,14 +109,20 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const unreadCount = useMessagingStore((state) => state.unreadCount);
+  const isPremium = useAuthStore((state) => state.user?.is_premium ?? false);
+
+  const tabOrder = (isPremium ? PREMIUM_TAB_ORDER : BASE_TAB_ORDER).filter((routeName) =>
+    state.routes.some((route) => route.name === routeName)
+  );
+
   const [containerWidth, setContainerWidth] = React.useState(0);
   const contentPadding = 8;
   const activeRouteName = state.routes[state.index]?.name;
-  const activeIndex = Math.max(0, TAB_ORDER.indexOf(activeRouteName ?? ''));
+  const activeIndex = Math.max(0, tabOrder.indexOf(activeRouteName ?? ''));
   const activeAnim = React.useRef(new Animated.Value(activeIndex)).current;
   const tabWidth =
     containerWidth > 0
-      ? (containerWidth - contentPadding * 2) / TAB_ORDER.length
+      ? (containerWidth - contentPadding * 2) / Math.max(tabOrder.length, 1)
       : 0;
   const indicatorTranslate = Animated.add(
     Animated.multiply(activeAnim, tabWidth),
@@ -178,12 +188,12 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
                 <View pointerEvents="none" style={styles.activeIndicatorBorder} />
               </Animated.View>
             )}
-            {TAB_ORDER.map((routeName) => {
+            {tabOrder.map((routeName) => {
               const config = TAB_CONFIG[routeName];
               if (!config) return null;
 
               const isActive = state.routes[state.index]?.name === routeName;
-              const tabIndex = TAB_ORDER.indexOf(routeName);
+              const tabIndex = tabOrder.indexOf(routeName);
               const progress = activeAnim.interpolate({
                 inputRange: [tabIndex - 1, tabIndex, tabIndex + 1],
                 outputRange: [0, 1, 0],
@@ -228,17 +238,19 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
                       </View>
                     )}
                   </Animated.View>
-                  <Animated.Text
-                    style={[
-                      styles.tabLabel,
-                      {
-                        color: isActive ? primaryColor : 'rgba(60,60,67,0.5)',
-                        opacity: labelOpacity,
-                      },
-                    ]}
-                  >
-                    {config.label}
-                  </Animated.Text>
+                  {isActive && (
+                    <Animated.Text
+                      style={[
+                        styles.tabLabel,
+                        {
+                          color: primaryColor,
+                          opacity: labelOpacity,
+                        },
+                      ]}
+                    >
+                      {config.label}
+                    </Animated.Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -330,7 +342,7 @@ const styles = StyleSheet.create({
     top: 7,
     bottom: 7,
     left: 0,
-    borderRadius: 20,
+    borderRadius: 100,
     overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.18)',
   },

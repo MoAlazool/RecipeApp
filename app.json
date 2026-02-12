@@ -1,24 +1,20 @@
 {
   "expo": {
-    "name": "RecipeApp",
+    "name": "EITO",
     "slug": "recipe-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "scheme": "recipeapp",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FF6B35"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
+      "usesAppleSignIn": true,
       "bundleIdentifier": "com.moalazool.recipeapp",
-      "buildNumber": "1",
+      "buildNumber": "3",
       "usesNonExemptEncryption": false,
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
@@ -45,16 +41,17 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow RecipeApp to access your camera to scan ingredients"
+          "cameraPermission": "Allow EITO to access your camera to scan ingredients"
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow RecipeApp to access your photos"
+          "photosPermission": "Allow EITO to access your photos"
         }
       ],
       "expo-live-activity",

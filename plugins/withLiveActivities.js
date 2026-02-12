@@ -30,6 +30,10 @@ const SWIFT_FILES = [
   "ViewHelpers.swift",
 ];
 
+const ASSET_DIRS = [
+  "AppLogo.imageset",
+];
+
 module.exports = function withLiveActivities(config) {
   config = withDangerousMod(config, [
     "ios",
@@ -37,6 +41,8 @@ module.exports = function withLiveActivities(config) {
       const platformProjectRoot = config.modRequest.platformProjectRoot;
       const targetPath = path.join(platformProjectRoot, TARGET_NAME);
       const sourcesDir = path.join(__dirname, "live-activity-sources");
+      const targetAssetsPath = path.join(targetPath, "Assets.xcassets");
+      const sourceAssetsPath = path.join(sourcesDir, "Assets.xcassets");
 
       // Ensure the extension directory exists (expo-live-activity should
       // have already created it, but guard for safety).
@@ -47,6 +53,16 @@ module.exports = function withLiveActivities(config) {
         const src = path.join(sourcesDir, fileName);
         const dest = path.join(targetPath, fileName);
         fs.copyFileSync(src, dest);
+      }
+
+      // Keep custom asset catalogs (like AppLogo) stable across prebuild runs.
+      fs.mkdirSync(targetAssetsPath, { recursive: true });
+      for (const dirName of ASSET_DIRS) {
+        const srcDir = path.join(sourceAssetsPath, dirName);
+        const destDir = path.join(targetAssetsPath, dirName);
+        if (!fs.existsSync(srcDir)) continue;
+        fs.rmSync(destDir, { recursive: true, force: true });
+        fs.cpSync(srcDir, destDir, { recursive: true });
       }
 
       return config;

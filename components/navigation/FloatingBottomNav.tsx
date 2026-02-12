@@ -37,7 +37,7 @@ interface FloatingBottomNavProps {
 
 const DEFAULT_ITEMS: NavItem[] = [
   { key: 'recipes', label: 'Recipes', icon: 'home-outline', iconActive: 'home' },
-  { key: 'shopping', label: 'Shopping', icon: 'cart-outline', iconActive: 'cart' },
+  { key: 'shopping', label: 'Grocery', icon: 'receipt-outline', iconActive: 'receipt' },
   { key: 'profile', label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 ];
 
@@ -104,7 +104,7 @@ const TabItem: React.FC<TabItemProps> = ({ item, isActive, onPress, primaryColor
         size={24}
         color={iconColor}
       />
-      <Text style={[styles.tabLabel, { color: iconColor }]}>{item.label}</Text>
+      {isActive && <Text style={[styles.tabLabel, { color: iconColor }]}>{item.label}</Text>}
     </AnimatedPressable>
   );
 };

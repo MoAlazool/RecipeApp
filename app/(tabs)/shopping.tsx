@@ -13,20 +13,30 @@ import {
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withTiming,
+  withDelay,
+  withSequence,
+  FadeIn,
+  FadeOut,
+  Layout,
+  SlideInDown,
 } from 'react-native-reanimated';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import {
   useShoppingStore,
   type ShoppingItem,
 } from '@/stores/shoppingStore';
 import { AddItemModal } from '@/components/shopping/AddItemModal';
-import { EmptyState } from '@/components/ui/EmptyState';
+
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 import { getIngredientImage } from '@/utils/ingredientImages';
@@ -50,40 +60,7 @@ const C = {
 };
 
 // ============================================================
-// CHECKBOX COMPONENT
-// ============================================================
-
-interface CheckboxProps {
-  isChecked: boolean;
-  onToggle: () => void;
-}
-
-const Checkbox = memo(function Checkbox({ isChecked, onToggle }: CheckboxProps) {
-  const scale = useSharedValue(1);
-
-  const handlePress = useCallback(() => {
-    scale.value = withSpring(0.85, { damping: 15 }, () => {
-      scale.value = withSpring(1, { damping: 15 });
-    });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onToggle();
-  }, [onToggle, scale]);
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  return (
-    <Pressable onPress={handlePress} hitSlop={12}>
-      <Animated.View style={[styles.checkbox, isChecked && styles.checkboxChecked, animStyle]}>
-        {isChecked && <Ionicons name="checkmark" size={14} color="#FFF" />}
-      </Animated.View>
-    </Pressable>
-  );
-});
-
-// ============================================================
-// ITEM ROW COMPONENT
+// ITEM ROW COMPONENT (with check/uncheck animation)
 // ============================================================
 
 interface ItemRowProps {
@@ -97,37 +74,95 @@ const ItemRow = memo(function ItemRow({ item, onToggle, onDelete }: ItemRowProps
   const emoji = useMemo(() => getIngredientEmoji(item.name), [item.name]);
   const bgColor = CATEGORY_BG_COLORS[item.category] || C.cardBg;
 
+  // Animation values
+  const checkScale = useSharedValue(1);
+  const rowOpacity = useSharedValue(1);
+  const rowTranslateY = useSharedValue(0);
+  const rowHeight = useSharedValue(1); // 1 = full height via scale
+  const [showCheck, setShowCheck] = useState(item.is_checked);
+
+  const handleToggle = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    if (!item.is_checked) {
+      // Checking: show checkmark with pop, then slide down & fade out, then toggle
+      setShowCheck(true);
+      checkScale.value = withSequence(
+        withTiming(1.3, { duration: 150 }),
+        withTiming(1, { duration: 150 }),
+      );
+      // After checkmark shows, animate row out
+      rowOpacity.value = withDelay(350, withTiming(0, { duration: 250 }));
+      rowTranslateY.value = withDelay(350, withTiming(30, { duration: 250 }));
+      rowHeight.value = withDelay(350, withTiming(0, { duration: 250 }));
+      // Fire the actual toggle after animation completes
+      setTimeout(() => {
+        onToggle();
+        // Reset for next render
+        rowOpacity.value = 1;
+        rowTranslateY.value = 0;
+        rowHeight.value = 1;
+      }, 620);
+    } else {
+      // Unchecking: just toggle immediately
+      setShowCheck(false);
+      onToggle();
+    }
+  }, [item.is_checked, onToggle, checkScale, rowOpacity, rowTranslateY, rowHeight]);
+
+  const rowAnimStyle = useAnimatedStyle(() => ({
+    opacity: rowOpacity.value,
+    transform: [
+      { translateY: rowTranslateY.value },
+      { scaleY: rowHeight.value },
+    ],
+  }));
+
+  const checkAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: checkScale.value }],
+  }));
+
   return (
-    <View style={styles.itemRow}>
-      {/* Image with delete button */}
-      <View style={styles.itemImageWrap}>
-        <View style={[styles.itemImage, !image && { backgroundColor: bgColor }]}>
-          {image ? (
-            <ExpoImage source={image} style={styles.itemImageInner} contentFit="cover" />
-          ) : (
-            <Text style={styles.itemEmoji}>{emoji}</Text>
+    <Animated.View style={[styles.itemRow, rowAnimStyle]}>
+      {/* Tap target — entire row */}
+      <Pressable style={styles.itemRowInner} onPress={handleToggle}>
+        {/* Image with delete badge */}
+        <View style={styles.itemImageWrap}>
+          <View style={[styles.itemImage, !image && { backgroundColor: bgColor }, showCheck && styles.itemImageChecked]}>
+            {image ? (
+              <ExpoImage source={image} style={[styles.itemImageInner, showCheck && { opacity: 0.5 }]} contentFit="cover" />
+            ) : (
+              <Text style={[styles.itemEmoji, showCheck && { opacity: 0.5 }]}>{emoji}</Text>
+            )}
+            {showCheck && (
+              <Animated.View style={[styles.itemCheckOverlay, checkAnimStyle]}>
+                <Ionicons name="checkmark-circle" size={28} color={C.gold} />
+              </Animated.View>
+            )}
+          </View>
+          <Pressable style={styles.deleteBtn} onPress={onDelete} hitSlop={8}>
+            <Ionicons name="close" size={12} color={C.muted} />
+          </Pressable>
+        </View>
+
+        {/* Content */}
+        <View style={styles.itemContent}>
+          <Text style={[styles.itemName, showCheck && styles.itemNameChecked]} numberOfLines={1}>
+            {item.name}
+          </Text>
+          {item.amount != null && (
+            <Text style={styles.itemAmount}>
+              {item.amount}{item.unit ? ` ${item.unit}` : ''}
+            </Text>
           )}
         </View>
-        <Pressable style={styles.deleteBtn} onPress={onDelete} hitSlop={8}>
-          <Ionicons name="close" size={15} color={C.muted} />
-        </Pressable>
-      </View>
 
-      {/* Content */}
-      <View style={styles.itemContent}>
-        <Text style={[styles.itemName, item.is_checked && styles.itemNameChecked]} numberOfLines={1}>
-          {item.name}
-        </Text>
-        {item.amount != null && (
-          <Text style={styles.itemAmount}>
-            {item.amount}{item.unit ? ` ${item.unit}` : ''}
-          </Text>
-        )}
-      </View>
-
-      {/* Checkbox */}
-      <Checkbox isChecked={item.is_checked} onToggle={onToggle} />
-    </View>
+        {/* Checkbox */}
+        <Animated.View style={[styles.checkbox, showCheck && styles.checkboxChecked, checkAnimStyle]}>
+          {showCheck && <Ionicons name="checkmark" size={14} color="#FFF" />}
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
   );
 });
 
@@ -153,7 +188,7 @@ const Section = memo(function Section({ title, subtitle, items, onToggleItem, on
       <View style={styles.sectionHeader}>
         <View style={styles.sectionTitleWrap}>
           <Text style={styles.sectionTitle}>{title}</Text>
-          {subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
+          <Text style={styles.sectionCount}>{items.length} item{items.length !== 1 ? 's' : ''}{subtitle ? ` · ${subtitle}` : ''}</Text>
         </View>
         <Pressable
           style={styles.clearBtn}
@@ -164,21 +199,23 @@ const Section = memo(function Section({ title, subtitle, items, onToggleItem, on
             ]);
           }}
         >
-          <Text style={styles.clearBtnText}>Clear</Text>
+          <Ionicons name="trash-outline" size={14} color={C.muted} />
         </Pressable>
       </View>
 
-      <View style={styles.sectionDivider} />
-
-      {/* Items */}
-      {items.map((item) => (
-        <ItemRow
-          key={item.id}
-          item={item}
-          onToggle={() => onToggleItem(item.id)}
-          onDelete={() => onDeleteItem(item.id)}
-        />
-      ))}
+      {/* Items in card */}
+      <View style={styles.sectionCard}>
+        {items.map((item, index) => (
+          <React.Fragment key={item.id}>
+            {index > 0 && <View style={styles.itemDivider} />}
+            <ItemRow
+              item={item}
+              onToggle={() => onToggleItem(item.id)}
+              onDelete={() => onDeleteItem(item.id)}
+            />
+          </React.Fragment>
+        ))}
+      </View>
     </View>
   );
 });
@@ -204,8 +241,10 @@ const CheckedSection = memo(function CheckedSection({ items, onToggleItem, onDel
       {/* Header */}
       <Pressable style={styles.checkedHeader} onPress={() => setExpanded(!expanded)}>
         <View style={styles.checkedTitleRow}>
-          <Ionicons name="checkmark-circle" size={20} color={C.gold} />
-          <Text style={styles.checkedTitle}>Checked</Text>
+          <View style={styles.checkedBadge}>
+            <Ionicons name="checkmark" size={12} color={C.ivory} />
+          </View>
+          <Text style={styles.checkedTitle}>Done</Text>
           <Text style={styles.checkedCount}>{items.length}</Text>
         </View>
         <View style={styles.checkedActions}>
@@ -218,22 +257,26 @@ const CheckedSection = memo(function CheckedSection({ items, onToggleItem, onDel
               ]);
             }}
           >
-            <Text style={styles.clearCheckedText}>Clear</Text>
+            <Text style={styles.clearCheckedText}>Clear all</Text>
           </Pressable>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={C.muted} />
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={C.muted} />
         </View>
       </Pressable>
 
       {/* Items */}
       {expanded && (
-        <View style={styles.checkedItems}>
-          {items.map((item) => (
-            <ItemRow
-              key={item.id}
-              item={item}
-              onToggle={() => onToggleItem(item.id)}
-              onDelete={() => onDeleteItem(item.id)}
-            />
+        <View style={styles.sectionCard}>
+          {items.map((item, index) => (
+            <React.Fragment key={item.id}>
+              {index > 0 && <View style={styles.itemDivider} />}
+              <Animated.View entering={FadeIn.duration(300).delay(index * 50)} layout={Layout.springify()}>
+                <ItemRow
+                  item={item}
+                  onToggle={() => onToggleItem(item.id)}
+                  onDelete={() => onDeleteItem(item.id)}
+                />
+              </Animated.View>
+            </React.Fragment>
           ))}
         </View>
       )}
@@ -248,6 +291,7 @@ const CheckedSection = memo(function CheckedSection({ items, onToggleItem, onDel
 export default function ShoppingScreen() {
   const insets = useSafeAreaInsets();
   const bottomTabBarHeight = useBottomTabBarHeight();
+  const router = useRouter();
   const {
     items,
     toggleItem,
@@ -257,10 +301,15 @@ export default function ShoppingScreen() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [quickAddText, setQuickAddText] = useState('');
+  const [quickAddSuccess, setQuickAddSuccess] = useState(false);
   const [deletedItem, setDeletedItem] = useState<ShoppingItem | null>(null);
   const [showUndo, setShowUndo] = useState(false);
+  const [undoCountdown, setUndoCountdown] = useState(4);
   const undoTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const undoCountdownRef = useRef<ReturnType<typeof setInterval>>(null);
   const undoAnim = useRef(new RNAnimated.Value(100)).current;
+  const quickAddScale = useSharedValue(1);
+  const quickAddSuccessAnim = useSharedValue(0);
 
   // Voice input state (continuous listening like cooking mode)
   const [isListening, setIsListening] = useState(false);
@@ -496,13 +545,26 @@ export default function ShoppingScreen() {
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    if (undoCountdownRef.current) clearInterval(undoCountdownRef.current);
 
     setDeletedItem(item);
     setShowUndo(true);
+    setUndoCountdown(4);
     RNAnimated.spring(undoAnim, { toValue: 0, useNativeDriver: true, tension: 100, friction: 10 }).start();
     removeItem(id);
 
+    undoCountdownRef.current = setInterval(() => {
+      setUndoCountdown(prev => {
+        if (prev <= 1) {
+          if (undoCountdownRef.current) clearInterval(undoCountdownRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
     undoTimeoutRef.current = setTimeout(() => {
+      if (undoCountdownRef.current) clearInterval(undoCountdownRef.current);
       RNAnimated.timing(undoAnim, { toValue: 100, duration: 200, useNativeDriver: true }).start(() => {
         setShowUndo(false);
         setDeletedItem(null);
@@ -514,6 +576,7 @@ export default function ShoppingScreen() {
     if (!deletedItem) return;
     addItem(deletedItem);
     if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    if (undoCountdownRef.current) clearInterval(undoCountdownRef.current);
     RNAnimated.timing(undoAnim, { toValue: 100, duration: 200, useNativeDriver: true }).start(() => {
       setShowUndo(false);
       setDeletedItem(null);
@@ -521,11 +584,32 @@ export default function ShoppingScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [deletedItem, addItem, undoAnim]);
 
+  const quickAddBarStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: quickAddScale.value }],
+  }));
+  const quickAddCheckStyle = useAnimatedStyle(() => ({
+    opacity: quickAddSuccessAnim.value,
+    transform: [{ scale: quickAddSuccessAnim.value }],
+  }));
+
   const handleQuickAdd = useCallback(() => {
     if (!quickAddText.trim()) return;
     addItem({ name: quickAddText.trim(), category: 'other' });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    // Success flash
+    setQuickAddSuccess(true);
+    quickAddScale.value = withSequence(
+      withTiming(0.96, { duration: 80 }),
+      withTiming(1, { duration: 120 }),
+    );
+    quickAddSuccessAnim.value = withSequence(
+      withTiming(1, { duration: 150 }),
+      withDelay(400, withTiming(0, { duration: 200 })),
+    );
+
     setQuickAddText('');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setTimeout(() => setQuickAddSuccess(false), 800);
   }, [quickAddText, addItem]);
 
   const handleClearGeneral = useCallback(() => {
@@ -548,71 +632,116 @@ export default function ShoppingScreen() {
   if (items.length === 0) {
     return (
       <GestureHandlerRootView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
         <TabScreenTransition style={styles.container}>
           <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
             <Text style={styles.headerTitle}>Grocery List</Text>
           </View>
-          <EmptyState icon="cart-outline" title="Your list is empty" subtitle="Add items by voice or tap the + button" />
 
-          {/* Voice listening overlay for empty state */}
-          {isListening && (
-            <View style={styles.emptyVoiceOverlay}>
-              <View style={styles.voiceListeningContainer}>
-                <View style={styles.voiceListeningHeader}>
-                  <View style={styles.waveBarsContainer}>
-                    {waveBars.map((bar, i) => (
-                      <RNAnimated.View
-                        key={i}
-                        style={[
-                          styles.waveBar,
-                          { transform: [{ scaleY: bar }] },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                  <Text style={styles.voiceListeningLabel}>
-                    {isProcessingVoice ? 'Adding...' : 'Listening...'}
-                  </Text>
-                  <Pressable onPress={stopListening} style={styles.stopListeningBtn}>
-                    <Ionicons name="close" size={20} color={C.charcoal} />
-                  </Pressable>
+          <View style={styles.emptyWrapper}>
+            {/* Glass card */}
+            <View style={styles.emptyCard}>
+              <BlurView intensity={20} tint="light" style={StyleSheet.absoluteFillObject} />
+              <LinearGradient
+                colors={['rgba(255,255,255,0.9)', 'rgba(245,243,238,0.95)']}
+                style={StyleSheet.absoluteFillObject}
+              />
+
+              <View style={styles.emptyCardContent}>
+                {/* Icon */}
+                <View style={styles.emptyIconWrap}>
+                  <Ionicons name="cart-outline" size={32} color={C.terracotta} />
                 </View>
-                {voiceTranscript ? (
-                  <Text style={styles.voiceTranscript} numberOfLines={2}>
-                    "{voiceTranscript}"
-                  </Text>
+
+                <Text style={styles.emptyTitle}>Nothing here yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Add items manually or let recipes fill your list automatically
+                </Text>
+
+                {/* Voice listening inline */}
+                {isListening ? (
+                  <View style={[styles.voiceListeningContainer, { marginTop: 16, width: '100%' }]}>
+                    <View style={styles.voiceListeningHeader}>
+                      <View style={styles.waveBarsContainer}>
+                        {waveBars.map((bar, i) => (
+                          <RNAnimated.View
+                            key={i}
+                            style={[styles.waveBar, { transform: [{ scaleY: bar }] }]}
+                          />
+                        ))}
+                      </View>
+                      <Text style={styles.voiceListeningLabel}>
+                        {isProcessingVoice ? 'Adding...' : 'Listening...'}
+                      </Text>
+                      <Pressable onPress={stopListening} style={styles.stopListeningBtn}>
+                        <Ionicons name="close" size={20} color={C.charcoal} />
+                      </Pressable>
+                    </View>
+                    {voiceTranscript ? (
+                      <Text style={styles.voiceTranscript} numberOfLines={2}>"{voiceTranscript}"</Text>
+                    ) : (
+                      <Text style={styles.voiceHint}>Say what you need, e.g. "bread, milk, and eggs"</Text>
+                    )}
+                    {voiceMessage && voiceMessage !== 'Listening...' && (
+                      <Text style={styles.voiceResult}>{voiceMessage}</Text>
+                    )}
+                  </View>
                 ) : (
-                  <Text style={styles.voiceHint}>
-                    Say what you need, e.g. "I need bread, milk, and eggs"
-                  </Text>
-                )}
-                {voiceMessage && voiceMessage !== 'Listening...' && (
-                  <Text style={styles.voiceResult}>{voiceMessage}</Text>
+                  /* Actions */
+                  <View style={styles.emptyActions}>
+                    <Pressable
+                      style={({ pressed }) => [styles.emptyPrimaryBtn, pressed && styles.emptyBtnPressed]}
+                      onPress={() => setShowAddModal(true)}
+                    >
+                      <Ionicons name="add" size={20} color={C.ivory} />
+                      <Text style={styles.emptyPrimaryBtnText}>Add Items</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.emptyVoiceBtn, pressed && styles.emptyBtnPressed]}
+                      onPress={startListening}
+                    >
+                      <Ionicons name="mic" size={20} color={C.terracotta} />
+                    </Pressable>
+                  </View>
                 )}
               </View>
             </View>
-          )}
 
-          {/* Bottom buttons */}
-          <View style={[styles.emptyBottomButtons, { bottom: bottomTabBarHeight + 20 }]}>
-            <Pressable
-              style={styles.emptyActionBtn}
-              onPress={startListening}
-            >
-              <Ionicons name="mic" size={22} color={C.terracotta} />
-              <Text style={styles.emptyActionText}>Voice</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.emptyActionBtn, styles.emptyActionBtnPrimary]}
-              onPress={() => setShowAddModal(true)}
-            >
-              <Ionicons name="add" size={22} color={C.ivory} />
-              <Text style={[styles.emptyActionText, styles.emptyActionTextPrimary]}>Add Item</Text>
-            </Pressable>
+            {/* Feature rows */}
+            <View style={styles.emptyFeatures}>
+              <View style={styles.emptyFeatureRow}>
+                <View style={[styles.emptyFeatureIcon, { backgroundColor: 'rgba(198, 110, 78, 0.08)' }]}>
+                  <Ionicons name="restaurant" size={18} color={C.terracotta} />
+                </View>
+                <View style={styles.emptyFeatureText}>
+                  <Text style={styles.emptyFeatureTitle}>Recipe Sync</Text>
+                  <Text style={styles.emptyFeatureDesc}>Ingredients are auto-added when you cook a recipe</Text>
+                </View>
+              </View>
+              <View style={styles.emptyFeatureRow}>
+                <View style={[styles.emptyFeatureIcon, { backgroundColor: 'rgba(212, 175, 55, 0.08)' }]}>
+                  <Ionicons name="mic" size={18} color={C.gold} />
+                </View>
+                <View style={styles.emptyFeatureText}>
+                  <Text style={styles.emptyFeatureTitle}>Voice Input</Text>
+                  <Text style={styles.emptyFeatureDesc}>Say what you need and items get added instantly</Text>
+                </View>
+              </View>
+              <View style={styles.emptyFeatureRow}>
+                <View style={[styles.emptyFeatureIcon, { backgroundColor: 'rgba(107, 142, 35, 0.08)' }]}>
+                  <Ionicons name="checkmark-done" size={18} color="#6B8E23" />
+                </View>
+                <View style={styles.emptyFeatureText}>
+                  <Text style={styles.emptyFeatureTitle}>Shop & Check Off</Text>
+                  <Text style={styles.emptyFeatureDesc}>Track your progress as you go through the store</Text>
+                </View>
+              </View>
+            </View>
           </View>
 
           <AddItemModal visible={showAddModal} onClose={() => setShowAddModal(false)} />
         </TabScreenTransition>
+        </SafeAreaView>
       </GestureHandlerRootView>
     );
   }
@@ -621,10 +750,17 @@ export default function ShoppingScreen() {
 
   return (
     <GestureHandlerRootView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <TabScreenTransition style={styles.container}>
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <Text style={styles.headerTitle}>Grocery List</Text>
+          <Pressable
+            style={({ pressed }) => [styles.shareListBtn, pressed && { opacity: 0.7, transform: [{ scale: 0.93 }] }]}
+            onPress={() => router.push('/share-shopping' as any)}
+          >
+            <Ionicons name="share-outline" size={20} color={C.charcoal} />
+          </Pressable>
         </View>
 
         {/* Progress Bar */}
@@ -677,7 +813,7 @@ export default function ShoppingScreen() {
             </View>
           ) : (
             // Normal quick add input
-            <View style={styles.quickAdd}>
+            <Animated.View style={[styles.quickAdd, quickAddBarStyle]}>
               <TextInput
                 style={styles.quickAddInput}
                 placeholder="Add item..."
@@ -687,21 +823,35 @@ export default function ShoppingScreen() {
                 onSubmitEditing={handleQuickAdd}
                 returnKeyType="done"
               />
+              {quickAddSuccess && (
+                <Animated.View style={[styles.quickAddCheck, quickAddCheckStyle]}>
+                  <Ionicons name="checkmark-circle" size={22} color="#4CAF50" />
+                </Animated.View>
+              )}
               {quickAddText.length > 0 ? (
-                <Pressable onPress={handleQuickAdd} style={styles.quickAddSend}>
-                  <Ionicons name="arrow-up-circle" size={28} color={C.terracotta} />
+                <Pressable
+                  onPress={handleQuickAdd}
+                  style={({ pressed }) => [styles.quickAddSend, pressed && { transform: [{ scale: 0.9 }] }]}
+                >
+                  <Ionicons name="arrow-up-circle" size={32} color={C.terracotta} />
                 </Pressable>
               ) : (
                 <View style={styles.quickAddActions}>
-                  <Pressable onPress={startListening} style={styles.micBtn}>
+                  <Pressable
+                    onPress={startListening}
+                    style={({ pressed }) => [styles.micBtn, pressed && { opacity: 0.7, transform: [{ scale: 0.93 }] }]}
+                  >
                     <Ionicons name="mic" size={18} color={C.terracotta} />
                   </Pressable>
-                  <Pressable onPress={() => setShowAddModal(true)} style={styles.addDetailBtn}>
+                  <Pressable
+                    onPress={() => setShowAddModal(true)}
+                    style={({ pressed }) => [styles.addDetailBtn, pressed && { opacity: 0.85, transform: [{ scale: 0.93 }] }]}
+                  >
                     <Ionicons name="add" size={20} color={C.ivory} />
                   </Pressable>
                 </View>
               )}
-            </View>
+            </Animated.View>
           )}
         </View>
 
@@ -753,9 +903,12 @@ export default function ShoppingScreen() {
 
         {/* Undo Snackbar */}
         {showUndo && deletedItem && (
-          <RNAnimated.View style={[styles.undoSnackbar, { bottom: bottomTabBarHeight + 80, transform: [{ translateY: undoAnim }] }]}>
+          <RNAnimated.View style={[styles.undoSnackbar, { bottom: bottomTabBarHeight + 12, transform: [{ translateY: undoAnim }] }]}>
+            <View style={styles.undoCountdownBadge}>
+              <Text style={styles.undoCountdownText}>{undoCountdown}</Text>
+            </View>
             <Text style={styles.undoText} numberOfLines={1}>Removed "{deletedItem.name}"</Text>
-            <TouchableOpacity onPress={handleUndo}>
+            <TouchableOpacity onPress={handleUndo} style={styles.undoBtnWrap}>
               <Text style={styles.undoBtn}>Undo</Text>
             </TouchableOpacity>
           </RNAnimated.View>
@@ -763,6 +916,7 @@ export default function ShoppingScreen() {
 
         <AddItemModal visible={showAddModal} onClose={() => setShowAddModal(false)} />
       </TabScreenTransition>
+      </SafeAreaView>
     </GestureHandlerRootView>
   );
 }
@@ -781,11 +935,22 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   headerTitle: {
     fontSize: 32,
     fontFamily: 'PlayfairDisplay_700Bold',
     color: C.charcoal,
+  },
+  shareListBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: C.cardBg,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Progress
@@ -823,49 +988,64 @@ const styles = StyleSheet.create({
 
   // Quick Add
   quickAddWrap: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingVertical: 10,
   },
   quickAdd: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    height: 46,
+    paddingLeft: 16,
+    paddingRight: 6,
+    height: 52,
     backgroundColor: C.ivory,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: C.hairline,
+    borderRadius: 26,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 3,
   },
   quickAddInput: {
     flex: 1,
     fontSize: 15,
     fontFamily: 'PlusJakartaSans_500Medium',
     color: C.charcoal,
-    marginLeft: 8,
+  },
+  quickAddCheck: {
+    marginRight: 4,
   },
   quickAddSend: {
-    marginLeft: 8,
+    marginLeft: 6,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   quickAddActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   micBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(198, 110, 78, 0.12)',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(198, 110, 78, 0.10)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   addDetailBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: C.terracotta,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: C.terracotta,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
 
   // Voice listening container
@@ -939,85 +1119,101 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 24,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   sectionTitleWrap: {
     flex: 1,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: 'PlusJakartaSans_700Bold',
     color: C.charcoal,
   },
-  sectionSubtitle: {
-    fontSize: 13,
+  sectionCount: {
+    fontSize: 12,
     fontFamily: 'PlusJakartaSans_400Regular',
     color: C.muted,
-    marginTop: 2,
+    marginTop: 1,
   },
   clearBtn: {
-    backgroundColor: C.cardBg,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    width: 32,
+    height: 32,
     borderRadius: 16,
+    backgroundColor: C.cardBg,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  clearBtnText: {
-    fontSize: 13,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: C.charcoal,
+  sectionCard: {
+    marginHorizontal: 16,
+    backgroundColor: C.ivory,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#1A1510',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
   },
-  sectionDivider: {
-    height: 1,
+  itemDivider: {
+    height: 0.5,
     backgroundColor: C.hairline,
-    marginHorizontal: 24,
-    marginBottom: 12,
+    marginLeft: 72,
   },
 
   // Item Row
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 8,
+  },
+  itemRowInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingLeft: 12,
+    paddingRight: 14,
     gap: 12,
   },
-  itemImageWrap: {
-    position: 'relative',
-  },
+  itemImageWrap: {},
   itemImage: {
-    width: 64,
-    height: 64,
+    width: 56,
+    height: 56,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  itemImageChecked: {
+    opacity: 0.7,
   },
   itemImageInner: {
     width: '100%',
     height: '100%',
   },
   itemEmoji: {
-    fontSize: 28,
+    fontSize: 26,
+  },
+  itemCheckOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    borderRadius: 16,
   },
   deleteBtn: {
     position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 20,
-    height: 20,
-    borderRadius: 5,
-    backgroundColor: C.ivory,
-    borderWidth: 1,
-    borderColor: C.hairline,
+    top: -3,
+    right: -3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: C.cardBg,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 1,
   },
   itemContent: {
     flex: 1,
@@ -1032,7 +1228,7 @@ const styles = StyleSheet.create({
     color: C.muted,
   },
   itemAmount: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: 'PlusJakartaSans_400Regular',
     color: C.muted,
     marginTop: 1,
@@ -1040,11 +1236,11 @@ const styles = StyleSheet.create({
 
   // Checkbox
   checkbox: {
-    width: 24,
-    height: 24,
+    width: 22,
+    height: 22,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: C.hairline,
+    borderColor: 'rgba(26, 21, 16, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: C.ivory,
@@ -1057,52 +1253,56 @@ const styles = StyleSheet.create({
   // Checked Section
   checkedSection: {
     marginTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: C.hairline,
-    paddingTop: 12,
+    paddingTop: 4,
   },
   checkedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   checkedTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
+  checkedBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: C.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   checkedTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: C.charcoal,
+    color: C.muted,
   },
   checkedCount: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: 'PlusJakartaSans_500Medium',
     color: C.muted,
     backgroundColor: C.cardBg,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
+    overflow: 'hidden',
   },
   checkedActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   clearCheckedBtn: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 4,
   },
   clearCheckedText: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: 'PlusJakartaSans_600SemiBold',
     color: C.terracotta,
-  },
-  checkedItems: {
-    marginTop: 4,
   },
 
   // All Done
@@ -1118,75 +1318,171 @@ const styles = StyleSheet.create({
     color: C.muted,
   },
 
-  // Empty state bottom buttons
-  emptyBottomButtons: {
-    position: 'absolute',
-    left: 24,
-    right: 24,
-    flexDirection: 'row',
+  // Empty state
+  emptyWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 80,
+  },
+  emptyCard: {
+    borderRadius: 28,
+    overflow: 'hidden',
+    shadowColor: '#1A1510',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.08,
+    shadowRadius: 28,
+    elevation: 8,
+  },
+  emptyCardContent: {
+    alignItems: 'center',
+    paddingVertical: 36,
+    paddingHorizontal: 28,
+  },
+  emptyIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(198, 110, 78, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    marginBottom: 20,
   },
-  emptyVoiceOverlay: {
-    position: 'absolute',
-    left: 24,
-    right: 24,
-    top: '45%',
+  emptyTitle: {
+    fontSize: 22,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    color: C.charcoal,
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.3,
   },
-  emptyActionBtn: {
+  emptySubtitle: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+    textAlign: 'center',
+    lineHeight: 21,
+  },
+  emptyActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 24,
+    width: '100%',
+  },
+  emptyPrimaryBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
+    height: 50,
     borderRadius: 25,
-    backgroundColor: C.ivory,
-    borderWidth: 2,
-    borderColor: C.terracotta,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  emptyActionBtnPrimary: {
     backgroundColor: C.terracotta,
-    borderColor: C.terracotta,
+    shadowColor: C.terracotta,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    elevation: 6,
   },
-  emptyActionText: {
+  emptyPrimaryBtnText: {
     fontSize: 15,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: C.terracotta,
-  },
-  emptyActionTextPrimary: {
+    fontFamily: 'PlusJakartaSans_700Bold',
     color: C.ivory,
+  },
+  emptyVoiceBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(198, 110, 78, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(198, 110, 78, 0.15)',
+  },
+  emptyBtnPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.96 }],
+  },
+  emptyFeatures: {
+    marginTop: 24,
+    paddingHorizontal: 8,
+    gap: 16,
+  },
+  emptyFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  emptyFeatureIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyFeatureText: {
+    flex: 1,
+  },
+  emptyFeatureTitle: {
+    fontSize: 14,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.charcoal,
+    marginBottom: 2,
+  },
+  emptyFeatureDesc: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+    lineHeight: 17,
   },
 
   // Undo
   undoSnackbar: {
     position: 'absolute',
-    left: 24,
-    right: 24,
-    backgroundColor: C.charcoal,
-    borderRadius: 14,
+    left: 20,
+    right: 20,
+    backgroundColor: C.ivory,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  undoCountdownBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: C.cardBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  undoCountdownText: {
+    fontSize: 12,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.muted,
   },
   undoText: {
     fontSize: 14,
     fontFamily: 'PlusJakartaSans_500Medium',
-    color: C.ivory,
+    color: C.charcoal,
     flex: 1,
   },
+  undoBtnWrap: {
+    backgroundColor: 'rgba(198, 110, 78, 0.1)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
   undoBtn: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: C.gold,
-    marginLeft: 16,
+    color: C.terracotta,
   },
 });

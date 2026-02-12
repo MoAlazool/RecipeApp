@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo, useState, useRef } from 'react';
 import {
   View,
   FlatList,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Pressable,
   RefreshControl,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Text } from '@rneui/themed';
@@ -17,7 +19,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
-import type { Conversation } from '@/utils/types';
+import { userService } from '@/services/user.service';
+import type { Conversation, UserProfile } from '@/utils/types';
 
 // ============================================================
 // DESIGN TOKENS — Michelin-Star Luxury
@@ -209,20 +212,48 @@ export default function MessagesScreen() {
     isLoading,
     error,
     fetchConversations,
-    subscribeToConversations,
-    unsubscribeFromConversations,
   } = useMessagingStore();
 
-  // Subscribe to conversations on mount
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced user search
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await userService.searchUsers(trimmed);
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [searchQuery]);
+
+  const isSearchActive = searchQuery.trim().length >= 2;
+
+  // Fetch conversations on mount (global subscription is managed in _layout)
   useEffect(() => {
     if (user) {
       fetchConversations();
-      subscribeToConversations();
     }
-
-    return () => {
-      unsubscribeFromConversations();
-    };
   }, [user]);
 
   const handleRefresh = useCallback(() => {
@@ -247,6 +278,12 @@ export default function MessagesScreen() {
       }
     }
   }, [router, user]);
+
+  const handleUserPress = useCallback((userProfile: UserProfile) => {
+    setSearchQuery('');
+    setSearchResults([]);
+    router.push(`/chat/${userProfile.id}` as any);
+  }, [router]);
 
   const handleCreateGroup = useCallback(() => {
     router.push('/create-group' as any);
@@ -318,43 +355,118 @@ export default function MessagesScreen() {
       {/* Gold hairline */}
       <View style={styles.headerHairline} />
 
-      {/* Conversations List */}
-      <FlatList
-        data={sortedConversations}
-        keyExtractor={(item) => item.id}
-        renderItem={renderConversation}
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: bottomTabBarHeight + 16 },
-          conversations.length === 0 && styles.listContentEmpty,
-        ]}
-        refreshControl={
-          <RefreshControl
-            refreshing={isLoading}
-            onRefresh={handleRefresh}
-            tintColor={C.gold}
+      {/* Search bar */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInputWrapper}>
+          <Ionicons name="search" size={18} color={C.muted} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by @username or name..."
+            placeholderTextColor={C.muted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
           />
-        }
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconContainer}>
-              <Ionicons name="chatbubbles-outline" size={48} color={C.gold} />
-            </View>
-            <Text style={styles.emptyTitle}>No conversations yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Start a conversation by finding users to message
-            </Text>
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
+              <Ionicons name="close-circle" size={18} color={C.muted} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Search results or Conversations List */}
+      {isSearchActive ? (
+        <FlatList
+          data={searchResults}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
             <Pressable
-              style={({ pressed }) => [styles.emptyAction, pressed && styles.emptyActionPressed]}
-              onPress={handleNewMessage}
+              style={({ pressed }) => [styles.searchResultItem, pressed && styles.conversationItemPressed]}
+              onPress={() => handleUserPress(item)}
             >
-              <Ionicons name="search" size={18} color={C.ivory} />
-              <Text style={styles.emptyActionText}>Find Users</Text>
+              <View style={[styles.avatar, { backgroundColor: getAvatarColor(item.id) }]}>
+                {item.avatar_url ? (
+                  <Image
+                    source={{ uri: item.avatar_url }}
+                    style={styles.avatarImage}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                  />
+                ) : (
+                  <Text style={styles.avatarText}>{getInitials(item.full_name)}</Text>
+                )}
+              </View>
+              <View style={styles.searchResultContent}>
+                <Text style={styles.searchResultName} numberOfLines={1}>{item.full_name || item.username}</Text>
+                {item.username && (
+                  <Text style={styles.searchResultHandle} numberOfLines={1}>@{item.username}</Text>
+                )}
+              </View>
+              <Ionicons name="chatbubble-outline" size={18} color={C.terracotta} />
             </Pressable>
-          </View>
-        )}
-      />
+          )}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: bottomTabBarHeight + 16 },
+            searchResults.length === 0 && styles.listContentEmpty,
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          ListEmptyComponent={() => (
+            <View style={styles.searchEmptyContainer}>
+              {isSearching ? (
+                <ActivityIndicator size="large" color={C.gold} />
+              ) : (
+                <>
+                  <Ionicons name="person-outline" size={36} color={C.muted} />
+                  <Text style={styles.searchEmptyText}>No users found</Text>
+                  <Text style={styles.searchEmptyHint}>Try @username or a full name</Text>
+                </>
+              )}
+            </View>
+          )}
+        />
+      ) : (
+        <FlatList
+          data={sortedConversations}
+          keyExtractor={(item) => item.id}
+          renderItem={renderConversation}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: bottomTabBarHeight + 16 },
+            conversations.length === 0 && styles.listContentEmpty,
+          ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={isLoading}
+              onRefresh={handleRefresh}
+              tintColor={C.gold}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="chatbubbles-outline" size={48} color={C.gold} />
+              </View>
+              <Text style={styles.emptyTitle}>No conversations yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Start a conversation by finding users to message
+              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.emptyAction, pressed && styles.emptyActionPressed]}
+                onPress={handleNewMessage}
+              >
+                <Ionicons name="search" size={18} color={C.ivory} />
+                <Text style={styles.emptyActionText}>Find Users</Text>
+              </Pressable>
+            </View>
+          )}
+        />
+      )}
     </TabScreenTransition>
   );
 }
@@ -418,6 +530,74 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
   },
 
+  // Search
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.cardBg,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 44,
+    gap: 10,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.charcoal,
+    paddingVertical: 0,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.ivory,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+    ...SHADOW_SOFT,
+  },
+  searchResultContent: {
+    flex: 1,
+    marginRight: 10,
+  },
+  searchResultName: {
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    color: C.charcoal,
+  },
+  searchResultHandle: {
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+    marginTop: 2,
+  },
+  searchEmptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 8,
+  },
+  searchEmptyText: {
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: C.charcoal,
+  },
+  searchEmptyHint: {
+    fontSize: 13,
+    fontFamily: 'PlusJakartaSans_400Regular',
+    color: C.muted,
+  },
+
   // List
   listContent: {
     paddingHorizontal: 16,
@@ -456,7 +636,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
-    overflow: 'hidden',
     ...SHADOW_SOFT,
   },
   avatarImage: {

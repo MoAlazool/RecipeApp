@@ -49,22 +49,14 @@ export default function UserProfileScreen() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [isFollowLoading, setIsFollowLoading] = useState(false);
-
   // Fetch profile data
   const fetchProfile = useCallback(async () => {
     if (!userId) return;
 
     setIsLoading(true);
     try {
-      const [userProfile, following] = await Promise.all([
-        userService.getUserProfile(userId),
-        userService.isFollowing(userId),
-      ]);
-
+      const userProfile = await userService.getUserProfile(userId);
       setProfile(userProfile);
-      setIsFollowing(following);
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {
@@ -75,32 +67,6 @@ export default function UserProfileScreen() {
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
-
-  const handleFollow = useCallback(async () => {
-    if (!userId || isFollowLoading) return;
-
-    setIsFollowLoading(true);
-    try {
-      if (isFollowing) {
-        await userService.unfollowUser(userId);
-        setIsFollowing(false);
-        if (profile) {
-          setProfile({ ...profile, followers_count: profile.followers_count - 1 });
-        }
-      } else {
-        await userService.followUser(userId);
-        setIsFollowing(true);
-        if (profile) {
-          setProfile({ ...profile, followers_count: profile.followers_count + 1 });
-        }
-      }
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch (error) {
-      console.error('Error following/unfollowing:', error);
-    } finally {
-      setIsFollowLoading(false);
-    }
-  }, [userId, isFollowing, isFollowLoading, profile]);
 
   const handleMessage = useCallback(() => {
     if (!userId) return;
@@ -293,50 +259,11 @@ export default function UserProfileScreen() {
             <Text style={styles.statValue}>{profile.recipes_count}</Text>
             <Text style={styles.statLabel}>Recipes</Text>
           </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{profile.followers_count}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{profile.following_count}</Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </View>
         </View>
 
         {/* Action Buttons */}
         {!isOwnProfile && (
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={[
-                styles.followButton,
-                isFollowing && styles.followButtonActive,
-              ]}
-              onPress={handleFollow}
-              disabled={isFollowLoading}
-            >
-              {isFollowLoading ? (
-                <ActivityIndicator size="small" color={isFollowing ? '#F2330D' : '#FFFFFF'} />
-              ) : (
-                <>
-                  <Ionicons
-                    name={isFollowing ? 'person-remove' : 'person-add'}
-                    size={18}
-                    color={isFollowing ? '#F2330D' : '#FFFFFF'}
-                  />
-                  <Text
-                    style={[
-                      styles.followButtonText,
-                      isFollowing && styles.followButtonTextActive,
-                    ]}
-                  >
-                    {isFollowing ? 'Unfollow' : 'Follow'}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-
             <TouchableOpacity style={styles.messageButton} onPress={handleMessage}>
               <Ionicons name="chatbubble-outline" size={18} color="#F2330D" />
               <Text style={styles.messageButtonText}>Message</Text>

@@ -6,11 +6,13 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuthStore } from '@/stores/authStore';
 
 
 export default function FridgeScanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isPremium = useAuthStore((s) => s.user?.is_premium);
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -126,13 +128,15 @@ export default function FridgeScanScreen() {
         ) : (
           <>
             {/* Recent Activity Button */}
-            <Pressable
-              style={styles.recentActivityButton}
-              onPress={handleOpenRecentScans}
-            >
-              <Ionicons name="time-outline" size={20} color="#FFF" />
-              <Text style={styles.recentActivityText}>Recent Activity</Text>
-            </Pressable>
+            {isPremium && (
+              <Pressable
+                style={styles.recentActivityButton}
+                onPress={handleOpenRecentScans}
+              >
+                <Ionicons name="time-outline" size={20} color="#FFF" />
+                <Text style={styles.recentActivityText}>Recent Activity</Text>
+              </Pressable>
+            )}
 
             <View style={styles.captureRow}>
               <Pressable style={styles.galleryIconButton} onPress={pickImage}>

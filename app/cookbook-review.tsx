@@ -15,14 +15,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { aiService } from '@/services/ai.service';
 import { useRecipeStore } from '@/stores/recipeStore';
+import { useUsageStore } from '@/stores/usageStore';
+import { useAuthStore } from '@/stores/authStore';
+import { FREE_PLAN_LIMITS } from '@/utils/types';
 import { getRecipeImage } from '@/utils/recipePlaceholders';
-import type { ExtractedRecipe, Ingredient, RecipeStep } from '@/utils/types';
+import { useUsageGate } from '@/hooks/useUsageGate';
+import UsageLimitSheet from '@/components/ui/UsageLimitSheet';
+import type { ExtractedRecipe } from '@/utils/types';
 
 export default function CookbookReviewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ pages: string }>();
   const insets = useSafeAreaInsets();
   const { addRecipe } = useRecipeStore();
+  const { checkGate, limitSheetRef, limitInfo } = useUsageGate();
 
   const [extractedRecipe, setExtractedRecipe] = useState<ExtractedRecipe | null>(null);
   const [recipeImageUrl, setRecipeImageUrl] = useState<string | null>(null);
@@ -33,7 +39,6 @@ export default function CookbookReviewScreen() {
 
   const pageUris: string[] = params.pages ? JSON.parse(params.pages) : [];
 
-  // Group items by their "group" field; ungrouped items go under a single null key
   const groupBy = <T extends { group?: string }>(items: T[]): Map<string | null, T[]> => {
     const map = new Map<string | null, T[]>();
     for (const item of items) {
@@ -49,15 +54,23 @@ export default function CookbookReviewScreen() {
     : false;
 
   useEffect(() => {
-    extractRecipe();
+    gatedExtract();
   }, []);
+
+  const gatedExtract = async () => {
+    const allowed = await checkGate('recipe');
+    if (!allowed) {
+      setIsExtracting(false);
+      return;
+    }
+    extractRecipe();
+  };
 
   const extractRecipe = async () => {
     setIsExtracting(true);
     setError(null);
     try {
       const recipe = await aiService.extractRecipeFromCookbookPages(pageUris);
-      // Generate AI image for extracted recipe
       try {
         const base64 = await aiService.generateRecipeImage(recipe.title);
         setRecipeImageUrl(`data:image/png;base64,${base64}`);
@@ -74,11 +87,15 @@ export default function CookbookReviewScreen() {
     }
   };
 
+  const isPremium = useAuthStore((s) => s.user?.is_premium);
+  const recipesRemaining = useUsageStore((s) => s.getRecipesRemaining());
+
   const handleSave = async () => {
     if (!extractedRecipe) return;
     setIsSaving(true);
     try {
-      await addRecipe(extractedRecipe, undefined, undefined, 'cookbook_scan');
+      await addRecipe(extractedRecipe, undefined, recipeImageUrl || undefined, 'cookbook_scan');
+      await useUsageStore.getState().incrementUsage('recipe');
       setIsSaved(true);
       Alert.alert('Saved!', 'Recipe added to your collection', [
         {
@@ -98,68 +115,70 @@ export default function CookbookReviewScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
+    <View style={[styles.screen, { paddingTop: insets.top + 8 }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.headerButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#1C100D" />
+        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={22} color="#1A1510" />
         </Pressable>
         <Text style={styles.headerTitle}>Cookbook Recipe</Text>
-        <View style={styles.headerButton} />
+        <View style={{ width: 42 }} />
       </View>
 
       {/* Page Thumbnails */}
-      <View style={styles.thumbnailContainer}>
+      <View style={styles.thumbStrip}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.thumbnailScroll}
+          contentContainerStyle={styles.thumbScroll}
         >
           {pageUris.map((uri, index) => (
-            <View key={`${uri}-${index}`} style={styles.thumbnailWrapper}>
-              <Image source={{ uri }} style={styles.thumbnail} />
-              <View style={styles.thumbnailBadge}>
-                <Text style={styles.thumbnailBadgeText}>{index + 1}</Text>
+            <View key={`${uri}-${index}`} style={styles.thumbWrap}>
+              <Image source={{ uri }} style={styles.thumbImg} />
+              <View style={styles.thumbBadge}>
+                <Text style={styles.thumbBadgeText}>{index + 1}</Text>
               </View>
             </View>
           ))}
         </ScrollView>
       </View>
 
-      {/* Loading State */}
+      {/* Loading */}
       {isExtracting && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#F2330D" />
+        <View style={styles.centerWrap}>
+          <ActivityIndicator size="large" color="#C66E4E" />
           <Text style={styles.loadingText}>
             Extracting recipe from {pageUris.length} {pageUris.length === 1 ? 'page' : 'pages'}...
           </Text>
         </View>
       )}
 
-      {/* Error State */}
+      {/* Error */}
       {error && !isExtracting && (
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle" size={48} color="#EF4444" />
+        <View style={styles.centerWrap}>
+          <View style={styles.errorIcon}>
+            <Ionicons name="alert-circle-outline" size={32} color="#EF4444" />
+          </View>
           <Text style={styles.errorText}>{error}</Text>
-          <Pressable style={styles.retryButton} onPress={extractRecipe}>
-            <Ionicons name="refresh" size={20} color="#FFFFFF" />
-            <Text style={styles.retryButtonText}>Try Again</Text>
+          <Pressable style={styles.retryBtn} onPress={gatedExtract}>
+            <Ionicons name="refresh" size={18} color="#FFFFFF" />
+            <Text style={styles.retryBtnText}>Try Again</Text>
           </Pressable>
         </View>
       )}
 
-      {/* Result State */}
+      {/* Result */}
       {extractedRecipe && !isExtracting && !error && (
         <>
           <ScrollView
             style={styles.content}
-            contentContainerStyle={styles.contentContainer}
+            contentContainerStyle={styles.contentInner}
             showsVerticalScrollIndicator={false}
           >
             {/* Hero Image */}
             {recipeImageUrl && (
-              <View style={styles.heroImageContainer}>
-                <Image source={{ uri: recipeImageUrl }} style={styles.heroImage} />
+              <View style={styles.heroWrap}>
+                <Image source={{ uri: recipeImageUrl }} style={styles.heroImg} />
                 <LinearGradient
                   colors={['transparent', 'rgba(0,0,0,0.5)']}
                   style={styles.heroGradient}
@@ -167,29 +186,29 @@ export default function CookbookReviewScreen() {
               </View>
             )}
 
-            {/* Title & Description */}
+            {/* Title */}
             <Text style={styles.recipeTitle}>{extractedRecipe.title}</Text>
             {extractedRecipe.description && (
-              <Text style={styles.recipeDescription}>{extractedRecipe.description}</Text>
+              <Text style={styles.recipeDesc}>{extractedRecipe.description}</Text>
             )}
 
-            {/* Meta Row */}
+            {/* Meta */}
             <View style={styles.metaRow}>
               {extractedRecipe.total_time_minutes > 0 && (
-                <View style={styles.metaBadge}>
-                  <Ionicons name="time-outline" size={16} color="#F2330D" />
+                <View style={styles.metaPill}>
+                  <Ionicons name="time-outline" size={14} color="#8A8578" />
                   <Text style={styles.metaText}>{extractedRecipe.total_time_minutes} min</Text>
                 </View>
               )}
               {extractedRecipe.servings > 0 && (
-                <View style={styles.metaBadge}>
-                  <Ionicons name="people-outline" size={16} color="#F2330D" />
+                <View style={styles.metaPill}>
+                  <Ionicons name="people-outline" size={14} color="#8A8578" />
                   <Text style={styles.metaText}>{extractedRecipe.servings} servings</Text>
                 </View>
               )}
               {extractedRecipe.difficulty && (
-                <View style={styles.metaBadge}>
-                  <Ionicons name="bar-chart-outline" size={16} color="#F2330D" />
+                <View style={styles.metaPill}>
+                  <Ionicons name="speedometer-outline" size={14} color="#8A8578" />
                   <Text style={styles.metaText}>{extractedRecipe.difficulty}</Text>
                 </View>
               )}
@@ -197,21 +216,20 @@ export default function CookbookReviewScreen() {
 
             {/* Ingredients */}
             <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Ionicons name="list" size={22} color="#F2330D" />
-                <Text style={styles.sectionTitle}>Ingredients</Text>
+              <View style={styles.sectionHead}>
+                <Text style={styles.sectionLabel}>Ingredients</Text>
+                <Text style={styles.sectionCount}>{extractedRecipe.ingredients.length}</Text>
               </View>
               {hasGroups ? (
                 Array.from(groupBy(extractedRecipe.ingredients)).map(([group, items], gi) => (
-                  <View key={group || gi} style={group ? styles.componentGroup : undefined}>
+                  <View key={group || gi} style={group ? styles.compGroup : undefined}>
                     {group && (
-                      <View style={styles.componentLabel}>
-                        <Ionicons name="restaurant-outline" size={14} color="#556B2F" />
-                        <Text style={styles.componentLabelText}>{group}</Text>
+                      <View style={styles.compLabel}>
+                        <Text style={styles.compLabelText}>{group}</Text>
                       </View>
                     )}
                     {items.map((ingredient, index) => (
-                      <View key={index} style={styles.ingredientItem}>
+                      <View key={index} style={styles.ingredientRow}>
                         <View style={styles.ingredientDot} />
                         <Text style={styles.ingredientText}>
                           {ingredient.amount ? `${ingredient.amount} ` : ''}
@@ -224,7 +242,7 @@ export default function CookbookReviewScreen() {
                 ))
               ) : (
                 extractedRecipe.ingredients.map((ingredient, index) => (
-                  <View key={index} style={styles.ingredientItem}>
+                  <View key={index} style={styles.ingredientRow}>
                     <View style={styles.ingredientDot} />
                     <Text style={styles.ingredientText}>
                       {ingredient.amount ? `${ingredient.amount} ` : ''}
@@ -238,35 +256,34 @@ export default function CookbookReviewScreen() {
 
             {/* Steps */}
             <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Ionicons name="list-circle" size={22} color="#F2330D" />
-                <Text style={styles.sectionTitle}>Steps</Text>
+              <View style={styles.sectionHead}>
+                <Text style={styles.sectionLabel}>Steps</Text>
+                <Text style={styles.sectionCount}>{extractedRecipe.steps.filter(s => s.instruction).length}</Text>
               </View>
               {hasGroups ? (
                 Array.from(groupBy(extractedRecipe.steps.filter(s => s.instruction))).map(([group, steps], gi) => (
-                  <View key={group || gi} style={group ? styles.componentGroup : undefined}>
+                  <View key={group || gi} style={group ? styles.compGroup : undefined}>
                     {group && (
-                      <View style={styles.componentLabel}>
-                        <Ionicons name="restaurant-outline" size={14} color="#556B2F" />
-                        <Text style={styles.componentLabelText}>{group}</Text>
+                      <View style={styles.compLabel}>
+                        <Text style={styles.compLabelText}>{group}</Text>
                       </View>
                     )}
                     {steps.map((step, index) => (
-                      <View key={index} style={styles.stepItem}>
-                        <View style={styles.stepNumber}>
-                          <Text style={styles.stepNumberText}>{step.step_number}</Text>
+                      <View key={index} style={styles.stepRow}>
+                        <View style={styles.stepNum}>
+                          <Text style={styles.stepNumText}>{step.step_number}</Text>
                         </View>
-                        <View style={styles.stepContent}>
-                          <Text style={styles.stepInstruction}>{step.instruction}</Text>
+                        <View style={styles.stepBody}>
+                          <Text style={styles.stepText}>{step.instruction}</Text>
                           {step.duration_minutes != null && (
                             <View style={styles.stepMeta}>
-                              <Ionicons name="timer-outline" size={14} color="#F2330D" />
+                              <Ionicons name="timer-outline" size={13} color="#C66E4E" />
                               <Text style={styles.stepMetaText}>{step.duration_minutes} min</Text>
                             </View>
                           )}
                           {step.temperature && (
                             <View style={styles.stepMeta}>
-                              <Ionicons name="thermometer-outline" size={14} color="#F2330D" />
+                              <Ionicons name="thermometer-outline" size={13} color="#C66E4E" />
                               <Text style={styles.stepMetaText}>{step.temperature}</Text>
                             </View>
                           )}
@@ -279,21 +296,21 @@ export default function CookbookReviewScreen() {
                 extractedRecipe.steps
                   .filter(step => step.instruction)
                   .map((step, index) => (
-                    <View key={index} style={styles.stepItem}>
-                      <View style={styles.stepNumber}>
-                        <Text style={styles.stepNumberText}>{step.step_number}</Text>
+                    <View key={index} style={styles.stepRow}>
+                      <View style={styles.stepNum}>
+                        <Text style={styles.stepNumText}>{step.step_number}</Text>
                       </View>
-                      <View style={styles.stepContent}>
-                        <Text style={styles.stepInstruction}>{step.instruction}</Text>
+                      <View style={styles.stepBody}>
+                        <Text style={styles.stepText}>{step.instruction}</Text>
                         {step.duration_minutes != null && (
                           <View style={styles.stepMeta}>
-                            <Ionicons name="timer-outline" size={14} color="#F2330D" />
+                            <Ionicons name="timer-outline" size={13} color="#C66E4E" />
                             <Text style={styles.stepMetaText}>{step.duration_minutes} min</Text>
                           </View>
                         )}
                         {step.temperature && (
                           <View style={styles.stepMeta}>
-                            <Ionicons name="thermometer-outline" size={14} color="#F2330D" />
+                            <Ionicons name="thermometer-outline" size={13} color="#C66E4E" />
                             <Text style={styles.stepMetaText}>{step.temperature}</Text>
                           </View>
                         )}
@@ -306,32 +323,32 @@ export default function CookbookReviewScreen() {
             {/* Nutrition */}
             {extractedRecipe.nutrition_estimate && (
               <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Ionicons name="nutrition" size={22} color="#F2330D" />
-                  <Text style={styles.sectionTitle}>Nutrition (per serving)</Text>
+                <View style={styles.sectionHead}>
+                  <Text style={styles.sectionLabel}>Nutrition</Text>
+                  <Text style={styles.sectionCount}>per serving</Text>
                 </View>
                 <View style={styles.nutritionGrid}>
                   {extractedRecipe.nutrition_estimate.calories != null && (
                     <View style={styles.nutritionItem}>
-                      <Text style={styles.nutritionValue}>{extractedRecipe.nutrition_estimate.calories}</Text>
+                      <Text style={styles.nutritionVal}>{extractedRecipe.nutrition_estimate.calories}</Text>
                       <Text style={styles.nutritionLabel}>Calories</Text>
                     </View>
                   )}
                   {extractedRecipe.nutrition_estimate.protein_g != null && (
                     <View style={styles.nutritionItem}>
-                      <Text style={styles.nutritionValue}>{extractedRecipe.nutrition_estimate.protein_g}g</Text>
+                      <Text style={styles.nutritionVal}>{extractedRecipe.nutrition_estimate.protein_g}g</Text>
                       <Text style={styles.nutritionLabel}>Protein</Text>
                     </View>
                   )}
                   {extractedRecipe.nutrition_estimate.carbs_g != null && (
                     <View style={styles.nutritionItem}>
-                      <Text style={styles.nutritionValue}>{extractedRecipe.nutrition_estimate.carbs_g}g</Text>
+                      <Text style={styles.nutritionVal}>{extractedRecipe.nutrition_estimate.carbs_g}g</Text>
                       <Text style={styles.nutritionLabel}>Carbs</Text>
                     </View>
                   )}
                   {extractedRecipe.nutrition_estimate.fat_g != null && (
                     <View style={styles.nutritionItem}>
-                      <Text style={styles.nutritionValue}>{extractedRecipe.nutrition_estimate.fat_g}g</Text>
+                      <Text style={styles.nutritionVal}>{extractedRecipe.nutrition_estimate.fat_g}g</Text>
                       <Text style={styles.nutritionLabel}>Fat</Text>
                     </View>
                   )}
@@ -342,12 +359,12 @@ export default function CookbookReviewScreen() {
             {/* Tips */}
             {extractedRecipe.tips && extractedRecipe.tips.length > 0 && (
               <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Ionicons name="bulb-outline" size={22} color="#F2330D" />
-                  <Text style={styles.sectionTitle}>Tips</Text>
+                <View style={styles.sectionHead}>
+                  <Text style={styles.sectionLabel}>Tips</Text>
                 </View>
                 {extractedRecipe.tips.map((tip, index) => (
-                  <View key={index} style={styles.tipItem}>
+                  <View key={index} style={styles.tipRow}>
+                    <Ionicons name="bulb-outline" size={14} color="#D4AF37" />
                     <Text style={styles.tipText}>{tip}</Text>
                   </View>
                 ))}
@@ -357,13 +374,18 @@ export default function CookbookReviewScreen() {
             <View style={{ height: 100 }} />
           </ScrollView>
 
-          {/* Save Button */}
+          {/* Bottom Save */}
           <View style={[styles.bottomBar, { paddingBottom: insets.bottom || 16 }]}>
+            {!isPremium && recipesRemaining > 0 && (
+              <View style={styles.usageBanner}>
+                <Ionicons name="information-circle-outline" size={16} color="#C66E4E" />
+                <Text style={styles.usageBannerText}>
+                  Saving will use 1 of your {recipesRemaining} remaining extractions
+                </Text>
+              </View>
+            )}
             <Pressable
-              style={[
-                styles.saveButton,
-                (isSaving || isSaved) && styles.saveButtonDisabled,
-              ]}
+              style={[styles.saveBtn, (isSaving || isSaved) && styles.saveBtnDisabled]}
               onPress={handleSave}
               disabled={isSaving || isSaved}
             >
@@ -373,10 +395,10 @@ export default function CookbookReviewScreen() {
                 <>
                   <Ionicons
                     name={isSaved ? 'checkmark-circle' : 'bookmark-outline'}
-                    size={20}
+                    size={18}
                     color="#FFFFFF"
                   />
-                  <Text style={styles.saveButtonText}>
+                  <Text style={styles.saveBtnText}>
                     {isSaved ? 'Saved' : 'Save to Collection'}
                   </Text>
                 </>
@@ -385,125 +407,145 @@ export default function CookbookReviewScreen() {
           </View>
         </>
       )}
+      {/* Usage Limit Sheet */}
+      <UsageLimitSheet
+        ref={limitSheetRef}
+        limitType={limitInfo.type}
+        used={limitInfo.used}
+        total={limitInfo.total}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: '#FAFAF8',
   },
+
+  // ── Header ──
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
   },
-  headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.05)',
+  backBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 16,
+    color: '#1A1510',
   },
-  thumbnailContainer: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
+
+  // ── Page Thumbnails ──
+  thumbStrip: {
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(26, 21, 16, 0.06)',
   },
-  thumbnailScroll: {
-    paddingHorizontal: 16,
+  thumbScroll: {
+    paddingHorizontal: 20,
     gap: 10,
   },
-  thumbnailWrapper: {
+  thumbWrap: {
     position: 'relative',
   },
-  thumbnail: {
-    width: 52,
-    height: 68,
+  thumbImg: {
+    width: 48,
+    height: 64,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E8D3CE',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
   },
-  thumbnailBadge: {
+  thumbBadge: {
     position: 'absolute',
     bottom: 3,
     left: 3,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderRadius: 5,
     paddingHorizontal: 5,
     paddingVertical: 1,
   },
-  thumbnailBadgeText: {
+  thumbBadgeText: {
     color: '#FFF',
     fontSize: 9,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
-  loadingContainer: {
+
+  // ── Loading ──
+  centerWrap: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
     padding: 32,
   },
   loadingText: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 15,
+    color: '#B5B0A7',
     textAlign: 'center',
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
+
+  // ── Error ──
+  errorIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
     alignItems: 'center',
-    gap: 12,
-    padding: 32,
+    justifyContent: 'center',
   },
   errorText: {
-    fontSize: 16,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#1C100D',
+    fontSize: 15,
+    color: '#1A1510',
     textAlign: 'center',
   },
-  retryButton: {
+  retryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F2330D',
+    backgroundColor: '#C66E4E',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 8,
+    borderRadius: 20,
+    marginTop: 4,
     gap: 8,
   },
-  retryButtonText: {
-    fontSize: 16,
+  retryBtnText: {
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 14,
     color: '#FFFFFF',
   },
+
+  // ── Content ──
   content: {
     flex: 1,
   },
-  contentContainer: {
+  contentInner: {
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
-  heroImageContainer: {
+
+  // ── Hero Image ──
+  heroWrap: {
     height: 200,
     borderRadius: 20,
     overflow: 'hidden',
     marginBottom: 20,
     marginTop: 4,
   },
-  heroImage: {
+  heroImg: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
@@ -515,119 +557,132 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: 80,
   },
+
+  // ── Recipe Header ──
   recipeTitle: {
-    fontSize: 28,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#1C100D',
-    marginBottom: 8,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 26,
+    color: '#1A1510',
+    marginBottom: 6,
   },
-  recipeDescription: {
-    fontSize: 15,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
-    lineHeight: 22,
+  recipeDesc: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#8A8578',
+    lineHeight: 21,
     marginBottom: 16,
   },
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 24,
+    marginBottom: 28,
   },
-  metaBadge: {
+  metaPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(242, 51, 13, 0.08)',
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 10,
-    gap: 6,
+    borderRadius: 20,
+    gap: 5,
   },
   metaText: {
-    fontSize: 13,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#F2330D',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: '#8A8578',
   },
+
+  // ── Section ──
   section: {
     marginBottom: 28,
   },
-  sectionHeader: {
+  sectionHead: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
     marginBottom: 14,
   },
-  sectionTitle: {
-    fontSize: 19,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#1C100D',
+  sectionLabel: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 17,
+    color: '#1A1510',
   },
-  componentGroup: {
+  sectionCount: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: '#B5B0A7',
+  },
+
+  // ── Component Groups ──
+  compGroup: {
     marginBottom: 16,
   },
-  componentLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(85, 107, 47, 0.1)',
+  compLabel: {
     alignSelf: 'flex-start',
+    backgroundColor: 'rgba(212, 175, 55, 0.10)',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: 10,
     marginBottom: 10,
   },
-  componentLabelText: {
-    fontSize: 13,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#556B2F',
+  compLabelText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 12,
+    color: '#D4AF37',
   },
-  ingredientItem: {
+
+  // ── Ingredients ──
+  ingredientRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
+    paddingVertical: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(26, 21, 16, 0.05)',
   },
   ingredientDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#F2330D',
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#D5D1CB',
+    marginTop: 7,
   },
   ingredientText: {
     flex: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 15,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
+    color: '#1A1510',
     lineHeight: 20,
   },
-  stepItem: {
+
+  // ── Steps ──
+  stepRow: {
     flexDirection: 'row',
     gap: 14,
-    marginBottom: 20,
+    marginBottom: 18,
   },
-  stepNumber: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F2330D',
+  stepNum: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1A1510',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  stepNumberText: {
-    fontSize: 14,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
+  stepNumText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 12,
     color: '#FFFFFF',
   },
-  stepContent: {
+  stepBody: {
     flex: 1,
   },
-  stepInstruction: {
-    fontSize: 15,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
-    lineHeight: 22,
+  stepText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#1A1510',
+    lineHeight: 21,
   },
   stepMeta: {
     flexDirection: 'row',
@@ -636,10 +691,12 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   stepMetaText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 12,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#F2330D',
+    color: '#C66E4E',
   },
+
+  // ── Nutrition ──
   nutritionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -648,61 +705,81 @@ const styles = StyleSheet.create({
   nutritionItem: {
     flex: 1,
     minWidth: '45%',
-    backgroundColor: 'rgba(242, 51, 13, 0.05)',
+    backgroundColor: 'rgba(26, 21, 16, 0.03)',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
   },
-  nutritionValue: {
+  nutritionVal: {
+    fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 22,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    color: '#F2330D',
+    color: '#1A1510',
     marginBottom: 4,
   },
   nutritionLabel: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 12,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
+    color: '#B5B0A7',
   },
-  tipItem: {
-    backgroundColor: 'rgba(85, 107, 47, 0.08)',
+
+  // ── Tips ──
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: 'rgba(212, 175, 55, 0.06)',
     padding: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     marginBottom: 8,
   },
   tipText: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#556B2F',
+    flex: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: '#8A8578',
     lineHeight: 20,
   },
+
+  // ── Bottom Bar ──
   bottomBar: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.06)',
-    backgroundColor: '#F8F6F5',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(26, 21, 16, 0.06)',
+    backgroundColor: '#FAFAF8',
   },
-  saveButton: {
+  saveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F2330D',
-    height: 56,
-    borderRadius: 16,
+    backgroundColor: '#C66E4E',
+    height: 54,
+    borderRadius: 20,
     gap: 10,
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
   },
-  saveButtonDisabled: {
-    opacity: 0.7,
+  saveBtnDisabled: {
+    opacity: 0.6,
   },
-  saveButtonText: {
-    fontSize: 17,
+  saveBtnText: {
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 16,
     color: '#FFFFFF',
+  },
+  usageBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(198, 110, 78, 0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  usageBannerText: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: '#C66E4E',
+    lineHeight: 17,
   },
 });

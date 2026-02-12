@@ -6,8 +6,9 @@ import {
   Image,
   Pressable,
   ScrollView,
+  TouchableOpacity,
 } from 'react-native';
-import { Text, Button } from '@rneui/themed';
+import { Text } from '@rneui/themed';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -74,26 +75,35 @@ export default function CookbookScanScreen() {
   if (!permission.granted) {
     return (
       <View style={[styles.permissionContainer, { paddingTop: insets.top + 8 }]}>
-        <Ionicons name="camera-outline" size={64} color="#C8B7B2" />
-        <Text h4 style={styles.permissionTitle}>
-          Camera Access Required
-        </Text>
+        {/* Back */}
+        <Pressable
+          style={[styles.permBackBtn, { top: insets.top + 8 }]}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={22} color="#1A1510" />
+        </Pressable>
+
+        <View style={styles.permIconWrap}>
+          <Ionicons name="camera-outline" size={36} color="#8A8578" />
+        </View>
+        <Text style={styles.permissionTitle}>Camera Access</Text>
         <Text style={styles.permissionText}>
           We need camera access to photograph your cookbook pages
         </Text>
-        <Button
-          title="Grant Permission"
+        <TouchableOpacity
+          style={styles.permissionButton}
           onPress={requestPermission}
-          buttonStyle={styles.permissionButton}
-          titleStyle={styles.permissionButtonText}
-        />
-        <Button
-          title="Choose from Gallery"
-          type="outline"
+          activeOpacity={0.8}
+        >
+          <Text style={styles.permissionButtonText}>Grant Permission</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.galleryButton}
           onPress={pickImages}
-          buttonStyle={styles.galleryButton}
-          titleStyle={styles.galleryButtonText}
-        />
+          activeOpacity={0.8}
+        >
+          <Text style={styles.galleryButtonText}>Choose from Gallery</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -111,11 +121,11 @@ export default function CookbookScanScreen() {
       {/* Header */}
       <View style={[styles.header, { top: insets.top + 12 }]}>
         <Pressable style={styles.headerButton} onPress={() => router.back()}>
-          <Ionicons name="close" size={24} color="#FFF" />
+          <Ionicons name="close" size={22} color="#FFF" />
         </Pressable>
         <Text style={styles.headerTitle}>Scan Cookbook</Text>
         <Pressable style={styles.headerButton} onPress={() => setFlashEnabled(!flashEnabled)}>
-          <Ionicons name={flashEnabled ? 'flash' : 'flash-off'} size={22} color="#FFF" />
+          <Ionicons name={flashEnabled ? 'flash' : 'flash-off'} size={20} color="#FFF" />
         </Pressable>
       </View>
 
@@ -135,7 +145,7 @@ export default function CookbookScanScreen() {
                   onPress={() => removePage(index)}
                   hitSlop={6}
                 >
-                  <Ionicons name="close-circle" size={22} color="#F2330D" />
+                  <Ionicons name="close-circle" size={20} color="#C66E4E" />
                 </Pressable>
                 <View style={styles.thumbnailBadge}>
                   <Text style={styles.thumbnailBadgeText}>{index + 1}</Text>
@@ -144,7 +154,7 @@ export default function CookbookScanScreen() {
             ))}
           </ScrollView>
           <View style={styles.pageCountBadge}>
-            <Ionicons name="documents-outline" size={14} color="#FFF" />
+            <Ionicons name="documents-outline" size={13} color="#FFF" />
             <Text style={styles.pageCountText}>
               {pages.length} {pages.length === 1 ? 'page' : 'pages'}
             </Text>
@@ -153,17 +163,17 @@ export default function CookbookScanScreen() {
       )}
 
       {/* Controls */}
-      <View style={styles.controls}>
+      <View style={[styles.controls, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.captureRow}>
           <Pressable style={styles.galleryIconButton} onPress={pickImages}>
-            <Ionicons name="images" size={24} color="#FFF" />
+            <Ionicons name="images" size={22} color="#FFF" />
           </Pressable>
           <Pressable style={styles.captureButton} onPress={takePicture}>
             <View style={styles.captureButtonInner} />
           </Pressable>
           {pages.length > 0 ? (
             <Pressable style={styles.extractButton} onPress={handleExtract}>
-              <Ionicons name="sparkles" size={18} color="#FFF" />
+              <Ionicons name="sparkles" size={16} color="#FFF" />
               <Text style={styles.extractButtonText}>Extract</Text>
             </Pressable>
           ) : (
@@ -180,50 +190,84 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+
+  // ── Permission ──
   permissionContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: '#FAFAF8',
+  },
+  permBackBtn: {
+    position: 'absolute',
+    left: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  permIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
   permissionTitle: {
-    marginTop: 24,
-    marginBottom: 12,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 24,
+    color: '#1A1510',
+    marginBottom: 8,
     textAlign: 'center',
-    color: '#1C100D',
-    fontFamily: 'PlusJakartaSans_700Bold',
   },
   permissionText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#8A8578',
     textAlign: 'center',
-    color: '#9C5749',
-    marginBottom: 32,
     lineHeight: 22,
-    fontFamily: 'NotoSans_500Medium',
+    marginBottom: 32,
   },
   permissionButton: {
-    backgroundColor: '#F2330D',
-    borderRadius: 16,
+    backgroundColor: '#C66E4E',
+    borderRadius: 20,
     paddingHorizontal: 32,
     paddingVertical: 14,
-    marginBottom: 16,
+    marginBottom: 12,
+    width: '100%',
+    alignItems: 'center',
   },
   permissionButtonText: {
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 15,
+    color: '#FFFFFF',
   },
   galleryButton: {
-    borderColor: '#F2330D',
-    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 21, 16, 0.10)',
+    borderRadius: 20,
     paddingHorizontal: 32,
     paddingVertical: 14,
+    width: '100%',
+    alignItems: 'center',
   },
   galleryButtonText: {
-    color: '#F2330D',
     fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 15,
+    color: '#1A1510',
   },
+
+  // ── Camera ──
   camera: {
     flex: 1,
   },
+
+  // ── Header ──
   header: {
     position: 'absolute',
     left: 16,
@@ -234,18 +278,20 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
     color: '#FFF',
-    fontSize: 18,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
+
+  // ── Thumbnails ──
   thumbnailStrip: {
     position: 'absolute',
     bottom: 160,
@@ -261,24 +307,24 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   thumbnail: {
-    width: 64,
-    height: 84,
-    borderRadius: 10,
+    width: 60,
+    height: 80,
+    borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#FFF',
+    borderColor: 'rgba(255, 255, 255, 0.8)',
   },
   thumbnailRemove: {
     position: 'absolute',
     top: -6,
     right: -6,
     backgroundColor: '#FFF',
-    borderRadius: 11,
+    borderRadius: 10,
   },
   thumbnailBadge: {
     position: 'absolute',
     bottom: 4,
     left: 4,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     borderRadius: 8,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -293,58 +339,61 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: 20,
     marginTop: 10,
   },
   pageCountText: {
     color: '#FFF',
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: 'PlusJakartaSans_600SemiBold',
   },
+
+  // ── Controls ──
   controls: {
     position: 'absolute',
-    bottom: 48,
+    bottom: 0,
     left: 0,
     right: 0,
     alignItems: 'center',
+    paddingTop: 16,
   },
   captureRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 36,
+    gap: 32,
   },
   galleryIconButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   captureButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: 'rgba(255, 255, 255, 0.20)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#FFF',
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
   },
   captureButtonInner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#F2330D',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#C66E4E',
   },
   extractButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#F2330D',
+    backgroundColor: '#C66E4E',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 24,

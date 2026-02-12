@@ -36,13 +36,11 @@ export default function EditProfileScreen() {
   const { user, updateProfile } = useAuthStore();
 
   const [fullName, setFullName] = useState(user?.full_name || '');
-  const [bio, setBio] = useState(user?.bio || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const hasChanges =
     fullName !== (user?.full_name || '') ||
-    bio !== (user?.bio || '') ||
     avatarUrl !== (user?.avatar_url || '');
 
   const handlePickImage = useCallback(async () => {
@@ -61,8 +59,6 @@ export default function EditProfileScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        // For now, just use the local URI
-        // In production, you'd upload to storage first
         setAvatarUrl(result.assets[0].uri);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
@@ -79,27 +75,24 @@ export default function EditProfileScreen() {
     try {
       let finalAvatarUrl = avatarUrl;
 
-      // Upload avatar to Firebase Storage if it's a new local file
       if (avatarUrl && !avatarUrl.startsWith('http') && avatarUrl !== user?.avatar_url) {
         try {
           finalAvatarUrl = await userService.uploadAvatar(avatarUrl);
         } catch (uploadError) {
           console.error('Avatar upload failed:', uploadError);
           Alert.alert('Warning', 'Failed to upload photo, but your other changes will be saved.');
-          finalAvatarUrl = user?.avatar_url; // Keep the old avatar
+          finalAvatarUrl = user?.avatar_url || '';
         }
       }
 
       await userService.updateUserProfile({
         full_name: fullName.trim(),
-        bio: bio.trim(),
-        avatar_url: finalAvatarUrl || undefined,
+        avatar_url: finalAvatarUrl || '',
       });
 
       await updateProfile({
         full_name: fullName.trim(),
-        bio: bio.trim(),
-        avatar_url: finalAvatarUrl || undefined,
+        avatar_url: finalAvatarUrl || '',
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -110,7 +103,7 @@ export default function EditProfileScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [fullName, bio, avatarUrl, hasChanges, updateProfile, router, user?.avatar_url]);
+  }, [fullName, avatarUrl, hasChanges, updateProfile, router, user?.avatar_url]);
 
   const handleCancel = useCallback(() => {
     if (hasChanges) {
@@ -125,85 +118,70 @@ export default function EditProfileScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity style={styles.headerButton} onPress={handleCancel}>
-          <Text style={styles.cancelText}>Cancel</Text>
+        <TouchableOpacity style={styles.backBtn} onPress={handleCancel}>
+          <Ionicons name="arrow-back" size={22} color="#1A1510" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Edit Profile</Text>
         <TouchableOpacity
-          style={[styles.headerButton, !hasChanges && styles.headerButtonDisabled]}
+          style={[styles.saveBtn, !hasChanges && styles.saveBtnDisabled]}
           onPress={handleSave}
           disabled={!hasChanges || isSaving}
         >
           {isSaving ? (
-            <ActivityIndicator size="small" color="#F2330D" />
+            <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
-            <Text style={[styles.saveText, !hasChanges && styles.saveTextDisabled]}>Save</Text>
+            <Text style={[styles.saveBtnText, !hasChanges && styles.saveBtnTextDisabled]}>
+              Save
+            </Text>
           )}
         </TouchableOpacity>
       </View>
 
       <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.contentContainer}
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         {/* Avatar */}
         <TouchableOpacity style={styles.avatarSection} onPress={handlePickImage}>
-          <View style={styles.avatarContainer}>
+          <View style={styles.avatarRing}>
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             ) : (
-              <View style={styles.avatarPlaceholder}>
+              <View style={styles.avatarFallback}>
                 <Text style={styles.avatarText}>{getInitials(fullName || user?.email)}</Text>
               </View>
             )}
-            <View style={styles.editAvatarButton}>
-              <Ionicons name="camera" size={16} color="#FFFFFF" />
-            </View>
           </View>
-          <Text style={styles.changePhotoText}>Change Photo</Text>
+          <Text style={styles.changePhoto}>Change Photo</Text>
         </TouchableOpacity>
 
         {/* Form */}
         <View style={styles.form}>
-          <View style={styles.inputGroup}>
+          <View style={styles.field}>
             <Text style={styles.label}>Name</Text>
             <TextInput
               style={styles.input}
               value={fullName}
               onChangeText={setFullName}
               placeholder="Your name"
-              placeholderTextColor="#C8B7B2"
+              placeholderTextColor="#D5D1CB"
               autoCapitalize="words"
               returnKeyType="next"
             />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Bio</Text>
-            <TextInput
-              style={[styles.input, styles.bioInput]}
-              value={bio}
-              onChangeText={setBio}
-              placeholder="Tell us about yourself..."
-              placeholderTextColor="#C8B7B2"
-              multiline
-              numberOfLines={4}
-              maxLength={150}
-              textAlignVertical="top"
-            />
-            <Text style={styles.charCount}>{bio.length}/150</Text>
-          </View>
-
-          <View style={styles.inputGroup}>
+          <View style={styles.field}>
             <Text style={styles.label}>Email</Text>
             <View style={[styles.input, styles.disabledInput]}>
               <Text style={styles.disabledText}>{user?.email}</Text>
-              <Ionicons name="lock-closed" size={16} color="#C8B7B2" />
+              <Ionicons name="lock-closed" size={14} color="#D5D1CB" />
             </View>
             <Text style={styles.helpText}>Email cannot be changed</Text>
           </View>
@@ -214,144 +192,140 @@ export default function EditProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: '#FAFAF8',
   },
+
+  // ── Header ──
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0EAE8',
   },
-  headerButton: {
-    minWidth: 60,
-  },
-  headerButtonDisabled: {
-    opacity: 0.5,
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(26, 21, 16, 0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 17,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#1C100D',
-  },
-  cancelText: {
     fontSize: 16,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
+    color: '#1A1510',
   },
-  saveText: {
-    fontSize: 16,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#F2330D',
-    textAlign: 'right',
+  saveBtn: {
+    backgroundColor: '#C66E4E',
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 20,
   },
-  saveTextDisabled: {
-    color: '#C8B7B2',
+  saveBtnDisabled: {
+    backgroundColor: 'rgba(26, 21, 16, 0.08)',
   },
-  content: {
+  saveBtnText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  saveBtnTextDisabled: {
+    color: '#B5B0A7',
+  },
+
+  // ── Scroll ──
+  scroll: {
     flex: 1,
   },
-  contentContainer: {
-    padding: 24,
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 40,
   },
+
+  // ── Avatar ──
   avatarSection: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 36,
   },
-  avatarContainer: {
-    position: 'relative',
+  avatarRing: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 92,
+    height: 92,
+    borderRadius: 46,
   },
-  avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#F2330D',
+  avatarFallback: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    backgroundColor: '#1A1510',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    fontSize: 36,
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 32,
     color: '#FFFFFF',
   },
-  editAvatarButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#1C100D',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: '#F8F6F5',
+  changePhoto: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 13,
+    color: '#C66E4E',
+    marginTop: 14,
   },
-  changePhotoText: {
-    marginTop: 12,
-    fontSize: 14,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#F2330D',
-  },
+
+  // ── Form ──
   form: {
     gap: 24,
   },
-  inputGroup: {
+  field: {
     gap: 8,
   },
   label: {
-    fontSize: 13,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: '#B5B0A7',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+    marginLeft: 4,
   },
   input: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 16,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
-    borderWidth: 1,
-    borderColor: '#F0EAE8',
-  },
-  bioInput: {
-    minHeight: 100,
-    paddingTop: 14,
-  },
-  charCount: {
-    fontSize: 12,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#C8B7B2',
-    textAlign: 'right',
-    marginTop: 4,
+    color: '#1A1510',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
   },
   disabledInput: {
-    backgroundColor: '#F5F0EE',
+    backgroundColor: 'rgba(26, 21, 16, 0.03)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   disabledText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 16,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#9C5749',
+    color: '#B5B0A7',
   },
   helpText: {
-    fontSize: 12,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#C8B7B2',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 11,
+    color: '#D5D1CB',
+    marginLeft: 4,
   },
 });

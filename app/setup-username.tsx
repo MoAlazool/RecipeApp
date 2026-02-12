@@ -19,7 +19,7 @@ import { useAuthStore } from '@/stores/authStore';
 export default function SetupUsernameScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, updateProfile } = useAuthStore();
+  const { updateProfile } = useAuthStore();
 
   const [username, setUsername] = useState('');
   const [isChecking, setIsChecking] = useState(false);
@@ -27,7 +27,6 @@ export default function SetupUsernameScreen() {
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Debounced availability check
   useEffect(() => {
     if (!username.trim()) {
       setIsAvailable(null);
@@ -59,6 +58,10 @@ export default function SetupUsernameScreen() {
     return () => clearTimeout(timer);
   }, [username]);
 
+  const closeScreen = useCallback(() => {
+    router.back();
+  }, [router]);
+
   const handleSave = useCallback(async () => {
     if (!isAvailable || isSaving || validationError) return;
 
@@ -67,27 +70,31 @@ export default function SetupUsernameScreen() {
       await userService.setUsername(username);
       await updateProfile({ username: username.toLowerCase().trim() });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      closeScreen();
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setValidationError(error.message || 'Failed to set username');
     } finally {
       setIsSaving(false);
     }
-  }, [username, isAvailable, isSaving, validationError, updateProfile, router]);
+  }, [username, isAvailable, isSaving, validationError, updateProfile, closeScreen]);
+
+  const handleSkip = useCallback(() => {
+    closeScreen();
+  }, [closeScreen]);
 
   const getStatusIcon = () => {
     if (isChecking) {
-      return <ActivityIndicator size="small" color="#9C5749" />;
+      return <ActivityIndicator size="small" color="#B5B0A7" />;
     }
     if (validationError) {
-      return <Ionicons name="close-circle" size={24} color="#F44336" />;
+      return <Ionicons name="close-circle" size={22} color="#EF4444" />;
     }
     if (isAvailable === true) {
-      return <Ionicons name="checkmark-circle" size={24} color="#22C55E" />;
+      return <Ionicons name="checkmark-circle" size={22} color="#D4AF37" />;
     }
     if (isAvailable === false) {
-      return <Ionicons name="close-circle" size={24} color="#F44336" />;
+      return <Ionicons name="close-circle" size={22} color="#EF4444" />;
     }
     return null;
   };
@@ -103,51 +110,44 @@ export default function SetupUsernameScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={[styles.content, { paddingTop: insets.top + 8 }]}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="close" size={24} color="#1C100D" />
+          <TouchableOpacity style={styles.skipBtn} onPress={handleSkip}>
+            <Text style={styles.skipBtnText}>Skip</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Choose Username</Text>
+          <Text style={styles.headerTitle}>Username</Text>
           <TouchableOpacity
-            style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
+            style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
             onPress={handleSave}
             disabled={!canSave}
           >
             {isSaving ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={[styles.saveButtonText, !canSave && styles.saveButtonTextDisabled]}>
+              <Text style={[styles.saveBtnText, !canSave && styles.saveBtnTextDisabled]}>
                 Save
               </Text>
             )}
           </TouchableOpacity>
         </View>
 
-        {/* Content */}
-        <View style={styles.formContainer}>
-          <View style={styles.iconContainer}>
-            <Ionicons name="at" size={48} color="#F2330D" />
-          </View>
-
-          <Text style={styles.title}>Pick a unique username</Text>
+        {/* Form */}
+        <View style={styles.form}>
+          <Text style={styles.title}>Choose your username</Text>
           <Text style={styles.subtitle}>
-            This is how other users will find and mention you
+            This is how others will find and mention you
           </Text>
 
-          <View style={styles.inputContainer}>
+          <View style={styles.inputWrap}>
             <Text style={styles.atSymbol}>@</Text>
             <TextInput
               style={styles.input}
               placeholder="username"
-              placeholderTextColor="#C8B7B2"
+              placeholderTextColor="#D5D1CB"
               value={username}
               onChangeText={(text) => setUsername(text.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
               autoCapitalize="none"
@@ -161,9 +161,9 @@ export default function SetupUsernameScreen() {
           {getStatusMessage() ? (
             <Text
               style={[
-                styles.statusMessage,
-                isAvailable === true && styles.statusMessageSuccess,
-                (validationError || isAvailable === false) && styles.statusMessageError,
+                styles.statusMsg,
+                isAvailable === true && styles.statusSuccess,
+                (validationError || isAvailable === false) && styles.statusError,
               ]}
             >
               {getStatusMessage()}
@@ -171,10 +171,19 @@ export default function SetupUsernameScreen() {
           ) : null}
 
           <View style={styles.rules}>
-            <Text style={styles.rulesTitle}>Username rules:</Text>
-            <Text style={styles.ruleItem}>• 3-20 characters</Text>
-            <Text style={styles.ruleItem}>• Letters, numbers, and underscores only</Text>
-            <Text style={styles.ruleItem}>• Must start with a letter</Text>
+            <Text style={styles.rulesLabel}>Requirements</Text>
+            <View style={styles.ruleRow}>
+              <View style={styles.ruleDot} />
+              <Text style={styles.ruleText}>3–20 characters</Text>
+            </View>
+            <View style={styles.ruleRow}>
+              <View style={styles.ruleDot} />
+              <Text style={styles.ruleText}>Letters, numbers, and underscores</Text>
+            </View>
+            <View style={styles.ruleRow}>
+              <View style={styles.ruleDot} />
+              <Text style={styles.ruleText}>Must start with a letter</Text>
+            </View>
           </View>
         </View>
       </View>
@@ -183,140 +192,149 @@ export default function SetupUsernameScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: '#F8F6F5',
+    backgroundColor: '#FAFAF8',
   },
   content: {
     flex: 1,
   },
+
+  // ── Header ──
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
   },
-  closeButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+  skipBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  skipBtnText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#8A8578',
   },
   headerTitle: {
-    fontSize: 18,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 16,
+    color: '#1A1510',
   },
-  saveButton: {
-    backgroundColor: '#F2330D',
-    paddingHorizontal: 20,
+  saveBtn: {
+    backgroundColor: '#C66E4E',
+    paddingHorizontal: 22,
     paddingVertical: 10,
     borderRadius: 20,
   },
-  saveButtonDisabled: {
-    backgroundColor: '#E8D3CE',
+  saveBtnDisabled: {
+    backgroundColor: 'rgba(26, 21, 16, 0.08)',
   },
-  saveButtonText: {
-    fontSize: 15,
-    fontFamily: 'NotoSans_600SemiBold',
+  saveBtnText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 14,
     color: '#FFFFFF',
   },
-  saveButtonTextDisabled: {
-    color: '#9C5749',
+  saveBtnTextDisabled: {
+    color: '#B5B0A7',
   },
-  formContainer: {
+
+  // ── Form ──
+  form: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 40,
-  },
-  iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(242, 51, 13, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: 24,
+    paddingTop: 48,
   },
   title: {
-    fontSize: 24,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1C100D',
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 26,
+    color: '#1A1510',
     textAlign: 'center',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 15,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#B5B0A7',
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: 36,
   },
-  inputContainer: {
+
+  // ── Input ──
+  inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    paddingHorizontal: 16,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
+    paddingHorizontal: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(26, 21, 16, 0.08)',
   },
   atSymbol: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     fontSize: 20,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#F2330D',
+    color: '#C66E4E',
     marginRight: 4,
   },
   input: {
     flex: 1,
     height: 56,
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 18,
-    fontFamily: 'NotoSans_500Medium',
-    color: '#1C100D',
+    color: '#1A1510',
   },
   statusIcon: {
-    width: 30,
+    width: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  statusMessage: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
+
+  // ── Status ──
+  statusMsg: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
     textAlign: 'center',
     marginTop: 12,
+    color: '#B5B0A7',
   },
-  statusMessageSuccess: {
-    color: '#22C55E',
+  statusSuccess: {
+    color: '#D4AF37',
   },
-  statusMessageError: {
-    color: '#F44336',
+  statusError: {
+    color: '#EF4444',
   },
+
+  // ── Rules ──
   rules: {
-    marginTop: 32,
-    backgroundColor: '#FFFFFF',
+    marginTop: 36,
+    backgroundColor: 'rgba(26, 21, 16, 0.03)',
     borderRadius: 16,
-    padding: 16,
-    shadowColor: '#1C100D',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
+    padding: 18,
+    gap: 8,
   },
-  rulesTitle: {
-    fontSize: 14,
-    fontFamily: 'NotoSans_600SemiBold',
-    color: '#1C100D',
-    marginBottom: 8,
-  },
-  ruleItem: {
-    fontSize: 13,
-    fontFamily: 'NotoSans_400Regular',
-    color: '#9C5749',
+  rulesLabel: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: '#B5B0A7',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
     marginBottom: 4,
+  },
+  ruleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  ruleDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D5D1CB',
+  },
+  ruleText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: '#8A8578',
   },
 });

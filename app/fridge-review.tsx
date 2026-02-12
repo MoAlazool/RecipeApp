@@ -1,126 +1,136 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   StyleSheet,
-  Image,
   Pressable,
   ScrollView,
-  Animated,
-  useColorScheme,
+  Animated as RNAnimated,
   Dimensions,
   ActivityIndicator,
   Modal,
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Alert,
+  StatusBar,
   type DimensionValue,
 } from 'react-native';
-import { Text, Button } from '@rneui/themed';
+import { Text } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import { Image as ExpoImage } from 'expo-image';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Haptics from 'expo-haptics';
 import { aiService } from '@/services/ai.service';
 import { firebaseService } from '@/services/firebase.service';
 import { pantryService } from '@/services/pantry.service';
+import { useUsageStore } from '@/stores/usageStore';
+import { useUsageGate } from '@/hooks/useUsageGate';
+import UsageLimitSheet from '@/components/ui/UsageLimitSheet';
 import {
   getIngredientEmoji,
-  getIngredientColors,
+  CATEGORY_BG_COLORS,
   generateMarkerPosition,
   confidenceToPercent,
 } from '@/utils/ingredientEmojis';
+import { getIngredientImage } from '@/utils/ingredientImages';
 import type { DetectedIngredient } from '@/utils/types';
 
+// ============================================================
+// DESIGN TOKENS — Matching Recipe Detail Screen
+// ============================================================
+
+const C = {
+  ivory: '#FFFFFF',
+  charcoal: '#1A1510',
+  gold: '#D4AF37',
+  terracotta: '#C66E4E',
+  muted: '#8A8578',
+  hairline: 'rgba(26, 21, 16, 0.06)',
+  glass: 'rgba(255, 255, 255, 0.85)',
+  cardBg: 'rgba(26, 21, 16, 0.03)',
+  olive: '#6B8E23',
+};
+
+const SHADOW_SOFT = {
+  shadowColor: '#1A1510',
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 0.05,
+  shadowRadius: 20,
+  elevation: 6,
+};
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// ============================================================
+// TYPES
+// ============================================================
 
 interface DetectedItem {
   id: string;
   name: string;
   emoji: string;
   confidence: number;
-  quantity: string; // e.g., "3", "half carton", "about 500ml"
+  quantity: string;
   category: string;
   position: { top: DimensionValue; left: DimensionValue };
   bgColor: string;
-  darkBgColor: string;
 }
 
-// Helper to convert AI DetectedIngredient to UI DetectedItem
-function mapDetectedIngredientsToItems(
-  ingredients: DetectedIngredient[]
-): DetectedItem[] {
+// ============================================================
+// HELPERS
+// ============================================================
+
+function mapDetectedIngredientsToItems(ingredients: DetectedIngredient[]): DetectedItem[] {
   return ingredients.map((ingredient, index) => {
-    const colors = getIngredientColors(ingredient.category);
+    const bgColor = CATEGORY_BG_COLORS[ingredient.category as keyof typeof CATEGORY_BG_COLORS] || '#F5F3EE';
     const confidence = ingredient.confidence_percent ?? confidenceToPercent(ingredient.confidence);
     return {
       id: `${index + 1}`,
       name: ingredient.name,
       emoji: getIngredientEmoji(ingredient.name),
       confidence,
-      quantity: ingredient.quantity_estimate || 'some', // Preserve quantity from AI
+      quantity: ingredient.quantity_estimate || 'some',
       category: ingredient.category || 'other',
       position: generateMarkerPosition(index, ingredients.length),
-      bgColor: colors.bgColor,
-      darkBgColor: colors.darkBgColor,
+      bgColor,
     };
   });
 }
 
-function PulsingMarker({
-  isPrimary = false,
-  delay = 0,
-}: {
-  isPrimary?: boolean;
-  delay?: number;
-}) {
-  const pulseAnim = useRef(new Animated.Value(0.8)).current;
-  const opacityAnim = useRef(new Animated.Value(0.5)).current;
+// ============================================================
+// PULSING MARKER COMPONENT
+// ============================================================
+
+function PulsingMarker({ isPrimary = false, delay = 0 }: { isPrimary?: boolean; delay?: number }) {
+  const pulseAnim = useRef(new RNAnimated.Value(0.8)).current;
+  const opacityAnim = useRef(new RNAnimated.Value(0.5)).current;
 
   useEffect(() => {
-    const startAnimation = () => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.parallel([
-            Animated.timing(pulseAnim, {
-              toValue: 2.5,
-              duration: 2000,
-              useNativeDriver: true,
-            }),
-            Animated.timing(opacityAnim, {
-              toValue: 0,
-              duration: 2000,
-              useNativeDriver: true,
-            }),
-          ]),
-          Animated.parallel([
-            Animated.timing(pulseAnim, {
-              toValue: 0.8,
-              duration: 0,
-              useNativeDriver: true,
-            }),
-            Animated.timing(opacityAnim, {
-              toValue: 0.5,
-              duration: 0,
-              useNativeDriver: true,
-            }),
-          ]),
-        ])
-      ).start();
-    };
-    startAnimation();
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.delay(delay),
+        RNAnimated.parallel([
+          RNAnimated.timing(pulseAnim, { toValue: 2.5, duration: 2000, useNativeDriver: true }),
+          RNAnimated.timing(opacityAnim, { toValue: 0, duration: 2000, useNativeDriver: true }),
+        ]),
+        RNAnimated.parallel([
+          RNAnimated.timing(pulseAnim, { toValue: 0.8, duration: 0, useNativeDriver: true }),
+          RNAnimated.timing(opacityAnim, { toValue: 0.5, duration: 0, useNativeDriver: true }),
+        ]),
+      ])
+    ).start();
   }, [delay, pulseAnim, opacityAnim]);
 
   return (
     <View style={styles.markerContainer}>
-      <Animated.View
+      <RNAnimated.View
         style={[
           styles.pulseRing,
           {
-            backgroundColor: isPrimary
-              ? 'rgba(242, 51, 13, 0.5)'
-              : 'rgba(255, 255, 255, 0.5)',
+            backgroundColor: isPrimary ? 'rgba(198, 110, 78, 0.5)' : 'rgba(255, 255, 255, 0.5)',
             transform: [{ scale: pulseAnim }],
             opacity: opacityAnim,
           },
@@ -130,8 +140,8 @@ function PulsingMarker({
         style={[
           styles.markerDot,
           {
-            backgroundColor: isPrimary ? '#F2330D' : '#FFFFFF',
-            borderColor: isPrimary ? '#FFFFFF' : '#F2330D',
+            backgroundColor: isPrimary ? C.terracotta : '#FFFFFF',
+            borderColor: isPrimary ? '#FFFFFF' : C.terracotta,
           },
         ]}
       />
@@ -139,83 +149,69 @@ function PulsingMarker({
   );
 }
 
-function DetectedItemRow({
-  item,
-  onRemove,
-  isDark,
-  isViewOnly = false,
-}: {
+// ============================================================
+// DETECTED ITEM ROW COMPONENT
+// ============================================================
+
+interface DetectedItemRowProps {
   item: DetectedItem;
+  index: number;
   onRemove: (id: string) => void;
-  isDark: boolean;
   isViewOnly?: boolean;
-}) {
+}
+
+function DetectedItemRow({ item, index, onRemove, isViewOnly = false }: DetectedItemRowProps) {
+  const ingredientImage = getIngredientImage(item.name);
+
   return (
-    <View
-      style={[
-        styles.itemRow,
-        {
-          backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
-          borderColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6',
-        },
-      ]}
-    >
-      <View style={styles.itemInfo}>
-        <View
-          style={[
-            styles.itemEmoji,
-            { backgroundColor: isDark ? item.darkBgColor : item.bgColor },
-          ]}
-        >
-          <Text style={styles.emojiText}>{item.emoji}</Text>
+    <Animated.View entering={FadeInDown.delay(index * 60).springify()}>
+      <View style={styles.itemRow}>
+        <View style={[styles.itemEmoji, { backgroundColor: item.bgColor }]}>
+          {ingredientImage ? (
+            <ExpoImage source={ingredientImage} style={styles.itemEmojiImage} contentFit="cover" />
+          ) : (
+            <Text style={styles.emojiText}>{item.emoji}</Text>
+          )}
         </View>
-        <View style={styles.itemTextContainer}>
-          <Text
-            style={[styles.itemName, { color: isDark ? '#FFFFFF' : '#0F172A' }]}
-          >
-            {item.name}
-          </Text>
-          <View style={styles.itemMetaRow}>
-            {/* Quantity badge */}
-            <View style={[styles.quantityBadge, { backgroundColor: isDark ? 'rgba(96, 108, 56, 0.2)' : 'rgba(96, 108, 56, 0.1)' }]}>
-              <Ionicons name="cube-outline" size={12} color="#606C38" />
+        <View style={styles.itemInfo}>
+          <Text style={styles.itemName}>{item.name}</Text>
+          <View style={styles.itemMeta}>
+            <View style={styles.quantityBadge}>
+              <Ionicons name="cube-outline" size={11} color={C.olive} />
               <Text style={styles.quantityText}>{item.quantity}</Text>
             </View>
-            {/* Confidence */}
-            <Text
-              style={[
-                styles.itemConfidence,
-                { color: isDark ? '#94A3B8' : '#64748B' },
-              ]}
-            >
-              {item.confidence}%
-            </Text>
+            <View style={styles.confidenceBadge}>
+              <Text style={styles.confidenceText}>{item.confidence}%</Text>
+            </View>
           </View>
         </View>
+        {!isViewOnly && (
+          <Pressable
+            style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.6 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onRemove(item.id);
+            }}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={16} color={C.muted} />
+          </Pressable>
+        )}
       </View>
-      {!isViewOnly && (
-        <Pressable
-          style={styles.deleteButton}
-          onPress={() => onRemove(item.id)}
-          hitSlop={8}
-        >
-          <Ionicons
-            name="trash-outline"
-            size={20}
-            color={isDark ? '#9CA3AF' : '#9CA3AF'}
-          />
-        </Pressable>
-      )}
-    </View>
+    </Animated.View>
   );
 }
+
+// ============================================================
+// MAIN SCREEN
+// ============================================================
 
 export default function FridgeReviewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ imageUri?: string; scanId?: string; viewOnly?: string }>();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
+
+  const { checkGate, limitSheetRef, limitInfo } = useUsageGate();
 
   const [items, setItems] = useState<DetectedItem[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
@@ -225,16 +221,13 @@ export default function FridgeReviewScreen() {
   const [scanDate, setScanDate] = useState<string | null>(null);
 
   const isViewOnly = params.viewOnly === 'true';
-  const imageUri =
-    params.imageUri ||
-    'https://lh3.googleusercontent.com/aida-public/AB6AXuCwWnH5Buhj6z60_18QC_n14Ord9RRbLRpqQSDTzGDNqJ9kYeh4bFvLwI6TZ_06ZgMhwRSSvzp12BchvZco7IpsEbgzTSIquW8GUU7vj3K1oTqKu6hVCl5Aa1ALsNuSLcmv1In4NecyBF6ORiqs-LrNvB9d3Oo3B3JD_0ViJbqfAsnHVNkPeQgixy1NiLWl1Z_91GmAP-KPpYeoy4ZBWs9TjT-yLBkYGs1N_-lDhT290uolSomJmIs8J9sXzYX6kpmpVCycFfSb3s8';
+  const imageUri = params.imageUri || 'https://via.placeholder.com/800x600';
 
-  // Analyze the fridge image when the screen loads
   useEffect(() => {
     if (params.scanId && isViewOnly) {
       loadPreviousScan();
     } else {
-      analyzeImage();
+      gatedAnalyze();
     }
   }, []);
 
@@ -260,15 +253,25 @@ export default function FridgeReviewScreen() {
     }
   };
 
+  const gatedAnalyze = async () => {
+    const allowed = await checkGate('scan');
+    if (!allowed) {
+      setIsAnalyzing(false);
+      return;
+    }
+    analyzeImage();
+  };
+
   const analyzeImage = async () => {
     try {
       setIsAnalyzing(true);
       setError(null);
 
-      // Convert image URI to base64
+      // Count usage before the API call to prevent bypass
+      await useUsageStore.getState().incrementUsage('scan');
+
       let base64: string;
       if (imageUri.startsWith('http') || imageUri.startsWith('data:')) {
-        // For remote URLs or data URIs, fetch and convert
         const response = await fetch(imageUri);
         const blob = await response.blob();
         base64 = await new Promise<string>((resolve, reject) => {
@@ -282,12 +285,10 @@ export default function FridgeReviewScreen() {
         });
       } else {
         try {
-          // For local file URIs, use FileSystem
           base64 = await FileSystem.readAsStringAsync(imageUri, {
             encoding: FileSystem.EncodingType.Base64,
           });
         } catch {
-          // Fallback: try fetch for file:// URIs
           const response = await fetch(imageUri);
           const blob = await response.blob();
           base64 = await new Promise<string>((resolve, reject) => {
@@ -302,23 +303,14 @@ export default function FridgeReviewScreen() {
         }
       }
 
-      // Call AI service to analyze the image
       const result = await aiService.analyzeFridgeImage(base64);
-
-      // Map detected ingredients to UI format
       const detectedItems = mapDetectedIngredientsToItems(result.ingredients);
       setItems(detectedItems);
 
-      // Increment usage counter
-      await firebaseService.incrementUsage('scan');
-
-      // Save items to Firebase pantry immediately after detection
       try {
         await pantryService.saveFridgeItems(result.ingredients, imageUri);
-        console.log('✅ Pantry items saved successfully');
       } catch (saveError: any) {
         console.error('Failed to save pantry items:', saveError);
-        // Don't show error to user - detection succeeded, save is secondary
       }
     } catch (err) {
       console.error('Failed to analyze image:', err);
@@ -328,9 +320,9 @@ export default function FridgeReviewScreen() {
     }
   };
 
-  const handleRemoveItem = (id: string) => {
+  const handleRemoveItem = useCallback((id: string) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
-  };
+  }, []);
 
   const handleAddItem = () => {
     setShowAddModal(true);
@@ -344,17 +336,17 @@ export default function FridgeReviewScreen() {
       id: `manual-${Date.now()}`,
       name: manualItemName.trim(),
       emoji: getIngredientEmoji(manualItemName.trim()),
-      confidence: 100, // Manual items have 100% confidence
-      quantity: 'some', // Default quantity for manually added items
+      confidence: 100,
+      quantity: 'some',
       category: 'other',
       position: generateMarkerPosition(items.length, items.length + 1),
-      bgColor: getIngredientColors('other').bgColor,
-      darkBgColor: getIngredientColors('other').darkBgColor,
+      bgColor: CATEGORY_BG_COLORS['other'] || '#F5F3EE',
     };
 
     setItems((prev) => [...prev, newItem]);
     setShowAddModal(false);
     setManualItemName('');
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleRetake = () => {
@@ -366,44 +358,56 @@ export default function FridgeReviewScreen() {
   };
 
   const handleRetry = () => {
-    analyzeImage();
+    gatedAnalyze();
   };
 
-  const handleAnalyze = () => {
-    // Navigate to recipe results (items are already saved after detection)
+  const handleFindRecipes = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     const selectedItems = items.map((item) => ({
       name: item.name,
       emoji: item.emoji,
     }));
 
-    router.push({
-      pathname: '/recipe-results',
+    router.replace({
+      pathname: '/recipe-preferences',
       params: { ingredients: JSON.stringify(selectedItems), sourceType: 'fridge_scan' },
     });
   };
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+
       {/* Background Image */}
       <View style={styles.imageContainer}>
-        <Image source={{ uri: imageUri }} style={styles.backgroundImage} />
-        <View style={styles.gradient} />
+        <ExpoImage source={{ uri: imageUri }} style={styles.backgroundImage} contentFit="cover" />
+        <View style={styles.imageOverlay} />
       </View>
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable style={styles.headerButton} onPress={handleClose}>
-          <Ionicons name="close" size={20} color="#FFFFFF" />
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable
+          style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
+          onPress={handleClose}
+        >
+          <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
+          <Ionicons name="close" size={20} color="#FFF" />
         </Pressable>
         <Text style={styles.headerTitle}>
           {isViewOnly ? 'Previous Scan' : 'Review Photo'}
         </Text>
-        {!isViewOnly && (
-          <Pressable style={styles.headerButton} onPress={handleRetake}>
-            <Ionicons name="refresh" size={20} color="#FFFFFF" />
+        {!isViewOnly ? (
+          <Pressable
+            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
+            onPress={handleRetake}
+          >
+            <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
+            <Ionicons name="refresh" size={18} color="#FFF" />
           </Pressable>
+        ) : (
+          <View style={styles.headerBtn} />
         )}
-        {isViewOnly && <View style={styles.headerButton} />}
       </View>
 
       {/* Detection Markers */}
@@ -411,10 +415,7 @@ export default function FridgeReviewScreen() {
         {items.map((item, index) => (
           <View
             key={item.id}
-            style={[
-              styles.markerPosition,
-              { top: item.position.top, left: item.position.left },
-            ]}
+            style={[styles.markerPosition, { top: item.position.top, left: item.position.left }]}
           >
             <PulsingMarker isPrimary={index === 0} delay={index * 300} />
           </View>
@@ -423,40 +424,21 @@ export default function FridgeReviewScreen() {
 
       {/* Bottom Sheet */}
       <View style={styles.bottomSheet}>
-        <View
-          style={[
-            styles.sheetContent,
-            { backgroundColor: isDark ? '#1A0F0D' : '#F8F6F5' },
-          ]}
-        >
+        <View style={styles.sheetContent}>
           {/* Handle */}
           <View style={styles.handleContainer}>
-            <View
-              style={[
-                styles.handle,
-                {
-                  backgroundColor: isDark
-                    ? 'rgba(255,255,255,0.1)'
-                    : 'rgba(156,163,175,0.6)',
-                },
-              ]}
-            />
+            <View style={styles.handle} />
           </View>
 
           {/* Header Row */}
           <View style={styles.sheetHeader}>
             <View>
               <Text style={styles.detectionLabel}>
-                {isAnalyzing ? 'Loading...' : error ? 'Error' : isViewOnly ? 'Saved Scan' : 'Detection Complete'}
+                {isAnalyzing ? 'Scanning...' : error ? 'Error' : isViewOnly ? 'Saved Scan' : 'Detection Complete'}
               </Text>
-              <Text
-                style={[
-                  styles.itemCount,
-                  { color: isDark ? '#FFFFFF' : '#221310' },
-                ]}
-              >
+              <Text style={styles.itemCount}>
                 {isAnalyzing
-                  ? (isViewOnly ? 'Loading scan...' : 'Scanning your fridge...')
+                  ? isViewOnly ? 'Loading scan...' : 'AI is analyzing...'
                   : error
                   ? 'Please try again'
                   : isViewOnly && scanDate
@@ -464,25 +446,16 @@ export default function FridgeReviewScreen() {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
                     })
                   : `${items.length} Items Found`}
               </Text>
             </View>
             {!isAnalyzing && !error && !isViewOnly && (
               <Pressable
-                style={[
-                  styles.addButton,
-                  { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB' },
-                ]}
+                style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.7 }]}
                 onPress={handleAddItem}
               >
-                <Ionicons
-                  name="add"
-                  size={20}
-                  color={isDark ? '#D1D5DB' : '#4B5563'}
-                />
+                <Ionicons name="add" size={20} color={C.charcoal} />
               </Pressable>
             )}
           </View>
@@ -490,9 +463,11 @@ export default function FridgeReviewScreen() {
           {/* Loading State */}
           {isAnalyzing && (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#F2330D" />
-              <Text style={[styles.loadingText, { color: isDark ? '#9CA3AF' : '#64748B' }]}>
-                AI is analyzing your fridge contents...
+              <View style={styles.loadingIcon}>
+                <ActivityIndicator size="large" color={C.gold} />
+              </View>
+              <Text style={styles.loadingText}>
+                Identifying ingredients in your fridge...
               </Text>
             </View>
           )}
@@ -500,13 +475,16 @@ export default function FridgeReviewScreen() {
           {/* Error State */}
           {error && !isAnalyzing && (
             <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={48} color="#EF4444" />
-              <Text style={[styles.errorText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
-                {error}
-              </Text>
-              <Pressable style={styles.retryButton} onPress={handleRetry}>
-                <Ionicons name="refresh" size={20} color="#FFFFFF" />
-                <Text style={styles.retryButtonText}>Try Again</Text>
+              <View style={styles.errorIcon}>
+                <Ionicons name="alert-circle-outline" size={40} color={C.terracotta} />
+              </View>
+              <Text style={styles.errorText}>{error}</Text>
+              <Pressable
+                style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.97 }] }]}
+                onPress={handleRetry}
+              >
+                <Ionicons name="refresh" size={18} color="#FFF" />
+                <Text style={styles.retryBtnText}>Try Again</Text>
               </Pressable>
             </View>
           )}
@@ -518,43 +496,46 @@ export default function FridgeReviewScreen() {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={[
                 styles.itemsListContent,
-                isViewOnly && { paddingBottom: insets.bottom || 24 }
+                isViewOnly && { paddingBottom: insets.bottom || 24 },
               ]}
             >
-              {items.map((item) => (
+              {items.map((item, index) => (
                 <DetectedItemRow
                   key={item.id}
                   item={item}
+                  index={index}
                   onRemove={handleRemoveItem}
-                  isDark={isDark}
                   isViewOnly={isViewOnly}
                 />
               ))}
             </ScrollView>
           )}
 
-          {/* Analyze Button */}
+          {/* Find Recipes Button */}
           {!isAnalyzing && !error && items.length > 0 && !isViewOnly && (
             <View style={{ paddingBottom: insets.bottom || 24 }}>
               <Pressable
                 style={({ pressed }) => [
-                  styles.analyzeButton,
-                  pressed && styles.analyzeButtonPressed,
+                  styles.findRecipesBtn,
+                  pressed && { transform: [{ scale: 0.98 }], opacity: 0.9 },
                 ]}
-                onPress={handleAnalyze}
+                onPress={handleFindRecipes}
               >
-                <Ionicons
-                  name="sparkles"
-                  size={20}
-                  color="#FFFFFF"
-                  style={styles.sparkleIcon}
-                />
-                <Text style={styles.analyzeButtonText}>Find Recipes</Text>
+                <Ionicons name="sparkles" size={20} color="#FFF" />
+                <Text style={styles.findRecipesBtnText}>Find Recipes</Text>
               </Pressable>
             </View>
           )}
         </View>
       </View>
+
+      {/* Usage Limit Sheet */}
+      <UsageLimitSheet
+        ref={limitSheetRef}
+        limitType={limitInfo.type}
+        used={limitInfo.used}
+        total={limitInfo.total}
+      />
 
       {/* Add Manual Item Modal */}
       <Modal
@@ -567,57 +548,21 @@ export default function FridgeReviewScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalOverlay}
         >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setShowAddModal(false)}
-          />
-          <View
-            style={[
-              styles.modalContent,
-              { backgroundColor: isDark ? '#1A0F0D' : '#FFFFFF' },
-            ]}
-          >
+          <Pressable style={styles.modalBackdrop} onPress={() => setShowAddModal(false)} />
+          <Animated.View entering={FadeInUp.duration(300)} style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text
-                style={[
-                  styles.modalTitle,
-                  { color: isDark ? '#FFFFFF' : '#0F172A' },
-                ]}
-              >
-                Add Item Manually
-              </Text>
-              <Pressable
-                onPress={() => setShowAddModal(false)}
-                hitSlop={8}
-              >
-                <Ionicons
-                  name="close"
-                  size={24}
-                  color={isDark ? '#9CA3AF' : '#64748B'}
-                />
+              <Text style={styles.modalTitle}>Add Item</Text>
+              <Pressable onPress={() => setShowAddModal(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={C.muted} />
               </Pressable>
             </View>
 
             <View style={styles.modalBody}>
-              <Text
-                style={[
-                  styles.inputLabel,
-                  { color: isDark ? '#D1D5DB' : '#64748B' },
-                ]}
-              >
-                Item Name
-              </Text>
+              <Text style={styles.inputLabel}>Item Name</Text>
               <TextInput
-                style={[
-                  styles.textInput,
-                  {
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6',
-                    color: isDark ? '#FFFFFF' : '#0F172A',
-                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB',
-                  },
-                ]}
+                style={styles.textInput}
                 placeholder="e.g., Tomatoes, Milk, Eggs..."
-                placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
+                placeholderTextColor={C.muted}
                 value={manualItemName}
                 onChangeText={setManualItemName}
                 autoFocus
@@ -628,51 +573,42 @@ export default function FridgeReviewScreen() {
 
             <View style={styles.modalFooter}>
               <Pressable
-                style={[
-                  styles.modalButton,
-                  styles.modalCancelButton,
-                  {
-                    backgroundColor: isDark
-                      ? 'rgba(255,255,255,0.05)'
-                      : '#F3F4F6',
-                  },
-                ]}
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
                 onPress={() => setShowAddModal(false)}
               >
-                <Text
-                  style={[
-                    styles.modalButtonText,
-                    { color: isDark ? '#D1D5DB' : '#64748B' },
-                  ]}
-                >
-                  Cancel
-                </Text>
+                <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={[
-                  styles.modalButton,
-                  styles.modalConfirmButton,
-                  !manualItemName.trim() && styles.modalButtonDisabled,
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  !manualItemName.trim() && styles.modalBtnDisabled,
+                  pressed && { opacity: 0.9, transform: [{ scale: 0.97 }] },
                 ]}
                 onPress={handleConfirmAddItem}
                 disabled={!manualItemName.trim()}
               >
-                <Ionicons name="add" size={20} color="#FFFFFF" />
-                <Text style={styles.modalConfirmButtonText}>Add Item</Text>
+                <Ionicons name="add" size={18} color="#FFF" />
+                <Text style={styles.modalConfirmText}>Add Item</Text>
               </Pressable>
             </View>
-          </View>
+          </Animated.View>
         </KeyboardAvoidingView>
       </Modal>
     </View>
   );
 }
 
+// ============================================================
+// STYLES
+// ============================================================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111827',
+    backgroundColor: '#111',
   },
+
+  // Background
   imageContainer: {
     position: 'absolute',
     top: 0,
@@ -683,21 +619,13 @@ const styles = StyleSheet.create({
   backgroundImage: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
   },
-  gradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'transparent',
-    // Simulating gradient with overlays
-    borderTopWidth: 200,
-    borderTopColor: 'rgba(0,0,0,0.4)',
-    borderBottomWidth: 150,
-    borderBottomColor: 'rgba(0,0,0,0.3)',
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
+
+  // Header
   header: {
     position: 'absolute',
     top: 0,
@@ -710,24 +638,24 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     zIndex: 20,
   },
-  headerButton: {
+  headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
   headerTitle: {
-    fontSize: 18,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    fontSize: 16,
+    color: '#FFF',
     textShadowColor: 'rgba(0,0,0,0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
+
+  // Markers
   markersContainer: {
     position: 'absolute',
     top: 0,
@@ -758,6 +686,8 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 2,
   },
+
+  // Bottom Sheet
   bottomSheet: {
     position: 'absolute',
     bottom: 0,
@@ -766,25 +696,25 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
   sheetContent: {
+    backgroundColor: C.ivory,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 40,
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
     elevation: 20,
-    overflow: 'hidden',
   },
   handleContainer: {
-    width: '100%',
     alignItems: 'center',
     paddingTop: 12,
     paddingBottom: 4,
   },
   handle: {
     width: 48,
-    height: 6,
+    height: 5,
     borderRadius: 3,
+    backgroundColor: 'rgba(26, 21, 16, 0.1)',
   },
   sheetHeader: {
     flexDirection: 'row',
@@ -792,161 +722,198 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 24,
     paddingTop: 8,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   detectionLabel: {
-    fontSize: 12,
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#F2330D',
+    fontSize: 11,
+    color: C.gold,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 4,
   },
   itemCount: {
-    fontSize: 24,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
-    lineHeight: 28,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 22,
+    color: C.charcoal,
   },
-  addButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  addBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.cardBg,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  itemsList: {
-    maxHeight: 340,
-    paddingHorizontal: 24,
-  },
-  itemsListContent: {
-    gap: 12,
-    paddingBottom: 8,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    paddingRight: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  itemInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  itemEmoji: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emojiText: {
-    fontSize: 20,
-  },
-  itemTextContainer: {
-    gap: 4,
-  },
-  itemName: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_700Bold',
-  },
-  itemMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  quantityBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  quantityText: {
-    fontSize: 12,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#606C38',
-  },
-  itemConfidence: {
-    fontSize: 11,
-    fontFamily: 'NotoSans_500Medium',
-  },
-  deleteButton: {
-    padding: 8,
-    borderRadius: 20,
-  },
-  analyzeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F2330D',
-    marginHorizontal: 24,
-    marginTop: 24,
-    height: 56,
-    borderRadius: 12,
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-    gap: 10,
-  },
-  analyzeButtonPressed: {
-    transform: [{ scale: 0.98 }],
-  },
-  sparkleIcon: {
-    marginRight: 4,
-  },
-  analyzeButtonText: {
-    fontSize: 18,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
-  },
+
+  // Loading
   loadingContainer: {
-    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 16,
+  },
+  loadingIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 48,
-    gap: 16,
   },
   loadingText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 14,
-    fontFamily: 'NotoSans_500Medium',
+    color: C.muted,
     textAlign: 'center',
   },
+
+  // Error
   errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 32,
     paddingHorizontal: 24,
     gap: 12,
   },
+  errorIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(198, 110, 78, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   errorText: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 15,
+    color: C.charcoal,
     textAlign: 'center',
   },
-  retryButton: {
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: C.terracotta,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 24,
+    marginTop: 8,
+  },
+  retryBtnText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 15,
+    color: '#FFF',
+  },
+
+  // Items List
+  itemsList: {
+    maxHeight: 320,
+    paddingHorizontal: 24,
+  },
+  itemsListContent: {
+    gap: 10,
+    paddingBottom: 8,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.cardBg,
+    borderRadius: 16,
+    padding: 12,
+    gap: 12,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+  },
+  itemEmoji: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  itemEmojiImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  emojiText: {
+    fontSize: 20,
+  },
+  itemInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  itemName: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 15,
+    color: C.charcoal,
+  },
+  itemMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quantityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(107, 142, 35, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  quantityText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: C.olive,
+  },
+  confidenceBadge: {
+    backgroundColor: 'rgba(26, 21, 16, 0.05)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  confidenceText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 11,
+    color: C.muted,
+  },
+  removeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(26, 21, 16, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Find Recipes Button
+  findRecipesBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F2330D',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 8,
-    gap: 8,
+    gap: 10,
+    backgroundColor: C.terracotta,
+    marginHorizontal: 24,
+    marginTop: 20,
+    paddingVertical: 16,
+    borderRadius: 28,
+    shadowColor: C.terracotta,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  retryButtonText: {
-    fontSize: 16,
+  findRecipesBtnText: {
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    fontSize: 16,
+    color: '#FFF',
+    letterSpacing: 0.3,
   },
+
+  // Modal
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -957,17 +924,18 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: C.ivory,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 32,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.15,
     shadowRadius: 16,
     elevation: 10,
   },
@@ -978,60 +946,71 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   modalTitle: {
+    fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 20,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    color: C.charcoal,
   },
   modalBody: {
     marginBottom: 24,
   },
   inputLabel: {
-    fontSize: 14,
     fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 13,
+    color: C.muted,
     marginBottom: 8,
+    letterSpacing: 0.3,
   },
   textInput: {
     height: 52,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 16,
+    borderRadius: 16,
+    backgroundColor: C.cardBg,
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+    paddingHorizontal: 18,
+    fontFamily: 'PlusJakartaSans_400Regular',
     fontSize: 16,
-    fontFamily: 'NotoSans_400Regular',
+    color: C.charcoal,
   },
   modalFooter: {
     flexDirection: 'row',
     gap: 12,
   },
-  modalButton: {
+  modalCancelBtn: {
     flex: 1,
     height: 52,
-    borderRadius: 12,
+    borderRadius: 16,
+    backgroundColor: C.cardBg,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: C.hairline,
+  },
+  modalCancelText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 15,
+    color: C.muted,
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: C.terracotta,
     flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
     gap: 8,
-  },
-  modalCancelButton: {
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
-  },
-  modalConfirmButton: {
-    backgroundColor: '#F2330D',
-    shadowColor: '#F2330D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
+    shadowColor: C.terracotta,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
   },
-  modalButtonDisabled: {
-    opacity: 0.5,
+  modalBtnDisabled: {
+    opacity: 0.4,
   },
-  modalButtonText: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-  },
-  modalConfirmButtonText: {
-    fontSize: 16,
+  modalConfirmText: {
     fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
+    fontSize: 15,
+    color: '#FFF',
   },
 });

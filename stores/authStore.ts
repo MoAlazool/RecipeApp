@@ -5,6 +5,8 @@ import { firebaseService } from '@/services/firebase.service';
 import { useRecipeStore } from './recipeStore';
 import { useShoppingStore } from './shoppingStore';
 import { useMessagingStore } from './messagingStore';
+import { useCookbookStore } from './cookbookStore';
+import { useUsageStore } from './usageStore';
 import type { User } from '@/utils/types';
 
 interface AuthState {
@@ -15,8 +17,9 @@ interface AuthState {
 
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName?: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
+  signUp: (email: string, password: string, fullName?: string) => Promise<{ isNewUser: boolean }>;
+  signInWithGoogle: () => Promise<{ isNewUser: boolean }>;
+  signInWithApple: () => Promise<{ isNewUser: boolean }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<User>) => Promise<void>;
   clearError: () => void;
@@ -59,6 +62,8 @@ export const useAuthStore = create<AuthState>()(
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
           useMessagingStore.getState().clearAll();
+          useCookbookStore.getState().clearAll();
+          useUsageStore.getState().clearAll();
 
           const { user } = await firebaseService.signIn(email, password);
 
@@ -73,6 +78,7 @@ export const useAuthStore = create<AuthState>()(
             // Fetch fresh data for this user
             useRecipeStore.getState().fetchRecipes();
             useShoppingStore.getState().fetchItems();
+            useUsageStore.getState().syncFromFirebase();
           }
         } catch (error: any) {
           set({
@@ -91,6 +97,8 @@ export const useAuthStore = create<AuthState>()(
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
           useMessagingStore.getState().clearAll();
+          useCookbookStore.getState().clearAll();
+          useUsageStore.getState().clearAll();
 
           const { user, session } = await firebaseService.signUp(email, password);
 
@@ -108,7 +116,7 @@ export const useAuthStore = create<AuthState>()(
               isAuthenticated: true,
               isLoading: false,
             });
-            return;
+            return { isNewUser: true };
           }
 
           if (user && !session) {
@@ -119,6 +127,8 @@ export const useAuthStore = create<AuthState>()(
             });
             throw new Error('Check your email to confirm your account, then sign in.');
           }
+
+          return { isNewUser: true };
         } catch (error: any) {
           set({
             error: error.message || 'Failed to sign up',
@@ -136,11 +146,14 @@ export const useAuthStore = create<AuthState>()(
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
           useMessagingStore.getState().clearAll();
+          useCookbookStore.getState().clearAll();
+          useUsageStore.getState().clearAll();
 
           const { user } = await firebaseService.signInWithGoogle();
 
           if (user) {
             let profile = await firebaseService.getProfile(user.id);
+            const isNewUser = !profile;
             if (!profile) {
               await firebaseService.createProfile({
                 id: user.id,
@@ -169,10 +182,71 @@ export const useAuthStore = create<AuthState>()(
             // Fetch fresh data for this user
             useRecipeStore.getState().fetchRecipes();
             useShoppingStore.getState().fetchItems();
+            useUsageStore.getState().syncFromFirebase();
+
+            return { isNewUser };
           }
+
+          return { isNewUser: false };
         } catch (error: any) {
           set({
             error: error.message || 'Failed to sign in with Google',
+            isLoading: false,
+          });
+          throw error;
+        }
+      },
+
+      signInWithApple: async () => {
+        try {
+          set({ isLoading: true, error: null });
+
+          // Clear old data before signing in new user
+          useRecipeStore.getState().clearAll();
+          useShoppingStore.getState().resetStore();
+          useMessagingStore.getState().clearAll();
+          useCookbookStore.getState().clearAll();
+          useUsageStore.getState().clearAll();
+
+          const { user } = await firebaseService.signInWithApple();
+
+          if (user) {
+            let profile = await firebaseService.getProfile(user.id);
+            const isNewUser = !profile;
+            if (!profile) {
+              await firebaseService.createProfile({
+                id: user.id,
+                email: user.email || '',
+                full_name:
+                  user.user_metadata?.full_name ||
+                  user.user_metadata?.name ||
+                  undefined,
+              });
+              profile = await firebaseService.getProfile(user.id);
+            }
+
+            set({
+              user: profile,
+              isAuthenticated: true,
+              isLoading: false,
+            });
+
+            // Fetch fresh data for this user
+            useRecipeStore.getState().fetchRecipes();
+            useShoppingStore.getState().fetchItems();
+            useUsageStore.getState().syncFromFirebase();
+
+            return { isNewUser };
+          }
+
+          return { isNewUser: false };
+        } catch (error: any) {
+          if (error?.code === 'ERR_REQUEST_CANCELED') {
+            set({ isLoading: false });
+            return { isNewUser: false };
+          }
+          set({
+            error: error.message || 'Failed to sign in with Apple',
             isLoading: false,
           });
           throw error;
@@ -187,6 +261,8 @@ export const useAuthStore = create<AuthState>()(
           useRecipeStore.getState().clearAll();
           useShoppingStore.getState().resetStore();
           useMessagingStore.getState().clearAll();
+          useCookbookStore.getState().clearAll();
+          useUsageStore.getState().clearAll();
 
           set({
             user: null,

@@ -9,7 +9,6 @@ interface PreferencesState {
   // Notifications
   notificationsEnabled: boolean;
   messageNotifications: boolean;
-  followNotifications: boolean;
   recipeNotifications: boolean;
 
   // Cooking
@@ -23,7 +22,6 @@ interface PreferencesState {
   setDarkMode: (enabled: boolean) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setMessageNotifications: (enabled: boolean) => void;
-  setFollowNotifications: (enabled: boolean) => void;
   setRecipeNotifications: (enabled: boolean) => void;
   setVoiceFeedback: (enabled: boolean) => void;
   setKeepScreenAwake: (enabled: boolean) => void;
@@ -35,7 +33,6 @@ const defaultPreferences = {
   darkMode: false,
   notificationsEnabled: true,
   messageNotifications: true,
-  followNotifications: true,
   recipeNotifications: true,
   voiceFeedback: true,
   keepScreenAwake: true,
@@ -52,8 +49,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       setNotificationsEnabled: (enabled: boolean) => set({ notificationsEnabled: enabled }),
 
       setMessageNotifications: (enabled: boolean) => set({ messageNotifications: enabled }),
-
-      setFollowNotifications: (enabled: boolean) => set({ followNotifications: enabled }),
 
       setRecipeNotifications: (enabled: boolean) => set({ recipeNotifications: enabled }),
 
