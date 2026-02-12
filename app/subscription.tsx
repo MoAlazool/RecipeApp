@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '@/stores/authStore';
 import { useUsageStore } from '@/stores/usageStore';
+import { useProShowcaseStore } from '@/stores/proShowcaseStore';
 import { revenueCatService } from '@/services/revenueCat.service';
 import { FREE_PLAN_LIMITS, PREMIUM_FEATURES } from '@/utils/types';
 
@@ -59,6 +60,7 @@ export default function SubscriptionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, updateProfile } = useAuthStore();
+  const triggerProShowcase = useProShowcaseStore((state) => state.triggerForUser);
   const isPremium = user?.is_premium ?? false;
 
   const scansUsed = useUsageStore((s) => s.scansUsed);
@@ -133,6 +135,9 @@ export default function SubscriptionScreen() {
         const updates: Record<string, any> = { is_premium: true };
         if (expirationDate) updates.premium_expires_at = expirationDate;
         await updateProfile(updates);
+        if (user?.id) {
+          triggerProShowcase(user.id);
+        }
         await useUsageStore.getState().syncFromFirebase();
         await fetchData();
       }
@@ -305,6 +310,16 @@ export default function SubscriptionScreen() {
           <Text style={styles.freePlanSubtitle}>
             Upgrade to EITO Pro for unlimited recipes, scans, and AI chats
           </Text>
+
+          {/* Upgrade Button */}
+          <TouchableOpacity
+            style={styles.upgradeBtnTop}
+            onPress={handleUpgrade}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="diamond" size={18} color="#FFF" />
+            <Text style={styles.upgradeBtnText}>Upgrade to EITO Pro</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Usage Summary */}
@@ -368,28 +383,6 @@ export default function SubscriptionScreen() {
           ))}
         </View>
 
-        {/* Upgrade Button */}
-        <TouchableOpacity
-          style={styles.upgradeBtn}
-          onPress={handleUpgrade}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="diamond" size={18} color="#FFF" />
-          <Text style={styles.upgradeBtnText}>Upgrade to EITO Pro</Text>
-        </TouchableOpacity>
-
-        {/* Restore */}
-        <TouchableOpacity
-          style={styles.restoreBtn}
-          onPress={handleRestore}
-          disabled={isRestoring}
-        >
-          {isRestoring ? (
-            <ActivityIndicator size="small" color={C.muted} />
-          ) : (
-            <Text style={styles.restoreText}>Restore Purchases</Text>
-          )}
-        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -723,21 +716,17 @@ const styles = StyleSheet.create({
     marginLeft: 30,
   },
 
-  // ─── UPGRADE BTN (Free) ───
-  upgradeBtn: {
+  // ─── UPGRADE BTN (Free – inside card) ───
+  upgradeBtnTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
     backgroundColor: C.terracotta,
-    paddingVertical: 16,
-    borderRadius: 22,
-    marginTop: 28,
-    shadowColor: C.terracotta,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 6,
+    paddingVertical: 14,
+    borderRadius: 18,
+    marginTop: 20,
+    alignSelf: 'stretch',
   },
   upgradeBtnText: {
     fontFamily: 'PlusJakartaSans_700Bold',

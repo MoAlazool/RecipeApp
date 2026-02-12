@@ -4,15 +4,12 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
-  Animated as RNAnimated,
-  Dimensions,
   ActivityIndicator,
   Modal,
   TextInput,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
-  type DimensionValue,
 } from 'react-native';
 import { Text } from '@rneui/themed';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -20,9 +17,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { Image as ExpoImage } from 'expo-image';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp, FadeOutUp } from 'react-native-reanimated';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
+import { captureRef } from 'react-native-view-shot';
 import { aiService } from '@/services/ai.service';
 import { firebaseService } from '@/services/firebase.service';
 import { pantryService } from '@/services/pantry.service';
@@ -32,7 +30,6 @@ import UsageLimitSheet from '@/components/ui/UsageLimitSheet';
 import {
   getIngredientEmoji,
   CATEGORY_BG_COLORS,
-  generateMarkerPosition,
   confidenceToPercent,
 } from '@/utils/ingredientEmojis';
 import { getIngredientImage } from '@/utils/ingredientImages';
@@ -54,15 +51,7 @@ const C = {
   olive: '#6B8E23',
 };
 
-const SHADOW_SOFT = {
-  shadowColor: '#1A1510',
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.05,
-  shadowRadius: 20,
-  elevation: 6,
-};
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const ANALYSIS_CAPTURE_DIMENSION = 1280;
 
 // ============================================================
 // TYPES
@@ -75,7 +64,6 @@ interface DetectedItem {
   confidence: number;
   quantity: string;
   category: string;
-  position: { top: DimensionValue; left: DimensionValue };
   bgColor: string;
 }
 
@@ -94,62 +82,22 @@ function mapDetectedIngredientsToItems(ingredients: DetectedIngredient[]): Detec
       confidence,
       quantity: ingredient.quantity_estimate || 'some',
       category: ingredient.category || 'other',
-      position: generateMarkerPosition(index, ingredients.length),
       bgColor,
     };
   });
 }
 
-// ============================================================
-// PULSING MARKER COMPONENT
-// ============================================================
+function getInitialLetters(name: string): string {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return '?';
 
-function PulsingMarker({ isPrimary = false, delay = 0 }: { isPrimary?: boolean; delay?: number }) {
-  const pulseAnim = useRef(new RNAnimated.Value(0.8)).current;
-  const opacityAnim = useRef(new RNAnimated.Value(0.5)).current;
-
-  useEffect(() => {
-    RNAnimated.loop(
-      RNAnimated.sequence([
-        RNAnimated.delay(delay),
-        RNAnimated.parallel([
-          RNAnimated.timing(pulseAnim, { toValue: 2.5, duration: 2000, useNativeDriver: true }),
-          RNAnimated.timing(opacityAnim, { toValue: 0, duration: 2000, useNativeDriver: true }),
-        ]),
-        RNAnimated.parallel([
-          RNAnimated.timing(pulseAnim, { toValue: 0.8, duration: 0, useNativeDriver: true }),
-          RNAnimated.timing(opacityAnim, { toValue: 0.5, duration: 0, useNativeDriver: true }),
-        ]),
-      ])
-    ).start();
-  }, [delay, pulseAnim, opacityAnim]);
-
-  return (
-    <View style={styles.markerContainer}>
-      <RNAnimated.View
-        style={[
-          styles.pulseRing,
-          {
-            backgroundColor: isPrimary ? 'rgba(198, 110, 78, 0.5)' : 'rgba(255, 255, 255, 0.5)',
-            transform: [{ scale: pulseAnim }],
-            opacity: opacityAnim,
-          },
-        ]}
-      />
-      <View
-        style={[
-          styles.markerDot,
-          {
-            backgroundColor: isPrimary ? C.terracotta : '#FFFFFF',
-            borderColor: isPrimary ? '#FFFFFF' : C.terracotta,
-          },
-        ]}
-      />
-    </View>
-  );
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+  }
+  return trimmed.slice(0, 2).toUpperCase();
 }
 
-// ============================================================
 // DETECTED ITEM ROW COMPONENT
 // ============================================================
 
@@ -170,14 +118,13 @@ function DetectedItemRow({ item, index, onRemove, isViewOnly = false }: Detected
           {ingredientImage ? (
             <ExpoImage source={ingredientImage} style={styles.itemEmojiImage} contentFit="cover" />
           ) : (
-            <Text style={styles.emojiText}>{item.emoji}</Text>
+            <Text style={styles.itemInitials}>{getInitialLetters(item.name)}</Text>
           )}
         </View>
         <View style={styles.itemInfo}>
           <Text style={styles.itemName}>{item.name}</Text>
           <View style={styles.itemMeta}>
             <View style={styles.quantityBadge}>
-              <Ionicons name="cube-outline" size={11} color={C.olive} />
               <Text style={styles.quantityText}>{item.quantity}</Text>
             </View>
             <View style={styles.confidenceBadge}>
@@ -219,6 +166,12 @@ export default function FridgeReviewScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [manualItemName, setManualItemName] = useState('');
   const [scanDate, setScanDate] = useState<string | null>(null);
+  const [showScanCompleteEffect, setShowScanCompleteEffect] = useState(false);
+  const [isStartingRecipes, setIsStartingRecipes] = useState(false);
+  const analysisCaptureRef = useRef<View>(null);
+  const analysisImageReadyRef = useRef(false);
+  const scanCompleteEffectShownRef = useRef(false);
+  const scanCompleteEffectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isViewOnly = params.viewOnly === 'true';
   const imageUri = params.imageUri || 'https://via.placeholder.com/800x600';
@@ -227,9 +180,34 @@ export default function FridgeReviewScreen() {
     if (params.scanId && isViewOnly) {
       loadPreviousScan();
     } else {
-      gatedAnalyze();
+      analyzeImage();
     }
   }, []);
+
+  useEffect(() => {
+    analysisImageReadyRef.current = false;
+  }, [imageUri]);
+
+  useEffect(() => {
+    return () => {
+      if (scanCompleteEffectTimerRef.current) {
+        clearTimeout(scanCompleteEffectTimerRef.current);
+      }
+    };
+  }, []);
+
+  const triggerScanCompleteEffect = useCallback(() => {
+    if (isViewOnly || scanCompleteEffectShownRef.current) return;
+    scanCompleteEffectShownRef.current = true;
+    setShowScanCompleteEffect(true);
+
+    if (scanCompleteEffectTimerRef.current) {
+      clearTimeout(scanCompleteEffectTimerRef.current);
+    }
+    scanCompleteEffectTimerRef.current = setTimeout(() => {
+      setShowScanCompleteEffect(false);
+    }, 1300);
+  }, [isViewOnly]);
 
   const loadPreviousScan = async () => {
     try {
@@ -253,59 +231,92 @@ export default function FridgeReviewScreen() {
     }
   };
 
-  const gatedAnalyze = async () => {
-    const allowed = await checkGate('scan');
-    if (!allowed) {
-      setIsAnalyzing(false);
-      return;
+  const waitForCaptureImage = async (timeoutMs: number = 1200): Promise<boolean> => {
+    const startedAt = Date.now();
+    while (!analysisImageReadyRef.current && Date.now() - startedAt < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 80));
     }
-    analyzeImage();
+    return analysisImageReadyRef.current;
+  };
+
+  const readBase64FromUri = async (uri: string): Promise<string> => {
+    if (uri.startsWith('http') || uri.startsWith('data:')) {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    try {
+      return await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } catch {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+  };
+
+  const getOptimizedImageBase64 = async (): Promise<string | null> => {
+    if (!analysisCaptureRef.current) return null;
+    const isReady = analysisImageReadyRef.current || await waitForCaptureImage();
+    if (!isReady) return null;
+
+    try {
+      const captured = await captureRef(analysisCaptureRef, {
+        format: 'jpg',
+        quality: 0.72,
+        result: 'base64',
+        width: ANALYSIS_CAPTURE_DIMENSION,
+        height: ANALYSIS_CAPTURE_DIMENSION,
+      });
+      if (captured) {
+        console.log(
+          `[Perf][FridgeReview] Optimized payload prepared (~${Math.round(captured.length / 1024)}KB base64 chars)`
+        );
+      }
+      return captured || null;
+    } catch (error) {
+      console.warn('[FridgeReview] Optimized image capture failed, falling back to original', error);
+      return null;
+    }
   };
 
   const analyzeImage = async () => {
+    const totalStartedAt = Date.now();
     try {
       setIsAnalyzing(true);
       setError(null);
 
-      // Count usage before the API call to prevent bypass
-      await useUsageStore.getState().incrementUsage('scan');
+      const payloadStartedAt = Date.now();
+      const optimizedBase64 = await getOptimizedImageBase64();
+      const base64 = optimizedBase64 || await readBase64FromUri(imageUri);
+      console.log(
+        `[Perf][FridgeReview] Base64 payload ready in ${Date.now() - payloadStartedAt}ms (~${Math.round(base64.length / 1024)}KB base64 chars)`
+      );
 
-      let base64: string;
-      if (imageUri.startsWith('http') || imageUri.startsWith('data:')) {
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const result = reader.result as string;
-            resolve(result.split(',')[1]);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      } else {
-        try {
-          base64 = await FileSystem.readAsStringAsync(imageUri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-        } catch {
-          const response = await fetch(imageUri);
-          const blob = await response.blob();
-          base64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const result = reader.result as string;
-              resolve(result.split(',')[1]);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        }
-      }
-
+      const aiStartedAt = Date.now();
       const result = await aiService.analyzeFridgeImage(base64);
+      console.log(`[Perf][FridgeReview] AI scan completed in ${Date.now() - aiStartedAt}ms`);
       const detectedItems = mapDetectedIngredientsToItems(result.ingredients);
       setItems(detectedItems);
+      triggerScanCompleteEffect();
 
       try {
         await pantryService.saveFridgeItems(result.ingredients, imageUri);
@@ -317,6 +328,7 @@ export default function FridgeReviewScreen() {
       setError('Failed to analyze image. Please try again.');
     } finally {
       setIsAnalyzing(false);
+      console.log(`[Perf][FridgeReview] Total analyze flow completed in ${Date.now() - totalStartedAt}ms`);
     }
   };
 
@@ -339,7 +351,6 @@ export default function FridgeReviewScreen() {
       confidence: 100,
       quantity: 'some',
       category: 'other',
-      position: generateMarkerPosition(items.length, items.length + 1),
       bgColor: CATEGORY_BG_COLORS['other'] || '#F5F3EE',
     };
 
@@ -358,21 +369,32 @@ export default function FridgeReviewScreen() {
   };
 
   const handleRetry = () => {
-    gatedAnalyze();
+    analyzeImage();
   };
 
-  const handleFindRecipes = () => {
+  const handleFindRecipes = async () => {
+    if (isStartingRecipes) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const allowed = await checkGate('scan');
+    if (!allowed) return;
+    setIsStartingRecipes(true);
 
-    const selectedItems = items.map((item) => ({
-      name: item.name,
-      emoji: item.emoji,
-    }));
+    try {
+      await useUsageStore.getState().incrementUsage('scan');
 
-    router.replace({
-      pathname: '/recipe-preferences',
-      params: { ingredients: JSON.stringify(selectedItems), sourceType: 'fridge_scan' },
-    });
+      const selectedItems = items.map((item) => ({
+        name: item.name,
+        emoji: item.emoji,
+      }));
+
+      router.replace({
+        pathname: '/recipe-preferences',
+        params: { ingredients: JSON.stringify(selectedItems), sourceType: 'fridge_scan' },
+      });
+    } catch (error) {
+      console.error('Failed to start recipe flow from fridge scan:', error);
+      setIsStartingRecipes(false);
+    }
   };
 
   return (
@@ -410,17 +432,18 @@ export default function FridgeReviewScreen() {
         )}
       </View>
 
-      {/* Detection Markers */}
-      <View style={styles.markersContainer} pointerEvents="none">
-        {items.map((item, index) => (
-          <View
-            key={item.id}
-            style={[styles.markerPosition, { top: item.position.top, left: item.position.left }]}
-          >
-            <PulsingMarker isPrimary={index === 0} delay={index * 300} />
-          </View>
-        ))}
-      </View>
+      {showScanCompleteEffect && (
+        <Animated.View
+          entering={FadeInUp.duration(240)}
+          exiting={FadeOutUp.duration(220)}
+          style={[styles.scanCompleteEffect, { top: insets.top + 72 }]}
+          pointerEvents="none"
+        >
+          <BlurView intensity={45} tint="dark" style={StyleSheet.absoluteFillObject} />
+          <Ionicons name="checkmark-circle" size={16} color="#8EE4A3" />
+          <Text style={styles.scanCompleteText}>Scan complete</Text>
+        </Animated.View>
+      )}
 
       {/* Bottom Sheet */}
       <View style={styles.bottomSheet}>
@@ -517,15 +540,40 @@ export default function FridgeReviewScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.findRecipesBtn,
+                  isStartingRecipes && { opacity: 0.6 },
                   pressed && { transform: [{ scale: 0.98 }], opacity: 0.9 },
                 ]}
                 onPress={handleFindRecipes}
+                disabled={isStartingRecipes}
               >
                 <Ionicons name="sparkles" size={20} color="#FFF" />
-                <Text style={styles.findRecipesBtnText}>Find Recipes</Text>
+                <Text style={styles.findRecipesBtnText}>
+                  {isStartingRecipes ? 'Starting...' : 'Find Recipes'}
+                </Text>
               </Pressable>
             </View>
           )}
+        </View>
+      </View>
+
+      {/* Hidden capture surface used to downscale/compress before AI upload */}
+      <View style={styles.analysisCaptureContainer} pointerEvents="none">
+        <View
+          ref={analysisCaptureRef}
+          collapsable={false}
+          style={styles.analysisCaptureSurface}
+        >
+          <ExpoImage
+            source={{ uri: imageUri }}
+            style={styles.analysisCaptureImage}
+            contentFit="contain"
+            onLoad={() => {
+              analysisImageReadyRef.current = true;
+            }}
+            onError={() => {
+              analysisImageReadyRef.current = false;
+            }}
+          />
         </View>
       </View>
 
@@ -655,36 +703,27 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
 
-  // Markers
-  markersContainer: {
+  // Scan complete effect
+  scanCompleteEffect: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 10,
-  },
-  markerPosition: {
-    position: 'absolute',
-    transform: [{ translateX: -16 }, { translateY: -16 }],
-  },
-  markerContainer: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
+    alignSelf: 'center',
+    zIndex: 25,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
   },
-  pulseRing: {
-    position: 'absolute',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  markerDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
+  scanCompleteText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 12,
+    color: '#FFF',
+    letterSpacing: 0.3,
   },
 
   // Bottom Sheet
@@ -836,10 +875,12 @@ const styles = StyleSheet.create({
   itemEmojiImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 12,
   },
-  emojiText: {
-    fontSize: 20,
+  itemInitials: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 14,
+    color: C.charcoal,
+    letterSpacing: 0.2,
   },
   itemInfo: {
     flex: 1,
@@ -911,6 +952,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#FFF',
     letterSpacing: 0.3,
+  },
+
+  // Hidden capture surface for compressed AI upload
+  analysisCaptureContainer: {
+    position: 'absolute',
+    left: -3000,
+    top: -3000,
+    width: ANALYSIS_CAPTURE_DIMENSION,
+    height: ANALYSIS_CAPTURE_DIMENSION,
+    opacity: 0,
+  },
+  analysisCaptureSurface: {
+    width: ANALYSIS_CAPTURE_DIMENSION,
+    height: ANALYSIS_CAPTURE_DIMENSION,
+    backgroundColor: '#FFFFFF',
+  },
+  analysisCaptureImage: {
+    width: '100%',
+    height: '100%',
   },
 
   // Modal

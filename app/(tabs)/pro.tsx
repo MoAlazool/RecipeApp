@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -8,10 +8,12 @@ import {
 import { Text } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '@/stores/authStore';
+import { useProShowcaseStore } from '@/stores/proShowcaseStore';
 import { revenueCatService } from '@/services/revenueCat.service';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
@@ -64,13 +66,18 @@ export default function ProTabScreen() {
   const insets = useSafeAreaInsets();
   const bottomTabBarHeight = useBottomTabBarHeight();
   const user = useAuthStore((state) => state.user);
+  const showProShowcase = useProShowcaseStore((state) => state.showTab);
+  const showcaseUserId = useProShowcaseStore((state) => state.userId);
+  const consumeProShowcase = useProShowcaseStore((state) => state.consumeForUser);
   const isPremium = user?.is_premium ?? false;
+  const isShowcaseActive =
+    isPremium && !!user?.id && showProShowcase && showcaseUserId === user.id;
 
   const [renewalDate, setRenewalDate] = useState<string | null>(user?.premium_expires_at || null);
   const features = useMemo(() => Object.entries(PREMIUM_FEATURES), []);
 
   useEffect(() => {
-    if (!isPremium) {
+    if (!isShowcaseActive) {
       router.replace('/(tabs)/profile');
       return;
     }
@@ -85,7 +92,17 @@ export default function ProTabScreen() {
         console.warn('Failed to load Pro metadata:', error);
       }
     })();
-  }, [isPremium, router]);
+  }, [isShowcaseActive, router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (user?.id) {
+          consumeProShowcase(user.id);
+        }
+      };
+    }, [consumeProShowcase, user?.id])
+  );
 
   const formatDate = (date?: string | null): string => {
     if (!date) return 'Active';
@@ -101,7 +118,7 @@ export default function ProTabScreen() {
     router.push(route as any);
   };
 
-  if (!isPremium) {
+  if (!isShowcaseActive) {
     return null;
   }
 

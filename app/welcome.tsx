@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Platform,
   Pressable,
   StatusBar,
@@ -207,15 +208,23 @@ export default function WelcomeScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      {/* Fade overlay */}
+      {/* Subtle logo watermark — behind the fade overlay */}
+      <View style={styles.logoContainer} pointerEvents="none">
+        <Image
+          source={require('@/assets/logo.png')}
+          style={styles.logoWatermark}
+        />
+      </View>
+
+      {/* Fade overlay — fades out the logo + gradient in the lower half */}
       <LinearGradient
         colors={[
           'rgba(245, 240, 237, 0)',
-          'rgba(245, 240, 237, 0.4)',
-          'rgba(245, 240, 237, 0.85)',
+          'rgba(245, 240, 237, 0.6)',
+          'rgba(245, 240, 237, 5)',
           'rgba(245, 240, 237, 1)',
         ]}
-        locations={[0, 0.3, 0.5, 0.65]}
+        locations={[0, 0.4, 0.58, 0.72]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
@@ -244,9 +253,9 @@ export default function WelcomeScreen() {
         <BlurView
           intensity={60}
           tint="light"
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, styles.sheetBg]}
         />
-        <View style={styles.sheetOverlay} pointerEvents="none" />
+        <View style={[styles.sheetOverlay, styles.sheetBg]} pointerEvents="none" />
         <Animated.View style={[styles.sheetContent, actionsStyle]}>
           {/* Continue with Apple */}
           <Pressable
@@ -334,11 +343,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: C.bg,
   },
+  logoContainer: {
+    position: 'absolute',
+    top: -100,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    overflow: 'visible',
+  },
+  logoWatermark: {
+    width: 1000,
+    height: 1000,
+    opacity: 0.10,
+  },
   centerStage: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
+    paddingTop: 100,
   },
   headlineRow: {
     flexDirection: 'row',
@@ -373,15 +396,19 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    overflow: 'hidden',
     borderTopWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.5)',
     paddingTop: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
+  },
+  sheetBg: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
   },
   sheetOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   sheetContent: {
     gap: 10,
@@ -393,7 +420,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 10,
-    overflow: 'hidden',
   },
   appleButton: {
     backgroundColor: C.buttonLight,

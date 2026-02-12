@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { View, StyleSheet, Alert, Image, Pressable } from 'react-native';
-import { Text, Button } from '@rneui/themed';
+import { Text } from '@rneui/themed';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -72,26 +72,36 @@ export default function FridgeScanScreen() {
   if (!permission.granted) {
     return (
       <View style={[styles.permissionContainer, { paddingTop: insets.top + 8 }]}>
-        <Ionicons name="camera-outline" size={64} color="#C8B7B2" />
-        <Text h4 style={styles.permissionTitle}>
-          Camera Access Required
-        </Text>
-        <Text style={styles.permissionText}>
-          We need camera access to scan your fridge and identify ingredients
-        </Text>
-        <Button
-          title="Grant Permission"
-          onPress={requestPermission}
-          buttonStyle={styles.permissionButton}
-          titleStyle={styles.permissionButtonText}
-        />
-        <Button
-          title="Choose from Gallery"
-          type="outline"
-          onPress={pickImage}
-          buttonStyle={styles.galleryButton}
-          titleStyle={styles.galleryButtonText}
-        />
+        {/* Back button */}
+        <Pressable style={styles.permBackBtn} onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={22} color="#1A1510" />
+        </Pressable>
+
+        <View style={styles.permContent}>
+          <View style={styles.permIconWrap}>
+            <Ionicons name="camera-outline" size={36} color="#C66E4E" />
+          </View>
+          <Text style={styles.permissionTitle}>Camera Access</Text>
+          <Text style={styles.permissionText}>
+            Allow camera access to scan your fridge and identify ingredients automatically
+          </Text>
+
+          <Pressable
+            style={({ pressed }) => [styles.permissionButton, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
+            onPress={requestPermission}
+          >
+            <Ionicons name="camera" size={18} color="#FFFFFF" />
+            <Text style={styles.permissionButtonText}>Grant Permission</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.galleryButton, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
+            onPress={pickImage}
+          >
+            <Ionicons name="images-outline" size={18} color="#1A1510" />
+            <Text style={styles.galleryButtonText}>Choose from Gallery</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -124,7 +134,9 @@ export default function FridgeScanScreen() {
       {/* Controls */}
       <View style={styles.controls}>
         {capturedImage ? (
-          <Button title="Retake" onPress={handleReset} type="outline" buttonStyle={styles.retakeButton} />
+          <Pressable style={({ pressed }) => [styles.retakeButton, pressed && { opacity: 0.8 }]} onPress={handleReset}>
+            <Text style={styles.retakeButtonText}>Retake</Text>
+          </Pressable>
         ) : (
           <>
             {/* Recent Activity Button */}
@@ -161,44 +173,82 @@ const styles = StyleSheet.create({
   },
   permissionContainer: {
     flex: 1,
+    backgroundColor: '#FAFAF8',
+  },
+  permBackBtn: {
+    position: 'absolute',
+    top: 56,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(26, 21, 16, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  permContent: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
-    backgroundColor: '#F8F6F5',
+    paddingHorizontal: 40,
+  },
+  permIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 28,
+    backgroundColor: 'rgba(198, 110, 78, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
   permissionTitle: {
-    marginTop: 24,
-    marginBottom: 12,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 24,
+    color: '#1A1510',
     textAlign: 'center',
-    color: '#1C100D',
-    fontFamily: 'PlusJakartaSans_700Bold',
+    marginBottom: 10,
   },
   permissionText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    color: '#8A8578',
     textAlign: 'center',
-    color: '#9C5749',
-    marginBottom: 32,
     lineHeight: 22,
-    fontFamily: 'NotoSans_500Medium',
+    marginBottom: 36,
   },
   permissionButton: {
-    backgroundColor: '#F2330D',
-    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#1A1510',
+    borderRadius: 18,
     paddingHorizontal: 32,
-    paddingVertical: 14,
-    marginBottom: 16,
+    paddingVertical: 16,
+    width: '100%',
+    marginBottom: 12,
   },
   permissionButtonText: {
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 15,
+    color: '#FFFFFF',
   },
   galleryButton: {
-    borderColor: '#F2330D',
-    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(26, 21, 16, 0.05)',
+    borderRadius: 18,
     paddingHorizontal: 32,
-    paddingVertical: 14,
+    paddingVertical: 16,
+    width: '100%',
   },
   galleryButtonText: {
-    color: '#F2330D',
     fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 15,
+    color: '#1A1510',
   },
   camera: {
     flex: 1,
@@ -265,8 +315,17 @@ const styles = StyleSheet.create({
   },
   retakeButton: {
     borderColor: '#FFF',
+    borderWidth: 1,
     borderRadius: 16,
     paddingHorizontal: 32,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retakeButtonText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 15,
+    color: '#FFF',
   },
   recentActivityButton: {
     flexDirection: 'row',

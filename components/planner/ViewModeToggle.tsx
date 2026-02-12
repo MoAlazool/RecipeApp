@@ -23,7 +23,7 @@ const INDICATOR_INSET = 3;
 
 interface ViewModeToggleProps {
   mode: MealPlanViewMode;
-  onChangeMode: (mode: MealPlanViewMode) => void;
+  onChangeMode: (mode: MealPlanViewMode) => Promise<boolean> | void;
 }
 
 export default function ViewModeToggle({ mode, onChangeMode }: ViewModeToggleProps) {
@@ -33,14 +33,26 @@ export default function ViewModeToggle({ mode, onChangeMode }: ViewModeTogglePro
     transform: [{ translateX: indicatorX.value }],
   }));
 
-  const handlePress = (newMode: MealPlanViewMode) => {
-    if (newMode === mode) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const animateTo = (targetMode: MealPlanViewMode) => {
     indicatorX.value = withTiming(
-      newMode === 'day' ? INDICATOR_INSET : SEGMENT_WIDTH,
+      targetMode === 'day' ? INDICATOR_INSET : SEGMENT_WIDTH,
       { duration: 250, easing: Easing.out(Easing.cubic) }
     );
-    onChangeMode(newMode);
+  };
+
+  const handlePress = async (newMode: MealPlanViewMode) => {
+    if (newMode === mode) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const result = onChangeMode(newMode);
+    if (result instanceof Promise) {
+      const allowed = await result;
+      if (allowed) {
+        animateTo(newMode);
+      }
+    } else {
+      animateTo(newMode);
+    }
   };
 
   return (

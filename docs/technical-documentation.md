@@ -124,22 +124,27 @@ When the user tries to scan their fridge for the 6th time that week, the gate bl
 
 The paywall opens as a full-screen modal. Here's what happens behind the scenes:
 
-- The screen calls RevenueCat's `getOfferings()` to fetch the current offering configured in the RevenueCat dashboard.
-- It extracts the monthly and yearly packages from the offering, reading their **localized prices** directly from App Store Connect (so a user in Saudi Arabia sees SAR, a user in the US sees USD - all handled by RevenueCat).
-- It calls `checkTrialOrIntroductoryPriceEligibility()` to determine if this user is eligible for the **3-day free trial**. If yes, the button says "Get started for free" and the plan cards mention "after free trial." If the user already used their trial, it says "Subscribe Now."
-- The yearly plan card calculates the per-month equivalent from the actual store price and shows a "Save 37%" badge.
-
-If the offering fetch fails (network issues, dashboard misconfiguration), the paywall **does not break**. It falls back to hardcoded USD prices so the user always sees a functional screen.
+- The screen fetches offerings via `getOfferings()`, with retry and `syncAttributesAndOfferingsIfNeeded()` to recover from stale/missing dashboard mappings.
+- Monthly/yearly plans are resolved through a deterministic resolver shared across pricing and purchase:
+  1. `packageType` (`MONTHLY` / `ANNUAL`)
+  2. RevenueCat default package identifiers (`$rc_monthly` / `$rc_annual`)
+  3. Exact match against configured product IDs from env
+  4. Heuristic product identifier match (`month` vs `year|annual`)
+- It reads localized prices from StoreKit through RevenueCat (currency is store-driven, not hardcoded in app logic).
+- It checks introductory eligibility (`checkTrialOrIntroductoryPriceEligibility`) for the yearly product and adapts CTA/trial copy.
+- If no matching package is found, the app falls back to direct store products with:
+  `Purchases.getProducts([configuredProductId], Purchases.PRODUCT_CATEGORY.SUBSCRIPTION)`.
 
 **Step 5: Making a Purchase**
 
 When the user taps "Get started for free" or "Subscribe Now":
 
 1. The app first tries to purchase through the RevenueCat **offering package** (the preferred path, since it respects all dashboard configuration).
-2. If the offering was empty for some reason, it falls back to fetching the product directly by its known product ID (`EITO_monthly` or `EITO_yearly`) using `getProducts()`, then purchases via `purchaseStoreProduct()`.
-3. If the user dismisses the Apple payment sheet, RevenueCat's SDK flags this as `userCancelled`. The app catches this and simply returns the user to the paywall - no error shown, they can try again.
-4. On successful purchase, the app reads the returned `CustomerInfo`, checks for active entitlements, extracts the subscription expiration date, and immediately updates the Firebase user profile with `is_premium: true` and the expiration date.
-5. The user sees a "Welcome to Pro!" alert and is returned to whatever they were doing - now with all limits removed.
+2. If package resolution fails, it fetches a fallback store product from explicit env-based product IDs, then purchases via `purchaseStoreProduct()`.
+3. If fallback product fetch fails, the app runs `getPurchaseReadiness(plan)` and shows a stage-specific error (API key missing, offering missing, product ID mapping issue, or store product mismatch).
+4. If the user dismisses the Apple payment sheet, RevenueCat returns `userCancelled`; the app exits gracefully without showing a hard error.
+5. On successful purchase, the app reads `CustomerInfo`, verifies entitlements, extracts expiration date, updates Firebase (`is_premium`, `premium_expires_at`), and syncs usage state.
+6. The user sees a success alert and can jump into the Pro hub.
 
 **Step 6: Subscription Lifecycle (Background)**
 
@@ -158,14 +163,28 @@ The user never needs to "refresh" or re-open the app for their status to update.
 
 | Product ID | Type | Price | Trial |
 |---|---|---|---|
-| `EITO_monthly` | Auto-Renewable Subscription (Monthly) | $3.99/mo | 3-day free trial |
-| `EITO_yearly` | Auto-Renewable Subscription (Annual) | $29.99/yr ($2.50/mo equivalent) | 3-day free trial |
+| `EITO_monthly` | Auto-Renewable Subscription (Monthly) | Store-localized | Intro offer from App Store Connect (if configured) |
+| `EITO_yearly` | Auto-Renewable Subscription (Annual) | Store-localized | Intro offer from App Store Connect (if configured) |
 
 **Subscription Group:** "EITO Pro"
 
 **Entitlement IDs:** `pro`, `premium`, `EITO Pro` - The app checks all three with case-insensitive matching so it works regardless of how the entitlement is named in the RevenueCat dashboard.
 
 **StoreKit Testing:** A local `Products.storekit` file is included for sandbox testing in Xcode, mirroring the live App Store Connect products with matching product IDs and introductory offer periods.
+
+### Runtime Configuration (Required)
+
+RevenueCat product resolution is now explicit and env-driven. For release builds, the app expects:
+
+- `EXPO_PUBLIC_REVENUECAT_APPLE_KEY`
+- `EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY`
+- `EXPO_PUBLIC_REVENUECAT_IOS_MONTHLY_PRODUCT_ID`
+- `EXPO_PUBLIC_REVENUECAT_IOS_YEARLY_PRODUCT_ID`
+- `EXPO_PUBLIC_REVENUECAT_ANDROID_MONTHLY_PRODUCT_ID`
+- `EXPO_PUBLIC_REVENUECAT_ANDROID_YEARLY_PRODUCT_ID`
+- `EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_IDS` (comma-separated; defaults to `pro,premium,EITO Pro` if omitted)
+
+The app no longer relies on hidden in-code product ID defaults for purchase fallback paths.
 
 ---
 
@@ -190,6 +209,8 @@ Then the real-time listener keeps them synced for the rest of the session. This 
 - If a user subscribes on a different device, the next app launch on this device will pick it up
 - If RevenueCat processes a cancellation while the app is in the background, the listener catches it when the app resumes
 - If Firebase's `is_premium` gets corrupted somehow, the next launch fixes it
+
+Additionally, app startup logs a one-time purchase readiness snapshot for both plans (`monthly`, `yearly`) to make TestFlight configuration debugging actionable.
 
 ---
 
@@ -226,9 +247,15 @@ RevenueCat integration is designed to **never break the app**, even when things 
 
 - **Offline / No Network** - If the device is offline when RevenueCat tries to log in or fetch offerings, the error is swallowed as a warning. The app continues using the last-known premium status from the persisted Firebase profile. When connectivity returns, the next interaction will reconcile.
 
-- **Offerings Not Configured** - If the RevenueCat dashboard offerings are empty or misconfigured, the app first tries `syncAttributesAndOfferingsIfNeeded()` to force a refresh. If still empty, the paywall falls back to fetching products directly by their known product IDs. If even that fails, it shows an informative alert explaining the situation.
+- **Offerings Not Configured** - The SDK first retries and runs `syncAttributesAndOfferingsIfNeeded()`. If still empty, the app attempts direct product fetch by configured IDs before failing.
+
+- **Configuration / Mapping Diagnostics** - `getPurchaseReadiness(plan)` returns structured issues:
+  `MISSING_API_KEY`, `MISSING_PRODUCT_IDS`, `NO_CURRENT_OFFERING`, `NO_MATCHING_PACKAGE`, `NO_STORE_PRODUCTS`.
+  The paywall maps these to targeted user/developer-facing alerts instead of showing a generic App Store connectivity message for all failures.
 
 - **User Cancels Payment** - When the user dismisses the Apple payment sheet, the SDK signals cancellation. The app catches this gracefully and keeps the paywall open - no error alert, no crash.
+
+- **Custom SDK Log Handler** - RevenueCat logs are routed through a custom handler. Expected transient failures (network issues, offerings config issues, user-cancelled purchase) are downgraded to warnings to reduce noisy dev redboxes while preserving debugging visibility.
 
 ---
 

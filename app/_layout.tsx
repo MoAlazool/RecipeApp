@@ -8,6 +8,7 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { MenuProvider } from 'react-native-popup-menu';
 import * as Notifications from 'expo-notifications';
 import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -37,6 +38,9 @@ import {
   showMessageNotification,
   registerForPushNotifications,
 } from '@/services/notifications.service';
+
+// Keep splash screen visible until fonts are loaded
+SplashScreen.preventAutoHideAsync();
 
 const theme = {
   lightColors: {
@@ -94,7 +98,7 @@ export default function RootLayout() {
   const prevUnreadRef = useRef<Record<string, number> | null>(null); // null = not seeded yet
   const rcReadinessLoggedRef = useRef(false);
 
-  useFonts({
+  const [fontsLoaded] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -109,6 +113,12 @@ export default function RootLayout() {
     PlayfairDisplay_700Bold,
     PlayfairDisplay_800ExtraBold,
   });
+
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded]);
 
   useEffect(() => {
     let mounted = true;
@@ -358,6 +368,8 @@ export default function RootLayout() {
       router.replace('/welcome');
     }
   }, [authReady, isAuthenticated, pathname, router]);
+
+  if (!fontsLoaded) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useMessagingStore } from '@/stores/messagingStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useProShowcaseStore } from '@/stores/proShowcaseStore';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -109,9 +110,14 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const unreadCount = useMessagingStore((state) => state.unreadCount);
+  const userId = useAuthStore((state) => state.user?.id ?? null);
   const isPremium = useAuthStore((state) => state.user?.is_premium ?? false);
+  const showProShowcase = useProShowcaseStore((state) => state.showTab);
+  const showcaseUserId = useProShowcaseStore((state) => state.userId);
+  const shouldShowProTab =
+    isPremium && showProShowcase && !!userId && showcaseUserId === userId;
 
-  const tabOrder = (isPremium ? PREMIUM_TAB_ORDER : BASE_TAB_ORDER).filter((routeName) =>
+  const tabOrder = (shouldShowProTab ? PREMIUM_TAB_ORDER : BASE_TAB_ORDER).filter((routeName) =>
     state.routes.some((route) => route.name === routeName)
   );
 
@@ -270,6 +276,8 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
     paddingHorizontal: BAR_MARGIN,
+    zIndex: 999,
+    elevation: 10,
   },
   barContainer: {
     width: '100%',

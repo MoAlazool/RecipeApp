@@ -32,14 +32,12 @@ import Animated, {
   SharedValue,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { RecipeLoadingAnimation } from '@/components/RecipeLoadingAnimation';
 import { aiService } from '@/services/ai.service';
 import { firebaseService } from '@/services/firebase.service';
 import { useAuthStore } from '@/stores/authStore';
 import { useRecipeStore } from '@/stores/recipeStore';
 import { useUsageGate } from '@/hooks/useUsageGate';
 import UsageLimitSheet from '@/components/ui/UsageLimitSheet';
-import { getRecipeImage } from '@/utils/recipePlaceholders';
 import type { SuggestedRecipe, RecipeDifficulty } from '@/utils/types';
 import { storeImage, storeData } from '@/utils/imageCache';
 
@@ -70,6 +68,15 @@ const CARD_COLORS = [
   '#716B64', '#646B71', '#716464', '#6B7164',
   '#64716B', '#71646B', '#6B6471', '#646471',
 ];
+const RECIPE_CARD_IMAGE_MODE =
+  process.env.EXPO_PUBLIC_RECIPE_CARD_IMAGE_MODE === 'background' ? 'background' : 'blocking';
+const parsedInitialRecipeCount = Number(process.env.EXPO_PUBLIC_RECIPE_INITIAL_COUNT);
+const INITIAL_RECIPE_COUNT =
+  Number.isFinite(parsedInitialRecipeCount) && parsedInitialRecipeCount > 0
+    ? Math.floor(parsedInitialRecipeCount)
+    : 4;
+const IMAGE_QUEUE_CONCURRENCY = 2;
+const INITIAL_BUILDING_PLACEHOLDER = 'Preparing your recipes';
 
 type MealType = 'Breakfast' | 'Lunch' | 'Dinner';
 
@@ -99,12 +106,11 @@ interface FlashcardRecipe {
   isBuilding?: boolean;
 }
 
-async function mapSuggestedRecipeToFlashcard(
+function mapSuggestedRecipeToFlashcard(
   recipe: SuggestedRecipe,
   index: number,
-  _availableIngredients: string[],
   storeOriginal: boolean = true
-): Promise<FlashcardRecipe> {
+): FlashcardRecipe {
   const difficultyMap: Record<RecipeDifficulty, 'Easy' | 'Medium' | 'Hard'> = {
     beginner: 'Easy',
     intermediate: 'Medium',
@@ -128,41 +134,16 @@ async function mapSuggestedRecipeToFlashcard(
     inStock: recipe.ingredients_you_have?.includes(ing) || false,
   }));
 
-  // Run image generation + recipe expansion in parallel
-  let recipeImage = '';
-  let expandedRecipe: any = null;
-
-  const [imageResult, expandResult] = await Promise.allSettled([
-    aiService.generateRecipeImage(recipe.title),
-    aiService.expandRecipeFromSuggestion(recipe),
-  ]);
-
-  if (imageResult.status === 'fulfilled') {
-    recipeImage = `data:image/png;base64,${imageResult.value}`;
-  } else {
-    recipeImage = getRecipeImage(
-      recipe.image_url,
-      recipe.title,
-      recipe.cuisine_type,
-      recipe.ingredients_you_have
-    );
-  }
-
-  if (expandResult.status === 'fulfilled') {
-    expandedRecipe = expandResult.value;
-  }
-
   return {
     id: `ai-${index + 1}`,
     name: recipe.title,
-    image: recipeImage,
+    image: '',
     prepTime: formatTime(recipe.total_time_minutes),
     difficulty: difficultyMap[recipe.difficulty] || 'Easy',
     matchPercentage: recipe.match_score ?? 80,
     isChefChoice: index === 0,
     ingredients: mappedIngredients,
     originalRecipe: storeOriginal ? recipe : undefined,
-    expandedRecipe,
     color: CARD_COLORS[index % CARD_COLORS.length],
   };
 }
@@ -271,12 +252,18 @@ const RecipeCard: React.FC<RecipeCardProps> = React.memo(({
         onPress={() => onPress(recipe)}
       >
         {/* Image */}
-        <ExpoImage
-          source={{ uri: recipe.image }}
-          style={styles.cardImage}
-          contentFit="cover"
-          transition={300}
-        />
+        {recipe.image ? (
+          <ExpoImage
+            source={{ uri: recipe.image }}
+            style={styles.cardImage}
+            contentFit="cover"
+            transition={300}
+          />
+        ) : (
+          <View style={styles.cardImageFallback}>
+            <Ionicons name="sparkles-outline" size={26} color="rgba(255,255,255,0.45)" />
+          </View>
+        )}
 
         {/* Gradient overlay */}
         <LinearGradient
@@ -485,6 +472,39 @@ export default function RecipeResultsScreen() {
   const scrollX = useSharedValue(0);
   const flatListRef = useRef<FlatList>(null);
   const generationIdRef = useRef(0);
+  const generationStartedAtRef = useRef(0);
+  const hasLoggedFirstCardRef = useRef(false);
+
+  const queueRecipeImagesInBackground = useCallback((
+    queue: { cardId: string; title: string }[],
+    generationId: number
+  ) => {
+    if (RECIPE_CARD_IMAGE_MODE !== 'background' || queue.length === 0) return;
+
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < queue.length) {
+        if (generationIdRef.current !== generationId) return;
+        const task = queue[nextIndex++];
+        try {
+          const base64 = await aiService.generateRecipeImage(task.title);
+          if (generationIdRef.current !== generationId) return;
+          const imageUri = `data:image/png;base64,${base64}`;
+          setRecipes((prev) => prev.map((card) => (
+            card.id === task.cardId ? { ...card, image: imageUri } : card
+          )));
+        } catch (error) {
+          console.warn(`[RecipeResults] Background image generation failed for "${task.title}"`, error);
+        }
+      }
+    };
+
+    for (let i = 0; i < IMAGE_QUEUE_CONCURRENCY; i++) {
+      worker().catch((error) => {
+        console.warn('[RecipeResults] Background image worker failed', error);
+      });
+    }
+  }, []);
 
   const getSelectedMealType = (): MealType => {
     if (params.mealType && params.mealType !== 'any') {
@@ -510,6 +530,7 @@ export default function RecipeResultsScreen() {
 
   const [mealType] = useState<MealType>(getSelectedMealType());
   const [sortBy] = useState<'match' | 'time' | 'difficulty'>(getInitialSortBy());
+  const isFridgeScanSource = params.sourceType === 'fridge_scan';
 
   // Computed display data: real cards + optional building placeholder
   const displayData = useMemo(() => {
@@ -582,24 +603,42 @@ export default function RecipeResultsScreen() {
 
   const fetchRecipeSuggestions = async (ingredientList: Ingredient[], isLoadMore: boolean = false) => {
     // Gate check for free users — only on initial generation, not "load more"
-    if (!isLoadMore) {
+    if (!isLoadMore && !isFridgeScanSource) {
       const allowed = await checkGate('recipe');
-      if (!allowed) return;
+      if (!allowed) {
+        setIsLoadingRecipes(false);
+        setIsLoadingMore(false);
+        setBuildingRecipeName(null);
+        setTotalExpected(0);
+        if (recipes.length === 0) {
+          setError('Weekly recipe limit reached. Start your free trial to continue.');
+        }
+        return;
+      }
     }
 
     const currentGenId = ++generationIdRef.current;
+    if (!isLoadMore) {
+      generationStartedAtRef.current = Date.now();
+      hasLoggedFirstCardRef.current = false;
+    }
 
     try {
       if (isLoadMore) {
         setIsLoadingMore(true);
+        setBuildingRecipeName(null);
       } else {
         setIsLoadingRecipes(true);
         setRecipes([]);
-        // Increment usage counter after gate passes (fire & forget)
-        firebaseService.incrementUsage('recipe');
+        setActiveIndex(0);
+        setBuildingRecipeName(INITIAL_BUILDING_PLACEHOLDER);
+        // Count recipe usage only for non-fridge flows.
+        if (!isFridgeScanSource) {
+          firebaseService.incrementUsage('recipe');
+        }
       }
       setError(null);
-      setBuildingRecipeName(null);
+      setTotalExpected(0);
 
       const ingredientNames = ingredientList.map((i) => i.name);
       const currentMealType = mealType.toLowerCase() as 'breakfast' | 'lunch' | 'dinner';
@@ -611,16 +650,20 @@ export default function RecipeResultsScreen() {
         meal_type: currentMealType,
         difficulty_level: getDifficultyLevel(),
         default_servings: 2,
-        recipe_count: isLoadMore ? 4 : 6,
+        recipe_count: isLoadMore ? 4 : INITIAL_RECIPE_COUNT,
         recently_viewed_recipes: viewedRecipes,
         recently_rejected_recipes: rejectedRecipes,
         style_preferences: params.sortBy === 'time' ? ['quick', 'easy'] :
                           params.sortBy === 'calories' ? ['healthy', 'light'] : [],
       };
 
+      const suggestionsStartedAt = Date.now();
       const suggestions = await aiService.suggestRecipesFromIngredients(
         ingredientNames,
         userPreferences
+      );
+      console.log(
+        `[Perf][RecipeResults] Suggestions ready in ${Date.now() - suggestionsStartedAt}ms for ${suggestions.length} recipes`
       );
 
       if (generationIdRef.current !== currentGenId) return;
@@ -644,27 +687,55 @@ export default function RecipeResultsScreen() {
       }
 
       const startIndex = isLoadMore ? recipes.length : 0;
+      if (RECIPE_CARD_IMAGE_MODE === 'blocking') {
+        setTotalExpected(sorted.length);
 
-      // Process cards one by one — each appears as soon as its image is ready
-      for (let i = 0; i < sorted.length; i++) {
-        if (generationIdRef.current !== currentGenId) return;
+        const blockingCards: FlashcardRecipe[] = [];
+        for (let i = 0; i < sorted.length; i++) {
+          if (generationIdRef.current !== currentGenId) return;
 
-        setBuildingRecipeName(sorted[i].title);
+          setBuildingRecipeName(sorted[i].title);
+          const card = mapSuggestedRecipeToFlashcard(sorted[i], startIndex + i);
 
-        const card = await mapSuggestedRecipeToFlashcard(
-          sorted[i],
-          startIndex + i,
-          ingredientNames
-        );
+          try {
+            const base64 = await aiService.generateRecipeImage(sorted[i].title);
+            card.image = `data:image/png;base64,${base64}`;
+          } catch {
+            card.image = '';
+          }
 
-        if (generationIdRef.current !== currentGenId) return;
+          if (generationIdRef.current !== currentGenId) return;
 
-        setRecipes(prev => [...prev, card]);
-        setViewedRecipes(prev => [...prev, card.name].slice(-20));
+          blockingCards.push(card);
+          if (isLoadMore) {
+            setRecipes((prev) => [...prev, card]);
+          } else {
+            setRecipes([...blockingCards]);
+          }
+          setViewedRecipes((prev) => [...prev, card.name].slice(-20));
+        }
+
+        setBuildingRecipeName(null);
+        setTotalExpected(0);
+        return;
       }
 
+      const cards = sorted.map((suggestion, i) => (
+        mapSuggestedRecipeToFlashcard(suggestion, startIndex + i)
+      ));
+
+      if (generationIdRef.current !== currentGenId) return;
+
+      setRecipes((prev) => (isLoadMore ? [...prev, ...cards] : cards));
+      setViewedRecipes((prev) => [...prev, ...cards.map((card) => card.name)].slice(-20));
       setBuildingRecipeName(null);
       setTotalExpected(0);
+      console.log(`[Perf][RecipeResults] Seeded ${cards.length} cards instantly`);
+
+      queueRecipeImagesInBackground(
+        cards.map((card) => ({ cardId: card.id, title: card.name })),
+        currentGenId
+      );
     } catch (err) {
       if (generationIdRef.current !== currentGenId) return;
       console.error('Failed to fetch recipe suggestions:', err);
@@ -688,7 +759,7 @@ export default function RecipeResultsScreen() {
     if (recipe.isBuilding) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Use expanded recipe (has ingredients + steps) so detail page loads instantly
+    // Recipe detail expands on-demand if full details are not preloaded.
     const recipeData = recipe.expandedRecipe || recipe.originalRecipe;
     if (recipeData) {
       const imageKey = storeImage(recipe.image);
@@ -736,8 +807,13 @@ export default function RecipeResultsScreen() {
     }
   }, [displayData.length, activeIndex]);
 
-  const selectedIngredients = ingredients.filter((i) => i.selected);
-  const ingredientEmojis = selectedIngredients.map((i) => i.emoji);
+  useEffect(() => {
+    if (recipes.length === 0 || hasLoggedFirstCardRef.current || generationStartedAtRef.current === 0) {
+      return;
+    }
+    hasLoggedFirstCardRef.current = true;
+    console.log(`[Perf][RecipeResults] First card visible in ${Date.now() - generationStartedAtRef.current}ms`);
+  }, [recipes.length]);
 
   // Auto-scroll to building card as new recipes appear
   useEffect(() => {
@@ -754,16 +830,6 @@ export default function RecipeResultsScreen() {
       }
     }
   }, [displayData.length]);
-
-  // Loading state — only while fetching suggestions (before progressive generation starts)
-  if (isLoadingRecipes && selectedIngredients.length > 0) {
-    return (
-      <RecipeLoadingAnimation
-        ingredientCount={selectedIngredients.length}
-        ingredientEmojis={ingredientEmojis}
-      />
-    );
-  }
 
   const progressText = totalExpected > 0
     ? `${recipes.length + 1} of ${totalExpected}`
@@ -835,11 +901,18 @@ export default function RecipeResultsScreen() {
       {/* Subtitle */}
       <Animated.View entering={FadeInDown.duration(500).delay(200)} style={styles.subtitleWrap}>
         <Text style={styles.subtitle}>
-          {buildingRecipeName
-            ? `Crafting recipe ${recipes.length + 1} of ${totalExpected}...`
+          {isLoadingRecipes && recipes.length === 0
+            ? 'Preparing your recipe cards...'
+            : buildingRecipeName && totalExpected > 0
+            ? `${recipes.length + 1} / ${totalExpected}`
             : `${recipes.length} recipes crafted from your ingredients`
           }
         </Text>
+        {(isLoadingRecipes || !!buildingRecipeName || isLoadingMore) && (
+          <Text style={styles.subtitleHint}>
+            Keep this tab open while we prepare your recipes.
+          </Text>
+        )}
       </Animated.View>
 
       {/* Carousel */}
@@ -857,6 +930,11 @@ export default function RecipeResultsScreen() {
               <Ionicons name="refresh" size={16} color={C.charcoal} />
               <Text style={styles.retryBtnText}>Try Again</Text>
             </Pressable>
+          </View>
+        ) : isLoadingRecipes && displayData.length === 0 ? (
+          <View style={styles.loadingInline}>
+            <ActivityIndicator size="small" color="#FFFFFF" />
+            <Text style={styles.loadingInlineText}>Preparing recipes...</Text>
           </View>
         ) : displayData.length === 0 ? (
           <View style={styles.errorContainer}>
@@ -1008,11 +1086,29 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
     textAlign: 'center',
   },
+  subtitleHint: {
+    marginTop: 4,
+    fontFamily: 'NotoSans_400Regular',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.33)',
+    textAlign: 'center',
+  },
 
   // Carousel
   carouselContainer: {
     flex: 1,
     justifyContent: 'center',
+  },
+  loadingInline: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 10,
+  },
+  loadingInlineText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
   },
 
   // Card
@@ -1034,6 +1130,12 @@ const styles = StyleSheet.create({
   },
   cardImage: {
     ...StyleSheet.absoluteFillObject,
+  },
+  cardImageFallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
   cardGradient: {
     ...StyleSheet.absoluteFillObject,

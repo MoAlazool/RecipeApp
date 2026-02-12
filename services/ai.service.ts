@@ -796,20 +796,60 @@ Extract constructive feedback that could help the user or others.`;
 const gemini = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY!);
 const systemInstruction =
   'You are a helpful cooking assistant. Always return valid JSON without markdown formatting.';
-const textModel = gemini.getGenerativeModel({
-  model: 'gemini-2.5-flash',
+const QUALITY_TEXT_MODEL_NAME = process.env.EXPO_PUBLIC_GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
+const FAST_TEXT_MODEL_NAME = process.env.EXPO_PUBLIC_GEMINI_FAST_TEXT_MODEL || 'gemini-2.5-flash-lite-preview-09-2025';
+const FAST_VISION_MODEL_NAME = process.env.EXPO_PUBLIC_GEMINI_FAST_VISION_MODEL || FAST_TEXT_MODEL_NAME;
+const IMAGE_MODEL_NAME = process.env.EXPO_PUBLIC_GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
+
+const qualityTextModel = gemini.getGenerativeModel({
+  model: QUALITY_TEXT_MODEL_NAME,
   systemInstruction
 });
-const visionModel = gemini.getGenerativeModel({
-  model: 'gemini-2.5-flash',
+const fastTextModel = gemini.getGenerativeModel({
+  model: FAST_TEXT_MODEL_NAME,
+  systemInstruction
+});
+const qualityVisionModel = gemini.getGenerativeModel({
+  model: QUALITY_TEXT_MODEL_NAME,
+  systemInstruction
+});
+const fastVisionModel = gemini.getGenerativeModel({
+  model: FAST_VISION_MODEL_NAME,
   systemInstruction
 });
 
+type ModelSpeed = 'quality' | 'fast';
+type GenerationOptions = {
+  temperature?: number;
+  maxOutputTokens?: number;
+  responseMimeType?: string;
+  mode?: ModelSpeed;
+};
+
+const withFallback = async (
+  context: string,
+  callPrimary: () => Promise<any>,
+  callFallback?: (() => Promise<any>) | null
+): Promise<string> => {
+  try {
+    const result = await callPrimary();
+    return result.response.text();
+  } catch (primaryError) {
+    if (!callFallback) throw primaryError;
+    console.warn(`[AI] ${context} failed on fast model, retrying with quality model`, primaryError);
+    const fallbackResult = await callFallback();
+    return fallbackResult.response.text();
+  }
+};
+
 const generateText = async (
   prompt: string,
-  options?: { temperature?: number; maxOutputTokens?: number; responseMimeType?: string }
+  options?: GenerationOptions
 ) => {
-  const result = await textModel.generateContent({
+  const mode = options?.mode ?? 'quality';
+  const model = mode === 'fast' ? fastTextModel : qualityTextModel;
+  const fallbackModel = mode === 'fast' ? qualityTextModel : null;
+  const request = {
     contents: [
       {
         role: 'user',
@@ -821,17 +861,24 @@ const generateText = async (
       maxOutputTokens: options?.maxOutputTokens ?? 4000,
       responseMimeType: options?.responseMimeType
     }
-  });
+  };
 
-  return result.response.text();
+  return withFallback(
+    `generateText (${mode})`,
+    () => model.generateContent(request),
+    fallbackModel ? () => fallbackModel.generateContent(request) : null
+  );
 };
 
 const generateVision = async (
   prompt: string,
   imageBase64: string,
-  options?: { temperature?: number; maxOutputTokens?: number; responseMimeType?: string }
+  options?: GenerationOptions
 ) => {
-  const result = await visionModel.generateContent({
+  const mode = options?.mode ?? 'quality';
+  const model = mode === 'fast' ? fastVisionModel : qualityVisionModel;
+  const fallbackModel = mode === 'fast' ? qualityVisionModel : null;
+  const request = {
     contents: [
       {
         role: 'user',
@@ -851,21 +898,27 @@ const generateVision = async (
       maxOutputTokens: options?.maxOutputTokens ?? 2000,
       responseMimeType: options?.responseMimeType
     }
-  });
+  };
 
-  return result.response.text();
+  return withFallback(
+    `generateVision (${mode})`,
+    () => model.generateContent(request),
+    fallbackModel ? () => fallbackModel.generateContent(request) : null
+  );
 };
 
 const generateVisionMultiImage = async (
   prompt: string,
   imagesBase64: string[],
-  options?: { temperature?: number; maxOutputTokens?: number; responseMimeType?: string }
+  options?: GenerationOptions
 ) => {
+  const mode = options?.mode ?? 'quality';
+  const model = mode === 'fast' ? fastVisionModel : qualityVisionModel;
+  const fallbackModel = mode === 'fast' ? qualityVisionModel : null;
   const imageParts = imagesBase64.map(data => ({
     inlineData: { mimeType: 'image/jpeg' as const, data }
   }));
-
-  const result = await visionModel.generateContent({
+  const request = {
     contents: [{
       role: 'user',
       parts: [...imageParts, { text: prompt }]
@@ -875,16 +928,21 @@ const generateVisionMultiImage = async (
       maxOutputTokens: options?.maxOutputTokens ?? 16384,
       responseMimeType: options?.responseMimeType
     }
-  });
+  };
 
-  return result.response.text();
+  return withFallback(
+    `generateVisionMultiImage (${mode})`,
+    () => model.generateContent(request),
+    fallbackModel ? () => fallbackModel.generateContent(request) : null
+  );
 };
 
-const parseWithRepair = async (rawText: string) => {
+const parseWithRepair = async (rawText: string, context: string = 'unknown') => {
   try {
     return parseAIResponse(rawText, true); // Silent mode for first attempt
   } catch (error) {
-    console.log('Repairing truncated or malformed JSON response...');
+    const repairStartedAt = Date.now();
+    console.warn(`[AI][Repair] ${context}: repairing truncated or malformed JSON response`);
     const repairPrompt = `Fix and complete the JSON below. Return only valid JSON, no markdown or extra text.\n\n${rawText}`;
     const repaired = await generateText(repairPrompt, {
       temperature: 0,
@@ -892,7 +950,7 @@ const parseWithRepair = async (rawText: string) => {
       responseMimeType: 'application/json'
     });
     const result = parseAIResponse(repaired, false);
-    console.log('Successfully repaired JSON response');
+    console.log(`[AI][Repair] ${context}: repaired in ${Date.now() - repairStartedAt}ms`);
     return result;
   }
 };
@@ -978,13 +1036,15 @@ class AIService {
   // ANALYZE FRIDGE IMAGE
   // ============================================
   async analyzeFridgeImage(imageBase64: string): Promise<FridgeScanResult> {
+    const startedAt = Date.now();
     try {
       const prompt = AI_PROMPTS.analyzeFridgeImage();
 
       const responseText = await generateVision(prompt, imageBase64, {
-        maxOutputTokens: 8192,
+        maxOutputTokens: 2048,
         temperature: 0.2,
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        mode: 'fast'
       });
 
       // Check if response looks truncated (doesn't end with proper JSON closing)
@@ -993,6 +1053,7 @@ class AIService {
         console.warn('Detected truncated response, attempting salvage...');
         const salvaged = salvageTruncatedFridgeResponse(responseText);
         if (salvaged && salvaged.ingredients.length > 0) {
+          console.log(`[Perf][AI] Fridge analyze completed in ${Date.now() - startedAt}ms (salvaged)`);
           return salvaged;
         }
         // If salvage failed, try repair
@@ -1000,11 +1061,12 @@ class AIService {
 
       let result;
       try {
-        result = await parseWithRepair(responseText);
+        result = await parseWithRepair(responseText, 'analyzeFridgeImage');
       } catch (parseError) {
         // Last resort: try to salvage from raw text
         const salvaged = salvageTruncatedFridgeResponse(responseText);
         if (salvaged && salvaged.ingredients.length > 0) {
+          console.log(`[Perf][AI] Fridge analyze completed in ${Date.now() - startedAt}ms (salvaged-after-parse)`);
           return salvaged;
         }
         throw parseError;
@@ -1018,9 +1080,12 @@ class AIService {
       // Map abbreviated format to FridgeScanResult
       // Handle both abbreviated (items/n/c/q) and full format (ingredients/name/category/quantity_estimate)
       if (result.items) {
-        return mapAbbreviatedFridgeResponse(result);
+        const mapped = mapAbbreviatedFridgeResponse(result);
+        console.log(`[Perf][AI] Fridge analyze completed in ${Date.now() - startedAt}ms`);
+        return mapped;
       }
 
+      console.log(`[Perf][AI] Fridge analyze completed in ${Date.now() - startedAt}ms`);
       return result;
     } catch (error) {
       console.error('Failed to analyze fridge image:', error);
@@ -1035,6 +1100,7 @@ class AIService {
     ingredients: string[],
     userPreferences?: any
   ): Promise<SuggestedRecipe[]> {
+    const startedAt = Date.now();
     try {
       const prompt = AI_PROMPTS.suggestRecipesFromFridge(ingredients, userPreferences);
 
@@ -1046,7 +1112,7 @@ class AIService {
 
       console.log('AI Recipe Response:', responseText.substring(0, 500));
 
-      const result = await parseWithRepair(responseText);
+      const result = await parseWithRepair(responseText, 'suggestRecipesFromIngredients');
 
       console.log('Parsed result keys:', Object.keys(result));
       console.log('Recipes count:', result.recipes?.length ?? 'undefined');
@@ -1056,6 +1122,7 @@ class AIService {
         throw new Error('AI did not return valid recipes');
       }
 
+      console.log(`[Perf][AI] Suggest recipes completed in ${Date.now() - startedAt}ms`);
       return result.recipes;
     } catch (error) {
       console.error('Failed to suggest recipes:', error);
@@ -1069,6 +1136,7 @@ class AIService {
   async expandRecipeFromSuggestion(
     suggestedRecipe: SuggestedRecipe
   ): Promise<ExtractedRecipe> {
+    const startedAt = Date.now();
     try {
       const prompt = `You are a professional chef. Convert this recipe suggestion into a complete, detailed recipe with full cooking instructions.
 
@@ -1181,17 +1249,19 @@ IMPORTANT for time accuracy:
 
       const responseText = await generateText(prompt, {
         temperature: 0.7,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json'
+        maxOutputTokens: 4096,
+        responseMimeType: 'application/json',
+        mode: 'fast'
       });
 
-      const result = await parseWithRepair(responseText);
+      const result = await parseWithRepair(responseText, 'expandRecipeFromSuggestion');
 
       // Validate required fields
       if (!result.title || !result.ingredients || !result.steps) {
         throw new Error('AI did not return a complete recipe');
       }
 
+      console.log(`[Perf][AI] Expand recipe completed in ${Date.now() - startedAt}ms`);
       return result as ExtractedRecipe;
     } catch (error) {
       console.error('Failed to expand recipe:', error);
@@ -1855,7 +1925,7 @@ Return as JSON:
 - Do not add any text or labels`;
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(IMAGE_MODEL_NAME)}:generateContent?key=${process.env.EXPO_PUBLIC_GEMINI_API_KEY}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

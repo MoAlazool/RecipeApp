@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -88,6 +88,113 @@ const formatAmount = (amount?: number | string): string => {
   return s.toFixed(1).replace(/\.0$/, '');
 };
 
+const MEASUREMENT_OR_NOISE_TOKENS = new Set([
+  'a', 'an', 'and', 'or', 'of', 'to', 'for', 'with', 'without',
+  'cup', 'cups', 'tbsp', 'tsp', 'teaspoon', 'teaspoons', 'tablespoon', 'tablespoons',
+  'oz', 'ounce', 'ounces', 'lb', 'lbs', 'pound', 'pounds',
+  'g', 'kg', 'mg', 'ml', 'l', 'liter', 'liters',
+  'piece', 'pieces', 'clove', 'cloves', 'slice', 'slices',
+  'bunch', 'bunches', 'can', 'cans', 'package', 'packages',
+  'fresh', 'chopped', 'diced', 'minced', 'sliced', 'large', 'small', 'medium',
+  'optional', 'plus', 'more', 'less', 'some', 'few',
+]);
+
+const stripIngredientText = (value: string): string => (
+  value
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[0-9]/g, ' ')
+    .replace(/[¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/g, ' ')
+    .replace(/[^\p{L}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+);
+
+const normalizeIngredientToken = (token: string): string => {
+  let value = token;
+  if (value.endsWith('es') && value.length > 4 && !value.endsWith('ses')) {
+    value = value.slice(0, -2);
+  } else if (value.endsWith('s') && value.length > 3 && !value.endsWith('ss')) {
+    value = value.slice(0, -1);
+  }
+  return value;
+};
+
+const tokenizeIngredientName = (value: string): string[] => (
+  stripIngredientText(value)
+    .split(' ')
+    .map(normalizeIngredientToken)
+    .filter((token) => token.length > 1 && !MEASUREMENT_OR_NOISE_TOKENS.has(token))
+);
+
+const isIngredientLikelyInStock = (
+  ingredientName: string,
+  inStockRawNames: string[]
+): boolean => {
+  const candidateTokens = tokenizeIngredientName(ingredientName);
+  if (candidateTokens.length === 0) return false;
+
+  const candidateNormalized = candidateTokens.join(' ');
+  const candidateSet = new Set(candidateTokens);
+
+  return inStockRawNames.some((stockName) => {
+    const stockTokens = tokenizeIngredientName(stockName);
+    if (stockTokens.length === 0) return false;
+
+    const stockNormalized = stockTokens.join(' ');
+    if (!stockNormalized || !candidateNormalized) return false;
+
+    // Exact normalized match
+    if (candidateNormalized === stockNormalized) return true;
+
+    // Substring match (e.g. "all purpose flour" vs "flour")
+    if (
+      (candidateNormalized.length >= 3 && stockNormalized.includes(candidateNormalized)) ||
+      (stockNormalized.length >= 3 && candidateNormalized.includes(stockNormalized))
+    ) {
+      return true;
+    }
+
+    // Token overlap match
+    const sharedCount = stockTokens.filter((token) => candidateSet.has(token)).length;
+    if (sharedCount === 0) return false;
+
+    const minTokenCount = Math.min(candidateTokens.length, stockTokens.length);
+    if (minTokenCount <= 1) return sharedCount >= 1;
+    if (sharedCount >= 2) return true;
+
+    return sharedCount / minTokenCount >= 0.6;
+  });
+};
+
+const getRecipeCacheKey = (title?: string): string => (title || '').toLowerCase().trim();
+
+const buildQuickRecipeFromSuggestion = (recipe: SuggestedRecipe): ExtractedRecipe => {
+  const ingredientNames = Array.from(new Set(
+    [...(recipe.ingredients_you_have || []), ...(recipe.ingredients_you_need || [])]
+      .map((name) => (name || '').trim())
+      .filter(Boolean)
+  ));
+
+  return {
+    title: recipe.title,
+    description: recipe.description || '',
+    cuisine_type: recipe.cuisine_type,
+    difficulty: recipe.difficulty || 'beginner',
+    total_time_minutes: recipe.total_time_minutes || 0,
+    active_time_minutes: recipe.total_time_minutes || 0,
+    servings: recipe.servings || 2,
+    ingredients: ingredientNames.map((name) => ({ name, category: 'other' })),
+    steps: (recipe.preview_steps || []).map((instruction, index) => ({
+      step_number: index + 1,
+      instruction,
+    })),
+    nutrition_estimate: recipe.calories_per_serving != null
+      ? { calories: recipe.calories_per_serving }
+      : undefined,
+  };
+};
+
 // ============================================================
 // INGREDIENT CARD
 // ============================================================
@@ -161,9 +268,13 @@ export default function SuggestedRecipeDetailScreen() {
   const [suggestedRecipe, setSuggestedRecipe] = useState<SuggestedRecipe | null>(null);
   const [fullRecipe, setFullRecipe] = useState<ExtractedRecipe | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExpandingDetails, setIsExpandingDetails] = useState(false);
+  const [isExpandedReady, setIsExpandedReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadSequenceRef = useRef(0);
+  const expansionPromiseRef = useRef<Promise<ExtractedRecipe> | null>(null);
 
   // --- Parallax scroll (all UI-thread, no JS re-renders) ---
   const STICKY_THRESHOLD = HERO_HEIGHT - NAV_HEIGHT - insets.top;
@@ -221,12 +332,40 @@ export default function SuggestedRecipeDetailScreen() {
   }, []);
 
   // --- Data loading ---
-  useEffect(() => { loadRecipeDetails(); }, []);
+  useEffect(() => {
+    loadRecipeDetails();
+    return () => {
+      loadSequenceRef.current += 1;
+    };
+  }, []);
+
+  const getExpandedRecipe = useCallback(async (parsed: SuggestedRecipe): Promise<ExtractedRecipe> => {
+    const cacheKey = getRecipeCacheKey(parsed.title);
+    if (cacheKey && expandedRecipeCache.has(cacheKey)) {
+      return expandedRecipeCache.get(cacheKey)!;
+    }
+
+    if (!expansionPromiseRef.current) {
+      expansionPromiseRef.current = aiService.expandRecipeFromSuggestion(parsed)
+        .then((fullRecipeData) => {
+          if (cacheKey) expandedRecipeCache.set(cacheKey, fullRecipeData);
+          return fullRecipeData;
+        })
+        .finally(() => {
+          expansionPromiseRef.current = null;
+        });
+    }
+
+    return expansionPromiseRef.current;
+  }, []);
 
   const loadRecipeDetails = async () => {
+    const loadId = ++loadSequenceRef.current;
     try {
       setIsLoading(true);
       setError(null);
+      setIsExpandedReady(false);
+      setIsExpandingDetails(false);
 
       // Support both cache key (fast) and legacy JSON param
       let parsed: any;
@@ -239,26 +378,38 @@ export default function SuggestedRecipeDetailScreen() {
         throw new Error('No recipe data provided');
       }
 
-      setSuggestedRecipe(parsed);
+      if (loadSequenceRef.current !== loadId) return;
 
-      // Use title as cache key for expanded recipes
-      const cacheKey = parsed.title?.toLowerCase().trim();
+      setSuggestedRecipe(parsed);
 
       if (parsed.ingredients?.length && parsed.steps?.length) {
         setFullRecipe(parsed as ExtractedRecipe);
-      } else if (cacheKey && expandedRecipeCache.has(cacheKey)) {
-        // Cached from previous visit — instant load
-        setFullRecipe(expandedRecipeCache.get(cacheKey)!);
-      } else {
-        const fullRecipeData = await aiService.expandRecipeFromSuggestion(parsed);
+        setIsExpandedReady(true);
+        return;
+      }
+
+      const quickRecipe = buildQuickRecipeFromSuggestion(parsed as SuggestedRecipe);
+      setFullRecipe(quickRecipe);
+      setIsLoading(false);
+      setIsExpandingDetails(true);
+
+      try {
+        const fullRecipeData = await getExpandedRecipe(parsed as SuggestedRecipe);
+        if (loadSequenceRef.current !== loadId) return;
         setFullRecipe(fullRecipeData);
-        // Cache for next visit
-        if (cacheKey) expandedRecipeCache.set(cacheKey, fullRecipeData);
+        setIsExpandedReady(true);
+      } catch (expandErr) {
+        console.warn('Failed to expand recipe details in background:', expandErr);
+      } finally {
+        if (loadSequenceRef.current !== loadId) return;
+        setIsExpandingDetails(false);
       }
     } catch (err: any) {
+      if (loadSequenceRef.current !== loadId) return;
       console.error('Failed to load recipe details:', err);
       setError(err.message || 'Failed to load recipe details');
     } finally {
+      if (loadSequenceRef.current !== loadId) return;
       setIsLoading(false);
     }
   };
@@ -266,10 +417,21 @@ export default function SuggestedRecipeDetailScreen() {
   // --- Handlers ---
   const handleSaveToFavorites = useCallback(async () => {
     if (!fullRecipe || !suggestedRecipe || isSaving || isSaved) return;
+    let didExpandInline = false;
     try {
       setIsSaving(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      await addRecipe(fullRecipe, params.sourceUrl, resolvedImageUrl, params.sourceType as any);
+
+      let recipeToSave = fullRecipe;
+      if (!isExpandedReady) {
+        didExpandInline = true;
+        setIsExpandingDetails(true);
+        recipeToSave = await getExpandedRecipe(suggestedRecipe);
+        setFullRecipe(recipeToSave);
+        setIsExpandedReady(true);
+      }
+
+      await addRecipe(recipeToSave, params.sourceUrl, resolvedImageUrl, params.sourceType as any);
       setIsSaved(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Saved!', 'Recipe added to your collection', [
@@ -279,9 +441,23 @@ export default function SuggestedRecipeDetailScreen() {
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to save recipe');
     } finally {
+      if (didExpandInline) {
+        setIsExpandingDetails(false);
+      }
       setIsSaving(false);
     }
-  }, [fullRecipe, suggestedRecipe, isSaving, isSaved, params, addRecipe, router]);
+  }, [
+    fullRecipe,
+    suggestedRecipe,
+    isSaving,
+    isSaved,
+    isExpandedReady,
+    params,
+    addRecipe,
+    router,
+    resolvedImageUrl,
+    getExpandedRecipe,
+  ]);
 
   const handleCookNow = useCallback(() => {
     Alert.alert('Cook This Recipe?', 'Save this recipe to your collection to start cooking mode', [
@@ -291,22 +467,54 @@ export default function SuggestedRecipeDetailScreen() {
   }, [handleSaveToFavorites]);
 
   // --- Memoized computed values (must be before early returns to obey Rules of Hooks) ---
-  const processedIngredients = useMemo(() => {
-    if (!fullRecipe || !suggestedRecipe) return [];
-    const inStock = suggestedRecipe.ingredients_you_have || [];
-    const inStockLower = new Set(inStock.map((s) => s.toLowerCase()));
+  const suggestionIngredientNames = useMemo(() => {
+    if (!suggestedRecipe) return [];
+    return Array.from(new Set(
+      [...(suggestedRecipe.ingredients_you_have || []), ...(suggestedRecipe.ingredients_you_need || [])]
+        .map((name) => (name || '').trim())
+        .filter(Boolean)
+    ));
+  }, [suggestedRecipe]);
+
+  const fullIngredientEntries = useMemo(() => {
+    if (!fullRecipe) return [] as { name: string; amount?: number | string; unit?: string }[];
     return fullRecipe.ingredients.map((ingredient) => {
-      const isString = typeof ingredient === 'string';
-      const name = isString ? ingredient : (ingredient.name || '');
-      const amount = isString ? '' : formatAmount(ingredient.amount);
-      const unit = isString ? '' : (ingredient.unit || '');
-      const isInStock = name ? inStockLower.has(name.toLowerCase()) : false;
+      const rawIngredient = ingredient as any;
+      if (typeof rawIngredient === 'string') {
+        return { name: rawIngredient.trim() };
+      }
+      return {
+        name: (rawIngredient.name || '').trim(),
+        amount: rawIngredient.amount as number | string | undefined,
+        unit: rawIngredient.unit || '',
+      };
+    }).filter((item) => !!item.name);
+  }, [fullRecipe]);
+
+  const processedIngredients = useMemo(() => {
+    if (!suggestedRecipe) return [];
+    const inStock = suggestedRecipe.ingredients_you_have || [];
+
+    // Keep ingredient availability UI stable using suggestion ingredient list.
+    // This avoids badge/card counts jumping when expanded recipe details load later.
+    const baseNames = suggestionIngredientNames.length > 0
+      ? suggestionIngredientNames
+      : fullIngredientEntries.map((item) => item.name);
+
+    return baseNames.map((name) => {
+      const matchedEntry = fullIngredientEntries.find((item) =>
+        isIngredientLikelyInStock(name, [item.name]) || isIngredientLikelyInStock(item.name, [name])
+      );
+      const amount = matchedEntry?.amount != null ? formatAmount(matchedEntry.amount) : '';
+      const unit = matchedEntry?.unit || '';
+      const isInStock = name ? isIngredientLikelyInStock(name, inStock) : false;
       return { name, amount, unit, isInStock };
     });
-  }, [fullRecipe, suggestedRecipe]);
+  }, [suggestedRecipe, suggestionIngredientNames, fullIngredientEntries]);
 
   const totalIngredients = processedIngredients.length;
   const inStockCount = useMemo(() => processedIngredients.filter((i) => i.isInStock).length, [processedIngredients]);
+  const missingCount = Math.max(0, totalIngredients - inStockCount);
   const needsExpandable = totalIngredients > NUM_COLUMNS * 2;
   // Convert ingredients to Ingredient[] for StepList (handles string | object)
   const ingredientsForSteps = useMemo((): Ingredient[] => {
@@ -452,6 +660,15 @@ export default function SuggestedRecipeDetailScreen() {
             </View>
           </View>
 
+          {isExpandingDetails && !isExpandedReady && (
+            <View style={styles.detailLoadingHint}>
+              <ActivityIndicator size="small" color={C.gold} />
+              <Text style={styles.detailLoadingHintText}>
+                Loading full steps and measurements...
+              </Text>
+            </View>
+          )}
+
           {/* Gold hairline */}
           <View style={styles.goldHairline} />
 
@@ -489,7 +706,10 @@ export default function SuggestedRecipeDetailScreen() {
             <Text style={styles.sectionHeading}>Ingredients</Text>
             <View style={styles.pantryBadge}>
               <Ionicons name="checkmark-circle" size={14} color={C.olive} />
-              <Text style={styles.pantryBadgeText}>{inStockCount} of {totalIngredients}</Text>
+              <Text style={styles.pantryBadgeText}>{inStockCount} available</Text>
+              <Text style={styles.pantryBadgeSeparator}>•</Text>
+              <Ionicons name="cart-outline" size={14} color={C.terracotta} />
+              <Text style={styles.pantryNeedText}>{missingCount} needed</Text>
             </View>
           </View>
 
@@ -554,7 +774,14 @@ export default function SuggestedRecipeDetailScreen() {
 
           {/* ── COOKING STEPS ── */}
           <Text style={[styles.sectionHeading, { marginTop: 40, marginBottom: 18 }]}>Cooking Steps</Text>
-          <StepList steps={fullRecipe.steps} ingredients={ingredientsForSteps} />
+          {fullRecipe.steps.length > 0 ? (
+            <StepList steps={fullRecipe.steps} ingredients={ingredientsForSteps} />
+          ) : (
+            <View style={styles.pendingStepsWrap}>
+              <ActivityIndicator size="small" color={C.gold} />
+              <Text style={styles.pendingStepsText}>Preparing full cooking steps...</Text>
+            </View>
+          )}
 
           {/* ── NUTRITION ── */}
           {hasNutrition && (
@@ -699,6 +926,18 @@ const styles = StyleSheet.create({
     borderWidth: 0.5, borderColor: C.hairline,
   },
   timeBadgeText: { fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.muted },
+  detailLoadingHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: -8,
+    marginBottom: 18,
+  },
+  detailLoadingHintText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: C.muted,
+  },
 
   // Gold hairline
   goldHairline: { height: 0.5, backgroundColor: 'rgba(212, 175, 55, 0.25)', marginBottom: 22 },
@@ -716,6 +955,8 @@ const styles = StyleSheet.create({
   // Pantry badge
   pantryBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   pantryBadgeText: { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.olive },
+  pantryBadgeSeparator: { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.muted },
+  pantryNeedText: { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.terracotta },
 
   // Ingredient grid
   ingredientGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: CARD_GAP },
@@ -746,6 +987,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(26, 21, 16, 0.05)', borderWidth: 0.5, borderColor: 'rgba(26, 21, 16, 0.08)',
   },
   viewAllText: { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.muted, letterSpacing: 0.3 },
+  pendingStepsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  pendingStepsText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 13,
+    color: C.muted,
+  },
 
   // Nutrition
   nutritionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

@@ -389,12 +389,13 @@ export default function PlannerScreen() {
     if (ids.length > 0) prefetchRecipes(ids).catch(() => {});
   }, [selectedDate, weekOffset, viewMode, plans]);
 
-  const handleChangeViewMode = useCallback(async (mode: 'day' | 'week') => {
+  const handleChangeViewMode = useCallback(async (mode: 'day' | 'week'): Promise<boolean> => {
     if (mode === 'week') {
       const allowed = await checkGate('week_planner');
-      if (!allowed) return;
+      if (!allowed) return false;
     }
     setViewMode(mode);
+    return true;
   }, [checkGate, setViewMode]);
 
   const handleOpenPicker = useCallback(

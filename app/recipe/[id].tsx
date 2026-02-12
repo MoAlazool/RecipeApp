@@ -38,7 +38,7 @@ import { useShoppingStore } from '@/stores/shoppingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { StepList } from '@/components/recipe/StepList';
 import type { Recipe, RecipeSourceType, Ingredient } from '@/utils/types';
-import { getIngredientEmoji, CATEGORY_BG_COLORS } from '@/utils/ingredientEmojis';
+import { CATEGORY_BG_COLORS } from '@/utils/ingredientEmojis';
 import { getIngredientImage } from '@/utils/ingredientImages';
 import AskAIChefSheet from '@/components/recipe/AskAIChefSheet';
 import ShareToStorySheet from '@/components/recipe/ShareToStorySheet';
@@ -133,6 +133,16 @@ const formatAmount = (amount?: number, scaleFactor = 1): string => {
   return s.toFixed(1).replace(/\.0$/, '');
 };
 
+const getInitialLetters = (name: string): string => {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return '?';
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+  }
+  return trimmed.slice(0, 2).toUpperCase();
+};
+
 // ============================================================
 // ANIMATED INGREDIENT CARD
 // ============================================================
@@ -157,9 +167,8 @@ const AnimatedIngredientCard = React.memo(function AnimatedIngredientCard({
     onToggle(index);
   }, [index, onToggle]);
 
-  const ingredientImage = getIngredientImage(ingredient.name);
-  const emoji = getIngredientEmoji(ingredient.name);
   const bgColor = CATEGORY_BG_COLORS[ingredient.category] || '#F5F3EE';
+  const ingredientImage = getIngredientImage(ingredient.name);
   const amountStr = formatAmount(ingredient.amount, scaleFactor);
   const unitStr = ingredient.unit || '';
   const amountDisplay = [amountStr, unitStr].filter(Boolean).join(' ');
@@ -169,23 +178,16 @@ const AnimatedIngredientCard = React.memo(function AnimatedIngredientCard({
       <Pressable
         style={({ pressed }) => [
           styles.ingredientImageArea,
-          ingredientImage
-            ? { backgroundColor: 'transparent', borderWidth: 0, shadowOpacity: 0, elevation: 0 }
-            : { backgroundColor: bgColor },
+          ingredientImage ? styles.ingredientImageAreaPhoto : { backgroundColor: bgColor },
           isChecked && !ingredientImage && styles.ingredientImageAreaSelected,
           pressed && { opacity: 0.8 },
         ]}
         onPress={handlePress}
       >
         {ingredientImage ? (
-          <ExpoImage
-            source={ingredientImage}
-            style={styles.ingredientPhoto}
-            contentFit="cover"
-            transition={200}
-          />
+          <ExpoImage source={ingredientImage} style={styles.ingredientPhoto} contentFit="cover" />
         ) : (
-          <Text style={styles.ingredientInitials}>{ingredient.name.slice(0, 2).toUpperCase()}</Text>
+          <Text style={styles.ingredientInitials}>{getInitialLetters(ingredient.name)}</Text>
         )}
         <View style={[styles.ingredientNotch, isChecked && styles.ingredientNotchSelected]}>
           <Ionicons name={isChecked ? 'checkmark' : 'add'} size={14} color="#FFF" />
@@ -716,36 +718,81 @@ export default function RecipeDetailScreen() {
           {hasNutrition && (
             <>
               <Text style={[styles.sectionHeading, { marginTop: 40, marginBottom: 18 }]}>Nutrition Profile</Text>
-              <View style={styles.nutritionGrid}>
-                {recipe.calories != null && (
-                  <View style={[styles.nutritionCard, { backgroundColor: 'rgba(198, 110, 78, 0.06)' }]}>
-                    <Ionicons name="flame" size={20} color={C.terracotta} />
-                    <Text style={[styles.nutritionVal, { color: C.terracotta }]}>{recipe.calories}</Text>
-                    <Text style={styles.nutritionLbl}>Calories</Text>
+              {user?.is_premium ? (
+                <View style={styles.nutritionGrid}>
+                  {recipe.calories != null && (
+                    <View style={[styles.nutritionCard, { backgroundColor: 'rgba(198, 110, 78, 0.06)' }]}>
+                      <Ionicons name="flame" size={20} color={C.terracotta} />
+                      <Text style={[styles.nutritionVal, { color: C.terracotta }]}>{recipe.calories}</Text>
+                      <Text style={styles.nutritionLbl}>Calories</Text>
+                    </View>
+                  )}
+                  {recipe.protein_g != null && (
+                    <View style={[styles.nutritionCard, { backgroundColor: 'rgba(212, 175, 55, 0.06)' }]}>
+                      <Ionicons name="barbell" size={20} color={C.gold} />
+                      <Text style={[styles.nutritionVal, { color: C.gold }]}>{recipe.protein_g}g</Text>
+                      <Text style={styles.nutritionLbl}>Protein</Text>
+                    </View>
+                  )}
+                  {recipe.carbs_g != null && (
+                    <View style={[styles.nutritionCard, { backgroundColor: 'rgba(138, 133, 120, 0.06)' }]}>
+                      <Ionicons name="nutrition" size={20} color={C.muted} />
+                      <Text style={[styles.nutritionVal, { color: C.muted }]}>{recipe.carbs_g}g</Text>
+                      <Text style={styles.nutritionLbl}>Carbs</Text>
+                    </View>
+                  )}
+                  {recipe.fat_g != null && (
+                    <View style={[styles.nutritionCard, { backgroundColor: 'rgba(26, 21, 16, 0.04)' }]}>
+                      <Ionicons name="water" size={20} color={C.charcoal} />
+                      <Text style={[styles.nutritionVal, { color: C.charcoal }]}>{recipe.fat_g}g</Text>
+                      <Text style={styles.nutritionLbl}>Fat</Text>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <Pressable style={styles.nutritionLocked} onPress={() => router.push('/paywall')}>
+                  {/* Real values visible underneath the blur */}
+                  <View style={styles.nutritionGrid}>
+                    {recipe.calories != null && (
+                      <View style={[styles.nutritionCard, { backgroundColor: 'rgba(198, 110, 78, 0.06)' }]}>
+                        <Ionicons name="flame" size={20} color={C.terracotta} />
+                        <Text style={[styles.nutritionVal, { color: C.terracotta }]}>{recipe.calories}</Text>
+                        <Text style={styles.nutritionLbl}>Calories</Text>
+                      </View>
+                    )}
+                    {recipe.protein_g != null && (
+                      <View style={[styles.nutritionCard, { backgroundColor: 'rgba(212, 175, 55, 0.06)' }]}>
+                        <Ionicons name="barbell" size={20} color={C.gold} />
+                        <Text style={[styles.nutritionVal, { color: C.gold }]}>{recipe.protein_g}g</Text>
+                        <Text style={styles.nutritionLbl}>Protein</Text>
+                      </View>
+                    )}
+                    {recipe.carbs_g != null && (
+                      <View style={[styles.nutritionCard, { backgroundColor: 'rgba(138, 133, 120, 0.06)' }]}>
+                        <Ionicons name="nutrition" size={20} color={C.muted} />
+                        <Text style={[styles.nutritionVal, { color: C.muted }]}>{recipe.carbs_g}g</Text>
+                        <Text style={styles.nutritionLbl}>Carbs</Text>
+                      </View>
+                    )}
+                    {recipe.fat_g != null && (
+                      <View style={[styles.nutritionCard, { backgroundColor: 'rgba(26, 21, 16, 0.04)' }]}>
+                        <Ionicons name="water" size={20} color={C.charcoal} />
+                        <Text style={[styles.nutritionVal, { color: C.charcoal }]}>{recipe.fat_g}g</Text>
+                        <Text style={styles.nutritionLbl}>Fat</Text>
+                      </View>
+                    )}
                   </View>
-                )}
-                {recipe.protein_g != null && (
-                  <View style={[styles.nutritionCard, { backgroundColor: 'rgba(212, 175, 55, 0.06)' }]}>
-                    <Ionicons name="barbell" size={20} color={C.gold} />
-                    <Text style={[styles.nutritionVal, { color: C.gold }]}>{recipe.protein_g}g</Text>
-                    <Text style={styles.nutritionLbl}>Protein</Text>
+                  {/* Blur overlay */}
+                  <BlurView intensity={25} tint="light" style={styles.nutritionBlurOverlay} />
+                  {/* Frosted badge */}
+                  <View style={styles.nutritionLockedBadge}>
+                    <View style={styles.nutritionLockedPill}>
+                      <Ionicons name="diamond" size={14} color={C.gold} />
+                      <Text style={styles.nutritionLockedText}>Unlock with Pro</Text>
+                    </View>
                   </View>
-                )}
-                {recipe.carbs_g != null && (
-                  <View style={[styles.nutritionCard, { backgroundColor: 'rgba(138, 133, 120, 0.06)' }]}>
-                    <Ionicons name="nutrition" size={20} color={C.muted} />
-                    <Text style={[styles.nutritionVal, { color: C.muted }]}>{recipe.carbs_g}g</Text>
-                    <Text style={styles.nutritionLbl}>Carbs</Text>
-                  </View>
-                )}
-                {recipe.fat_g != null && (
-                  <View style={[styles.nutritionCard, { backgroundColor: 'rgba(26, 21, 16, 0.04)' }]}>
-                    <Ionicons name="water" size={20} color={C.charcoal} />
-                    <Text style={[styles.nutritionVal, { color: C.charcoal }]}>{recipe.fat_g}g</Text>
-                    <Text style={styles.nutritionLbl}>Fat</Text>
-                  </View>
-                )}
-              </View>
+                </Pressable>
+              )}
             </>
           )}
 
@@ -977,9 +1024,19 @@ const styles = StyleSheet.create({
     borderWidth: 2.5, borderColor: 'transparent',
     ...SHADOW_SOFT,
   },
+  ingredientImageAreaPhoto: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   ingredientImageAreaSelected: { borderColor: C.gold },
   ingredientInitials: { fontSize: 20, fontFamily: 'PlusJakartaSans_700Bold', color: '#B8845C' },
-  ingredientPhoto: { width: '100%', height: '100%', borderRadius: 18 },
+  ingredientPhoto: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 18,
+  },
   ingredientNotch: {
     position: 'absolute', bottom: 6, right: 6,
     width: 24, height: 24, borderRadius: 12,
@@ -998,6 +1055,37 @@ const styles = StyleSheet.create({
   nutritionCard: { flex: 1, minWidth: '45%' as any, alignItems: 'center', padding: 16, borderRadius: 18, gap: 5 },
   nutritionVal: { fontSize: 22, fontFamily: 'PlusJakartaSans_800ExtraBold' },
   nutritionLbl: { fontSize: 11, fontFamily: 'PlusJakartaSans_500Medium', color: C.muted, letterSpacing: 0.5 },
+  nutritionLocked: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  nutritionBlurOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  nutritionLockedBadge: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  nutritionLockedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  nutritionLockedText: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 14,
+    color: C.gold,
+  },
 
   // Notes
   notesCard: { backgroundColor: C.cardBg, borderRadius: 18, padding: 18, borderWidth: 0.5, borderColor: C.hairline },

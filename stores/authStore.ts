@@ -7,6 +7,7 @@ import { useShoppingStore } from './shoppingStore';
 import { useMessagingStore } from './messagingStore';
 import { useCookbookStore } from './cookbookStore';
 import { useUsageStore } from './usageStore';
+import { useProShowcaseStore } from './proShowcaseStore';
 import type { User } from '@/utils/types';
 
 interface AuthState {
@@ -64,6 +65,7 @@ export const useAuthStore = create<AuthState>()(
           useMessagingStore.getState().clearAll();
           useCookbookStore.getState().clearAll();
           useUsageStore.getState().clearAll();
+          useProShowcaseStore.getState().reset();
 
           const { user } = await firebaseService.signIn(email, password);
 
@@ -99,6 +101,7 @@ export const useAuthStore = create<AuthState>()(
           useMessagingStore.getState().clearAll();
           useCookbookStore.getState().clearAll();
           useUsageStore.getState().clearAll();
+          useProShowcaseStore.getState().reset();
 
           const { user, session } = await firebaseService.signUp(email, password);
 
@@ -148,6 +151,7 @@ export const useAuthStore = create<AuthState>()(
           useMessagingStore.getState().clearAll();
           useCookbookStore.getState().clearAll();
           useUsageStore.getState().clearAll();
+          useProShowcaseStore.getState().reset();
 
           const { user } = await firebaseService.signInWithGoogle();
 
@@ -165,12 +169,31 @@ export const useAuthStore = create<AuthState>()(
                 avatar_url: user.user_metadata?.avatar_url,
               });
               profile = await firebaseService.getProfile(user.id);
-            } else if (!profile.avatar_url && user.user_metadata?.avatar_url) {
-              // Update existing profile with avatar if missing
-              await firebaseService.updateProfile(user.id, {
-                avatar_url: user.user_metadata.avatar_url,
-              });
-              profile = await firebaseService.getProfile(user.id);
+            } else {
+              // Backfill missing Google profile data for existing users
+              const updates: Partial<User> = {};
+              const googleName = (
+                user.user_metadata?.full_name ||
+                user.user_metadata?.name ||
+                ''
+              ).trim();
+
+              if (!profile.full_name && googleName) {
+                updates.full_name = googleName;
+              }
+
+              if (!profile.avatar_url && user.user_metadata?.avatar_url) {
+                updates.avatar_url = user.user_metadata.avatar_url;
+              }
+
+              if (!profile.email && user.email) {
+                updates.email = user.email;
+              }
+
+              if (Object.keys(updates).length > 0) {
+                await firebaseService.updateProfile(user.id, updates);
+                profile = await firebaseService.getProfile(user.id);
+              }
             }
 
             set({
@@ -207,6 +230,7 @@ export const useAuthStore = create<AuthState>()(
           useMessagingStore.getState().clearAll();
           useCookbookStore.getState().clearAll();
           useUsageStore.getState().clearAll();
+          useProShowcaseStore.getState().reset();
 
           const { user } = await firebaseService.signInWithApple();
 
@@ -263,6 +287,7 @@ export const useAuthStore = create<AuthState>()(
           useMessagingStore.getState().clearAll();
           useCookbookStore.getState().clearAll();
           useUsageStore.getState().clearAll();
+          useProShowcaseStore.getState().reset();
 
           set({
             user: null,

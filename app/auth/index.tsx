@@ -388,7 +388,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: C.bg,
-    overflow: 'hidden',
   },
   scrollContent: {
     paddingHorizontal: 20,

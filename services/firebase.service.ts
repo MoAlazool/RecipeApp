@@ -398,9 +398,41 @@ class FirebaseService {
       const credential = GoogleAuthProvider.credential(tokenResult.idToken);
       const userCredential = await signInWithCredential(this.auth, credential);
 
-      // Get display name and photo from Firebase user (populated by Google)
-      const displayName = userCredential.user.displayName || '';
-      const photoURL = userCredential.user.photoURL || '';
+      // Prefer Firebase profile, then provider profile, then Google userinfo endpoint
+      const googleProviderProfile = userCredential.user.providerData.find(
+        (provider) => provider?.providerId === 'google.com'
+      );
+      let displayName =
+        userCredential.user.displayName ||
+        googleProviderProfile?.displayName ||
+        '';
+      let photoURL =
+        userCredential.user.photoURL ||
+        googleProviderProfile?.photoURL ||
+        '';
+
+      if ((!displayName || !photoURL) && tokenResult.accessToken) {
+        try {
+          const userInfoResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+            headers: {
+              Authorization: `Bearer ${tokenResult.accessToken}`,
+            },
+          });
+
+          if (userInfoResponse.ok) {
+            const userInfo = await userInfoResponse.json();
+            const googleName =
+              typeof userInfo?.name === 'string' ? userInfo.name.trim() : '';
+            const googlePhoto =
+              typeof userInfo?.picture === 'string' ? userInfo.picture.trim() : '';
+
+            if (!displayName && googleName) displayName = googleName;
+            if (!photoURL && googlePhoto) photoURL = googlePhoto;
+          }
+        } catch (profileError) {
+          console.warn('[Auth] Google userinfo fetch failed:', profileError);
+        }
+      }
 
       return {
         user: {

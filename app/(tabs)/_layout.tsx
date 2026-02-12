@@ -1,9 +1,15 @@
 import { Tabs } from 'expo-router';
 import { FloatingTabBar } from '../../components/navigation/FloatingTabBar';
 import { useAuthStore } from '@/stores/authStore';
+import { useProShowcaseStore } from '@/stores/proShowcaseStore';
 
 export default function TabLayout() {
+  const userId = useAuthStore((state) => state.user?.id ?? null);
   const isPremium = useAuthStore((state) => state.user?.is_premium ?? false);
+  const showProShowcase = useProShowcaseStore((state) => state.showTab);
+  const showcaseUserId = useProShowcaseStore((state) => state.userId);
+  const shouldShowProTab =
+    isPremium && showProShowcase && !!userId && showcaseUserId === userId;
 
   return (
     <Tabs
@@ -25,7 +31,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="pro"
         options={{
-          href: isPremium ? undefined : null,
+          href: shouldShowProTab ? undefined : null,
         }}
       />
       <Tabs.Screen name="profile" />

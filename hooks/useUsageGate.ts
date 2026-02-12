@@ -28,11 +28,9 @@ export function useUsageGate() {
       if (user?.is_premium) return true;
 
       const store = useUsageStore.getState();
-
-      // If store hasn't loaded yet, sync first
-      if (!store.isLoaded) {
-        await store.syncFromFirebase();
-      }
+      // Always refresh before gating to avoid stale persisted limits
+      // (e.g. free-trial/premium sync lag or weekly reset edge cases).
+      await store.syncFromFirebase();
 
       const state = useUsageStore.getState();
       let isBlocked = false;

@@ -1,10 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, Alert, TouchableOpacity, Image, RefreshControl, Linking } from 'react-native';
+import { View, ScrollView, StyleSheet, Alert, TouchableOpacity, Pressable, Image, RefreshControl, Linking } from 'react-native';
 import { Text, Switch } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withDelay,
+  withTiming,
+  withSpring,
+  Easing,
+} from 'react-native-reanimated';
 import { useAuthStore } from '@/stores/authStore';
 import { usePreferencesStore } from '@/stores/preferencesStore';
 import { registerForPushNotifications } from '@/services/notifications.service';
@@ -12,6 +21,8 @@ import { userService } from '@/services/user.service';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 import type { UserProfile } from '@/utils/types';
+
+const ENTRY_EASE = Easing.out(Easing.cubic);
 
 const getInitials = (name?: string): string => {
   if (!name) return '?';
@@ -41,6 +52,47 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // ── Entry animations ──
+  const cardOpacity = useSharedValue(0);
+  const cardY = useSharedValue(18);
+  const subOpacity = useSharedValue(0);
+  const subY = useSharedValue(14);
+  const settingsOpacity = useSharedValue(0);
+  const settingsY = useSharedValue(14);
+  const supportOpacity = useSharedValue(0);
+  const supportY = useSharedValue(14);
+
+  useEffect(() => {
+    cardOpacity.value = withDelay(100, withTiming(1, { duration: 400, easing: ENTRY_EASE }));
+    cardY.value = withDelay(100, withSpring(0, { damping: 20, stiffness: 160 }));
+
+    subOpacity.value = withDelay(200, withTiming(1, { duration: 380, easing: ENTRY_EASE }));
+    subY.value = withDelay(200, withSpring(0, { damping: 20, stiffness: 160 }));
+
+    settingsOpacity.value = withDelay(300, withTiming(1, { duration: 380, easing: ENTRY_EASE }));
+    settingsY.value = withDelay(300, withSpring(0, { damping: 20, stiffness: 160 }));
+
+    supportOpacity.value = withDelay(400, withTiming(1, { duration: 380, easing: ENTRY_EASE }));
+    supportY.value = withDelay(400, withSpring(0, { damping: 20, stiffness: 160 }));
+  }, []);
+
+  const cardAnim = useAnimatedStyle(() => ({
+    opacity: cardOpacity.value,
+    transform: [{ translateY: cardY.value }],
+  }));
+  const subAnim = useAnimatedStyle(() => ({
+    opacity: subOpacity.value,
+    transform: [{ translateY: subY.value }],
+  }));
+  const settingsAnim = useAnimatedStyle(() => ({
+    opacity: settingsOpacity.value,
+    transform: [{ translateY: settingsY.value }],
+  }));
+  const supportAnim = useAnimatedStyle(() => ({
+    opacity: supportOpacity.value,
+    transform: [{ translateY: supportY.value }],
+  }));
 
   const fetchProfile = useCallback(async () => {
     if (!user?.id) return;
@@ -165,7 +217,7 @@ export default function ProfileScreen() {
         }
       >
         {/* ── Profile Card ── */}
-        <View style={styles.profileCard}>
+        <Animated.View style={[styles.profileCard, cardAnim]}>
           <View style={styles.headerRow}>
             <View style={styles.avatarRing}>
               {user?.avatar_url ? (
@@ -205,47 +257,81 @@ export default function ProfileScreen() {
             <Ionicons name="pencil-outline" size={15} color="#1A1510" />
             <Text style={styles.editBtnText}>Edit Profile</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
         {/* ── Subscription ── */}
-        <Text style={styles.groupLabel}>Subscription</Text>
-        <View style={styles.group}>
-          <Row
-            icon={isPremium ? 'star' : 'person-outline'}
-            label={isPremium ? 'Eito Pro' : 'Free Plan'}
-            onPress={() => router.push('/subscription')}
-            accent={isPremium}
-          />
-        </View>
+        <Animated.View style={subAnim}>
+          <Text style={styles.groupLabel}>Subscription</Text>
+          {isPremium ? (
+            <View style={styles.group}>
+              <Row
+                icon="star"
+                label="Eito Pro"
+                onPress={() => router.push('/subscription')}
+                accent
+              />
+            </View>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.upgradeBanner, pressed && { opacity: 0.92, transform: [{ scale: 0.985 }] }]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push('/paywall');
+              }}
+            >
+              <LinearGradient
+                colors={['#2A2520', '#1A1510']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.upgradeBannerContent}>
+                <View style={styles.upgradeBannerLeft}>
+                  <View style={styles.upgradeBannerIconWrap}>
+                    <Ionicons name="diamond" size={18} color="#D4AF37" />
+                  </View>
+                  <View>
+                    <Text style={styles.upgradeBannerTitle}>Upgrade to EITO Pro</Text>
+                    <Text style={styles.upgradeBannerSub}>7-day free trial — cancel anytime</Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.4)" />
+              </View>
+            </Pressable>
+          )}
+        </Animated.View>
 
         {/* ── Settings ── */}
-        <Text style={styles.groupLabel}>Settings</Text>
-        <View style={styles.group}>
-          <Row icon="at-outline" label="Username" onPress={() => router.push('/setup-username' as any)}
-            trailing={<><Text style={styles.rowValue}>@{user?.username || 'not set'}</Text><Ionicons name="chevron-forward" size={16} color="#D5D1CB" /></>}
-          />
-          <Row icon="notifications-outline" label="Notifications"
-            trailing={<Switch value={notificationsEnabled} onValueChange={handleToggleNotifications} />}
-          />
-          <Row icon="lock-closed-outline" label="Private Account"
-            trailing={<Switch value={privateAccount} onValueChange={handleTogglePrivateAccount} />}
-          />
-        </View>
+        <Animated.View style={settingsAnim}>
+          <Text style={styles.groupLabel}>Settings</Text>
+          <View style={styles.group}>
+            <Row icon="at-outline" label="Username" onPress={() => router.push('/setup-username' as any)}
+              trailing={<><Text style={styles.rowValue}>@{user?.username || 'not set'}</Text><Ionicons name="chevron-forward" size={16} color="#D5D1CB" /></>}
+            />
+            <Row icon="notifications-outline" label="Notifications"
+              trailing={<Switch value={notificationsEnabled} onValueChange={handleToggleNotifications} />}
+            />
+            <Row icon="lock-closed-outline" label="Private Account"
+              trailing={<Switch value={privateAccount} onValueChange={handleTogglePrivateAccount} />}
+            />
+          </View>
+        </Animated.View>
 
-        {/* ── Support ── */}
-        <Text style={styles.groupLabel}>Support</Text>
-        <View style={styles.group}>
-          <Row icon="help-circle-outline" label="Help & FAQ" onPress={() => router.push('/help-faq' as any)} />
-          <Row icon="mail-outline" label="Contact Us" onPress={() => Linking.openURL('mailto:support@example.com?subject=Support%20Request')} />
-          <Row icon="document-text-outline" label="Terms & Privacy" onPress={() => router.push('/terms-privacy' as any)} />
-        </View>
+        {/* ── Support & Sign Out ── */}
+        <Animated.View style={supportAnim}>
+          <Text style={styles.groupLabel}>Support</Text>
+          <View style={styles.group}>
+            <Row icon="help-circle-outline" label="Help & FAQ" onPress={() => router.push('/help-faq' as any)} />
+            <Row icon="mail-outline" label="Contact Us" onPress={() => Linking.openURL('mailto:support@example.com?subject=Support%20Request')} />
+            <Row icon="document-text-outline" label="Terms & Privacy" onPress={() => router.push('/terms-privacy' as any)} />
+          </View>
 
-        {/* ── Sign Out ── */}
-        <View style={styles.group}>
-          <Row icon="log-out-outline" label="Sign Out" onPress={handleSignOut} />
-        </View>
+          <View style={[styles.group, { marginTop: 16 }]}>
+            <Row icon="log-out-outline" label="Sign Out" onPress={handleSignOut} />
+          </View>
 
-        <Text style={styles.version}>Version 1.0.0</Text>
+          <Text style={styles.version}>Version 1.0.0</Text>
+        </Animated.View>
       </ScrollView>
     </TabScreenTransition>
   );
@@ -422,6 +508,43 @@ const styles = StyleSheet.create({
   },
 
 
+
+  // ── Upgrade Banner ──
+  upgradeBanner: {
+    marginHorizontal: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  upgradeBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 18,
+  },
+  upgradeBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  upgradeBannerIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upgradeBannerTitle: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 15,
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  upgradeBannerSub: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.45)',
+  },
 
   // ── Groups ──
   groupLabel: {

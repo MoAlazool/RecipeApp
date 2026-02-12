@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   FlatList,
@@ -25,6 +25,8 @@ import { useUsageStore } from '@/stores/usageStore';
 import { FREE_PLAN_LIMITS } from '@/utils/types';
 import { RecipeCard } from '@/components/recipe/RecipeCard';
 import { EmptyState } from '@/components/ui/EmptyState';
+import UsageLimitSheet from '@/components/ui/UsageLimitSheet';
+import { useUsageGate } from '@/hooks/useUsageGate';
 import { useBottomTabBarHeight } from '@/hooks/useBottomTabBarHeight';
 import { TabScreenTransition } from '@/components/layout/TabScreenTransition';
 
@@ -49,6 +51,7 @@ export default function RecipesScreen() {
   const { recipes, isLoading, fetchRecipes } = useRecipeStore();
   const { user } = useAuthStore();
   const { fetchCookbooks } = useCookbookStore();
+  const { checkGate, limitSheetRef, limitInfo } = useUsageGate();
   const isPremium = user?.is_premium ?? false;
   const recipesUsed = useUsageStore((s) => s.recipesUsed);
   const scansUsed = useUsageStore((s) => s.scansUsed);
@@ -70,7 +73,7 @@ export default function RecipesScreen() {
   const recentRecipes = useMemo(() => filteredRecipes.slice(0, 5), [filteredRecipes]);
 
   // Fetch cookbooks on mount
-  useState(() => { fetchCookbooks(); });
+  useEffect(() => { fetchCookbooks(); }, []);
 
   // Sync usage on focus; close usage card on blur
   useFocusEffect(
@@ -92,7 +95,22 @@ export default function RecipesScreen() {
     }
   };
 
+  const handleFridgeScan = useCallback(async () => {
+    const allowed = await checkGate('scan');
+    if (!allowed) return;
+    router.push('/fridge-scan');
+  }, [checkGate, router]);
+
+  const handleCookbookScan = useCallback(async () => {
+    const allowed = await checkGate('scan');
+    if (!allowed) return;
+    router.push('/cookbook-scan');
+  }, [checkGate, router]);
+
   const handlePasteLink = useCallback(async () => {
+    const allowed = await checkGate('recipe');
+    if (!allowed) return;
+
     try {
       const clipboardText = (await Clipboard.getStringAsync()).trim();
       if (!clipboardText) {
@@ -110,7 +128,7 @@ export default function RecipesScreen() {
     } catch {
       Alert.alert('Paste Failed', 'Could not access your clipboard.');
     }
-  }, [router]);
+  }, [checkGate, router]);
 
   const renderRecipe = ({ item }: { item: any }) => (
     <RecipeCard
@@ -222,14 +240,14 @@ export default function RecipesScreen() {
             <Text style={styles.quickLabel}>Paste Link</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.quickCard} onPress={() => router.push('/fridge-scan')} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.quickCard} onPress={handleFridgeScan} activeOpacity={0.8}>
             <View style={[styles.quickIcon, { backgroundColor: 'rgba(212, 175, 55, 0.10)' }]}>
               <MaterialCommunityIcons name="crop-free" size={17} color={C.gold} />
             </View>
             <Text style={styles.quickLabel}>Scan Fridge</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.quickCard} onPress={() => router.push('/cookbook-scan')} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.quickCard} onPress={handleCookbookScan} activeOpacity={0.8}>
             <View style={[styles.quickIcon, { backgroundColor: 'rgba(26, 21, 16, 0.06)' }]}>
               <Ionicons name="reader-outline" size={17} color={C.charcoal} />
             </View>
@@ -332,7 +350,7 @@ export default function RecipesScreen() {
 
             <TouchableOpacity
               style={styles.getStartedCard}
-              onPress={() => router.push('/fridge-scan')}
+              onPress={handleFridgeScan}
               activeOpacity={0.85}
             >
               <View style={[styles.getStartedCardIcon, { backgroundColor: 'rgba(212, 175, 55, 0.10)' }]}>
@@ -346,7 +364,7 @@ export default function RecipesScreen() {
 
             <TouchableOpacity
               style={styles.getStartedCard}
-              onPress={() => router.push('/cookbook-scan')}
+              onPress={handleCookbookScan}
               activeOpacity={0.85}
             >
               <View style={[styles.getStartedCardIcon, { backgroundColor: 'rgba(26, 21, 16, 0.06)' }]}>
@@ -389,6 +407,12 @@ export default function RecipesScreen() {
       {usageExpanded && (
         <Pressable style={styles.usageDismiss} onPress={() => setUsageExpanded(false)} />
       )}
+      <UsageLimitSheet
+        ref={limitSheetRef}
+        limitType={limitInfo.type}
+        used={limitInfo.used}
+        total={limitInfo.total}
+      />
     </TabScreenTransition>
   );
 }

@@ -11,10 +11,9 @@ const C = {
   charcoal: '#1A1510',
   gold: '#D4AF37',
   terracotta: '#C66E4E',
+  olive: '#6B8E23',
   muted: '#8A8578',
-  hairline: 'rgba(26, 21, 16, 0.06)',
   cardBg: '#F5F3EE',
-  background: '#FAFAF8',
 };
 
 export type LimitType = 'scan' | 'ai_chat' | 'recipe' | 'week_planner';
@@ -25,26 +24,33 @@ interface UsageLimitSheetProps {
   total: number;
 }
 
-const LIMIT_CONFIG: Record<LimitType, { icon: string; title: string; resetLabel: string }> = {
+const LIMIT_CONFIG: Record<
+  LimitType,
+  { icon: string; color: string; title: string; todayDesc: string }
+> = {
   scan: {
     icon: 'scan-outline',
-    title: "You've used all your scans this week",
-    resetLabel: 'Resets weekly',
+    color: '#D4AF37',
+    title: 'No scans left',
+    todayDesc: 'Unlimited scans & all Pro features',
   },
   ai_chat: {
     icon: 'chatbubbles-outline',
-    title: 'AI Chef weekly limit reached',
-    resetLabel: 'Resets weekly',
+    color: '#6B8E23',
+    title: 'No chats left',
+    todayDesc: 'Unlimited AI chats & all Pro features',
   },
   recipe: {
-    icon: 'restaurant-outline',
-    title: "You've used all your recipe generations this week",
-    resetLabel: 'Resets weekly',
+    icon: 'link',
+    color: '#C66E4E',
+    title: 'No recipes left',
+    todayDesc: 'Unlimited recipes & all Pro features',
   },
   week_planner: {
     icon: 'calendar-outline',
-    title: 'Week planner is a Pro feature',
-    resetLabel: 'Upgrade to unlock',
+    color: '#D4AF37',
+    title: 'Planner is Pro only',
+    todayDesc: 'Full planner access & all Pro features',
   },
 };
 
@@ -72,6 +78,7 @@ const UsageLimitSheet = forwardRef<BottomSheetModal, UsageLimitSheetProps>(
     };
 
     const progress = total > 0 ? Math.min(used / total, 1) : 1;
+    const showUsageBar = limitType !== 'week_planner';
 
     return (
       <BottomSheetModal
@@ -83,40 +90,93 @@ const UsageLimitSheet = forwardRef<BottomSheetModal, UsageLimitSheetProps>(
       >
         <BottomSheetView style={styles.content}>
           {/* Icon */}
-          <View style={styles.iconWrap}>
-            <Ionicons name={config.icon as any} size={32} color={C.terracotta} />
+          <View style={[styles.iconWrap, { backgroundColor: `${config.color}14` }]}>
+            <Ionicons name={config.icon as any} size={28} color={config.color} />
           </View>
 
           {/* Title */}
           <Text style={styles.title}>{config.title}</Text>
 
-          {/* Usage bar (not shown for week_planner) */}
-          {limitType !== 'week_planner' && (
-            <View style={styles.usageSection}>
+          {/* Usage bar */}
+          {showUsageBar && (
+            <View style={styles.usageRow}>
               <View style={styles.usageBarBg}>
-                <View style={[styles.usageBarFill, { width: `${progress * 100}%` as any }]} />
+                <View
+                  style={[
+                    styles.usageBarFill,
+                    { width: `${progress * 100}%` as any, backgroundColor: config.color },
+                  ]}
+                />
               </View>
               <Text style={styles.usageText}>
-                {used} / {total} used
+                {used}/{total}
               </Text>
             </View>
           )}
 
-          {/* Reset info */}
-          <Text style={styles.resetText}>{config.resetLabel}</Text>
+          {/* Subtitle */}
+          <Text style={styles.subtitle}>Try Pro free for 7 days</Text>
+
+          {/* Timeline */}
+          <View style={styles.timeline}>
+            {/* Today */}
+            <View style={styles.timelineRow}>
+              <View style={styles.dotCol}>
+                <View style={[styles.dot, { backgroundColor: C.olive }]} />
+                <View style={styles.line} />
+              </View>
+              <View style={styles.timelineBody}>
+                <Text style={styles.dayLabel}>Today</Text>
+                <Text style={styles.dayDesc}>{config.todayDesc}</Text>
+              </View>
+              <Ionicons name="lock-open-outline" size={14} color={C.olive} />
+            </View>
+            {/* Day 5 */}
+            <View style={styles.timelineRow}>
+              <View style={styles.dotCol}>
+                <View style={[styles.dot, { backgroundColor: C.gold }]} />
+                <View style={styles.line} />
+              </View>
+              <View style={styles.timelineBody}>
+                <Text style={styles.dayLabel}>Day 5</Text>
+                <Text style={styles.dayDesc}>We'll send you a reminder</Text>
+              </View>
+              <Ionicons name="notifications-outline" size={14} color={C.gold} />
+            </View>
+            {/* Day 7 */}
+            <View style={styles.timelineRow}>
+              <View style={styles.dotCol}>
+                <View style={styles.dot} />
+              </View>
+              <View style={styles.timelineBody}>
+                <Text style={styles.dayLabel}>Day 7</Text>
+                <Text style={styles.dayDesc}>Cancel anytime before</Text>
+              </View>
+              <Ionicons name="card-outline" size={14} color={C.muted} />
+            </View>
+          </View>
 
           {/* CTA */}
           <Pressable
-            style={({ pressed }) => [styles.upgradeBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
+            style={({ pressed }) => [
+              styles.cta,
+              pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+            ]}
             onPress={handleUpgrade}
           >
-            <Ionicons name="diamond" size={18} color="#FFF" />
-            <Text style={styles.upgradeBtnText}>Upgrade to Pro</Text>
+            <Ionicons name="diamond" size={17} color="#FFF" />
+            <Text style={styles.ctaText}>Start free trial</Text>
           </Pressable>
 
+          {/* Guarantee */}
+          <View style={styles.guarantee}>
+            <Ionicons name="shield-checkmark" size={12} color={C.olive} />
+            <Text style={styles.guaranteeText}>No charge today</Text>
+          </View>
+
           {/* Dismiss */}
-          <Pressable style={styles.dismissBtn} onPress={handleDismiss}>
-            <Text style={styles.dismissText}>OK, got it</Text>
+          <Pressable style={styles.dismiss} onPress={handleDismiss}>
+            <Text style={styles.dismissText}>Maybe later</Text>
           </Pressable>
         </BottomSheetView>
       </BottomSheetModal>
@@ -134,78 +194,149 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 32,
   },
+
+  // ── Icon ──
   iconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
-    backgroundColor: 'rgba(198, 110, 78, 0.08)',
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
+
+  // ── Title ──
   title: {
     fontFamily: 'PlayfairDisplay_700Bold',
-    fontSize: 20,
+    fontSize: 21,
     color: C.charcoal,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 6,
   },
-  usageSection: {
+
+  // ── Usage bar ──
+  usageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     width: '100%',
-    marginBottom: 8,
+    gap: 10,
+    marginBottom: 16,
+    marginTop: 4,
   },
   usageBarBg: {
-    height: 8,
-    borderRadius: 4,
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: C.cardBg,
     overflow: 'hidden',
-    marginBottom: 8,
   },
   usageBarFill: {
     height: '100%',
-    borderRadius: 4,
-    backgroundColor: C.terracotta,
+    borderRadius: 3,
   },
   usageText: {
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    fontSize: 13,
+    fontSize: 12,
     color: C.muted,
-    textAlign: 'center',
   },
-  resetText: {
+
+  // ── Subtitle ──
+  subtitle: {
     fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: 13,
     color: C.muted,
-    marginBottom: 24,
-    marginTop: 4,
+    textAlign: 'center',
+    marginBottom: 14,
   },
-  upgradeBtn: {
+
+  // ── Timeline ──
+  timeline: {
+    width: '100%',
+    backgroundColor: C.cardBg,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 20,
+  },
+  timelineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dotCol: {
+    width: 16,
+    alignItems: 'center',
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(26, 21, 16, 0.12)',
+  },
+  line: {
+    width: 1.5,
+    height: 20,
+    backgroundColor: 'rgba(26, 21, 16, 0.08)',
+    marginVertical: 1,
+  },
+  timelineBody: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  dayLabel: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+    fontSize: 12,
+    color: C.charcoal,
+  },
+  dayDesc: {
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: 11,
+    color: C.muted,
+    lineHeight: 15,
+  },
+
+  // ── CTA ──
+  cta: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
     backgroundColor: C.terracotta,
     width: '100%',
-    paddingVertical: 16,
-    borderRadius: 22,
+    paddingVertical: 15,
+    borderRadius: 20,
     shadowColor: C.terracotta,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
-    shadowRadius: 16,
+    shadowRadius: 14,
     elevation: 6,
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  upgradeBtnText: {
+  ctaText: {
     fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 16,
+    fontSize: 15,
     color: '#FFFFFF',
   },
-  dismissBtn: {
-    paddingVertical: 10,
+
+  // ── Guarantee ──
+  guarantee: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 6,
+  },
+  guaranteeText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 11,
+    color: C.muted,
+  },
+
+  // ── Dismiss ──
+  dismiss: {
+    paddingVertical: 8,
   },
   dismissText: {
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    fontSize: 14,
+    fontSize: 13,
     color: C.muted,
   },
 });
