@@ -4,6 +4,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  Alert,
   Platform,
   Linking,
   ActivityIndicator,
@@ -124,25 +125,44 @@ export default function SubscriptionScreen() {
 
   const handleRestore = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) {
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in again before restoring purchases.'
+      );
+      return;
+    }
+
     setIsRestoring(true);
     try {
-      const restored = await revenueCatService.restorePurchases();
-      if (restored) {
-        const customerInfo = await revenueCatService.getCustomerInfo();
+      await revenueCatService.login(userId);
+      await revenueCatService.restorePurchases();
+      const customerInfo = await revenueCatService.getCustomerInfo();
+      const hasPremiumAccess = customerInfo
+        ? revenueCatService.hasPremiumEntitlement(customerInfo)
+        : false;
+
+      if (hasPremiumAccess) {
         const expirationDate = customerInfo
           ? revenueCatService.getExpirationDate(customerInfo)
           : null;
         const updates: Record<string, any> = { is_premium: true };
         if (expirationDate) updates.premium_expires_at = expirationDate;
         await updateProfile(updates);
-        if (user?.id) {
-          triggerProShowcase(user.id);
-        }
+        triggerProShowcase(userId);
         await useUsageStore.getState().syncFromFirebase();
         await fetchData();
+        Alert.alert('Success', 'Your purchases have been restored.');
+      } else {
+        Alert.alert(
+          'No Purchases Found',
+          'We could not verify an active Pro subscription for this account.'
+        );
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Restore failed:', error);
+      Alert.alert('Restore Failed', error?.message || 'Unable to restore purchases right now.');
     } finally {
       setIsRestoring(false);
     }

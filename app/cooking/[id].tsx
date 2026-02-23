@@ -82,10 +82,11 @@ const EmbeddedWebView: ComponentType<any> | null = (() => {
 })();
 
 export default function CookingModeScreen() {
-  const { id, laAction, laNonce } = useLocalSearchParams<{
+  const { id, laAction, laNonce, laStep } = useLocalSearchParams<{
     id: string;
     laAction?: string | string[];
     laNonce?: string | string[];
+    laStep?: string | string[];
   }>();
   const router = useRouter();
   const layout = useScreenLayout({ hasTabBar: false, headerPadding: 12 });
@@ -115,6 +116,7 @@ export default function CookingModeScreen() {
   const [miniPlayerLoading, setMiniPlayerLoading] = useState(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastLiveActivityActionKeyRef = useRef<string | null>(null);
+  const lastAppliedResumeStepRef = useRef<string | null>(null);
   const menuAnim = useRef(new Animated.Value(0)).current;
   const introAnim = useRef(new Animated.Value(0)).current;
 
@@ -228,6 +230,25 @@ export default function CookingModeScreen() {
       stopListening();
     };
   }, [id]);
+
+  // Resume exactly where the user left off when opening from Live Activity.
+  useEffect(() => {
+    if (!recipe || recipe.steps.length === 0) return;
+
+    const normalizedStep = Array.isArray(laStep) ? laStep[0] : laStep;
+    if (!normalizedStep) return;
+
+    const parsedStep = Number.parseInt(normalizedStep, 10);
+    if (!Number.isInteger(parsedStep) || parsedStep < 0) return;
+
+    const clampedStep = Math.min(parsedStep, recipe.steps.length - 1);
+    const resumeKey = `${recipe.id}:${clampedStep}`;
+
+    if (lastAppliedResumeStepRef.current === resumeKey) return;
+    lastAppliedResumeStepRef.current = resumeKey;
+
+    goToStep(clampedStep);
+  }, [goToStep, laStep, recipe]);
 
   // Dynamic Island: show cooking status throughout the session
   useEffect(() => {

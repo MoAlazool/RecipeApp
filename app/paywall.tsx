@@ -23,7 +23,7 @@ import Animated, {
   withSpring,
   Easing,
 } from 'react-native-reanimated';
-import { PurchasesOffering } from 'react-native-purchases';
+import { CustomerInfo, PurchasesOffering } from 'react-native-purchases';
 import {
   revenueCatService,
   type Plan,
@@ -76,7 +76,7 @@ const PRO_FEATURES = [
 export default function PaywallScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, updateProfile } = useAuthStore();
+  const { updateProfile } = useAuthStore();
   const triggerProShowcase = useProShowcaseStore((state) => state.triggerForUser);
   const { fromOnboarding } = useLocalSearchParams<{ fromOnboarding?: string }>();
 
@@ -264,12 +264,41 @@ export default function PaywallScreen() {
     ]);
   };
 
+  const requireAuthenticatedUserId = (): string | null => {
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) {
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in again before completing your purchase.'
+      );
+      return null;
+    }
+    return userId;
+  };
+
+  const unlockPremiumAccess = async (
+    userId: string,
+    customerInfo: CustomerInfo | null
+  ) => {
+    const expirationDate = customerInfo
+      ? revenueCatService.getExpirationDate(customerInfo)
+      : null;
+    const updates: Record<string, any> = { is_premium: true };
+    if (expirationDate) updates.premium_expires_at = expirationDate;
+    await updateProfile(updates);
+    triggerProShowcase(userId);
+    await useUsageStore.getState().syncFromFirebase();
+  };
+
   const handlePurchase = async () => {
     const plan: Plan = selectedPlan;
+    const userId = requireAuthenticatedUserId();
+    if (!userId) return;
 
     try {
       setIsLoading(true);
       setLoadingMessage('Processing...');
+      await revenueCatService.login(userId);
 
       let offering = cachedOffering.current;
       if (!offering) {
@@ -278,10 +307,11 @@ export default function PaywallScreen() {
       }
 
       const pkg = offering ? revenueCatService.getPackageForPlan(offering, plan) : null;
-      let success = false;
+      let purchaseAttempted = false;
 
       if (pkg) {
-        success = await revenueCatService.purchasePackage(pkg);
+        purchaseAttempted = true;
+        await revenueCatService.purchasePackage(pkg);
       } else {
         const fallbackProduct = await revenueCatService.getFallbackProductForPlan(plan);
 
@@ -292,26 +322,39 @@ export default function PaywallScreen() {
           return;
         }
 
-        success = await revenueCatService.purchaseStoreProduct(fallbackProduct);
+        purchaseAttempted = true;
+        await revenueCatService.purchaseStoreProduct(fallbackProduct);
       }
 
-      if (success) {
-        const customerInfo = await revenueCatService.getCustomerInfo();
-        const expirationDate = customerInfo
-          ? revenueCatService.getExpirationDate(customerInfo)
-          : null;
-        const updates: Record<string, any> = { is_premium: true };
-        if (expirationDate) updates.premium_expires_at = expirationDate;
-        await updateProfile(updates);
-        if (user?.id) {
-          triggerProShowcase(user.id);
-        }
-        await useUsageStore.getState().syncFromFirebase();
+      if (!purchaseAttempted) return;
+
+      setLoadingMessage('Verifying purchase...');
+      const customerInfo = await revenueCatService.getCustomerInfo();
+      const hasPremiumAccess = customerInfo
+        ? revenueCatService.hasPremiumEntitlement(customerInfo)
+        : false;
+
+      if (hasPremiumAccess) {
+        await unlockPremiumAccess(userId, customerInfo);
         Alert.alert('Welcome to Pro!', 'You now have access to all premium features.', [
           { text: 'View Pro Hub', onPress: () => router.replace('/(tabs)/pro') },
         ]);
+        return;
       }
+
+      Alert.alert(
+        'Purchase Pending Verification',
+        'Your purchase was completed, but Pro has not synced yet. Try restore, or retry after a moment.',
+        [
+          { text: 'Not Now', style: 'cancel' },
+          { text: 'Restore Purchases', onPress: () => handleRestore() },
+          { text: 'Retry', onPress: () => handlePurchase() },
+        ]
+      );
     } catch (error: any) {
+      if (error?.userCancelled) {
+        return;
+      }
       if (isLikelyNetworkError(error)) {
         Alert.alert(
           'Connection Error',
@@ -326,35 +369,36 @@ export default function PaywallScreen() {
   };
 
   const handleRestore = async () => {
+    const userId = requireAuthenticatedUserId();
+    if (!userId) return;
+
     try {
       setIsLoading(true);
       setLoadingMessage('Restoring purchases...');
+      await revenueCatService.login(userId);
+      await revenueCatService.restorePurchases();
 
-      const success = await revenueCatService.restorePurchases();
+      setLoadingMessage('Verifying purchases...');
+      const customerInfo = await revenueCatService.getCustomerInfo();
+      const hasPremiumAccess = customerInfo
+        ? revenueCatService.hasPremiumEntitlement(customerInfo)
+        : false;
 
-      if (success) {
-        const customerInfo = await revenueCatService.getCustomerInfo();
-        const expirationDate = customerInfo
-          ? revenueCatService.getExpirationDate(customerInfo)
-          : null;
-        const updates: Record<string, any> = { is_premium: true };
-        if (expirationDate) updates.premium_expires_at = expirationDate;
-        await updateProfile(updates);
-        if (user?.id) {
-          triggerProShowcase(user.id);
-        }
-        await useUsageStore.getState().syncFromFirebase();
+      if (hasPremiumAccess) {
+        await unlockPremiumAccess(userId, customerInfo);
         Alert.alert('Success', 'Your purchases have been restored!', [
           { text: 'View Pro Hub', onPress: () => router.replace('/(tabs)/pro') },
         ]);
       } else {
-        Alert.alert('No Purchases Found', 'We could not find any previous purchases.');
+        Alert.alert(
+          'No Purchases Found',
+          'We could not verify an active Pro subscription for this account. If you were just charged, try again in a moment.'
+        );
       }
-
-      setIsLoading(false);
     } catch (error: any) {
-      setIsLoading(false);
       Alert.alert('Error', error.message || 'Failed to restore purchases');
+    } finally {
+      setIsLoading(false);
     }
   };
 

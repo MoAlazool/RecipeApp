@@ -51,6 +51,50 @@ class RevenueCatService {
   private logHandlerInitialized = false;
   private listenerRemover: (() => void) | null = null;
 
+  private getNormalizedConfiguredEntitlementIds(): string[] {
+    return ENTITLEMENT_IDS.map((id) => id.toLowerCase());
+  }
+
+  private getActiveSubscriptionIds(customerInfo: CustomerInfo): string[] {
+    const fromActiveSubscriptions = Array.isArray(customerInfo.activeSubscriptions)
+      ? customerInfo.activeSubscriptions.filter(Boolean)
+      : [];
+
+    const fromSubscriptionMap = Object.entries(
+      customerInfo.subscriptionsByProductIdentifier || {}
+    )
+      .filter(([, info]) => Boolean(info?.isActive))
+      .map(([productId]) => productId);
+
+    return Array.from(
+      new Set([...fromActiveSubscriptions, ...fromSubscriptionMap])
+    );
+  }
+
+  private pickLatestIsoDate(
+    dates: Array<string | null | undefined>
+  ): string | null {
+    const validDates = dates
+      .filter(
+        (value): value is string =>
+          typeof value === 'string' && value.length > 0
+      )
+      .map((value) => ({ iso: value, time: new Date(value).getTime() }))
+      .filter((value) => Number.isFinite(value.time));
+
+    if (!validDates.length) return null;
+
+    validDates.sort((a, b) => b.time - a.time);
+    return validDates[0].iso;
+  }
+
+  private createPurchaseCancelledError() {
+    const canceledError = new Error('Purchase cancelled');
+    (canceledError as any).userCancelled = true;
+    (canceledError as any).code = 'PURCHASE_CANCELLED';
+    return canceledError;
+  }
+
   private async ensureInitialized(): Promise<boolean> {
     if (!this.initialized) {
       await this.initialize();
@@ -111,6 +155,33 @@ class RevenueCatService {
     return selectedId ? [selectedId] : [];
   }
 
+  private logConfigurationWarnings() {
+    const { monthly, yearly } = this.getCurrentProductIds();
+    if (!monthly || !yearly) {
+      console.warn('[RevenueCat] Missing product ID env configuration:', {
+        platform: Platform.OS,
+        monthlyConfigured: Boolean(monthly),
+        yearlyConfigured: Boolean(yearly),
+        expectedEnv:
+          Platform.OS === 'ios'
+            ? [
+                'EXPO_PUBLIC_REVENUECAT_IOS_MONTHLY_PRODUCT_ID',
+                'EXPO_PUBLIC_REVENUECAT_IOS_YEARLY_PRODUCT_ID',
+              ]
+            : [
+                'EXPO_PUBLIC_REVENUECAT_ANDROID_MONTHLY_PRODUCT_ID',
+                'EXPO_PUBLIC_REVENUECAT_ANDROID_YEARLY_PRODUCT_ID',
+              ],
+      });
+    }
+
+    if (!ENTITLEMENT_IDS.length) {
+      console.warn(
+        '[RevenueCat] No entitlement IDs configured. Set EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_IDS.'
+      );
+    }
+  }
+
   private isPurchaseCancelled(errorOrMessage: unknown): boolean {
     const message = String(errorOrMessage || '').toLowerCase();
     return message.includes('purchase was cancelled') || message.includes('purchase was canceled');
@@ -161,6 +232,8 @@ class RevenueCatService {
         console.warn('RevenueCat API key not configured');
         return;
       }
+
+      this.logConfigurationWarnings();
 
       Purchases.configure({
         apiKey,
@@ -235,7 +308,7 @@ class RevenueCatService {
       return this.checkPremiumStatus(customerInfo);
     } catch (error: any) {
       if (error.userCancelled) {
-        return false;
+        throw this.createPurchaseCancelledError();
       }
       throw error;
     }
@@ -395,7 +468,7 @@ class RevenueCatService {
       return this.checkPremiumStatus(customerInfo);
     } catch (error: any) {
       if (error.userCancelled) {
-        return false;
+        throw this.createPurchaseCancelledError();
       }
       throw error;
     }
@@ -477,12 +550,33 @@ class RevenueCatService {
   }
 
   getExpirationDate(customerInfo: CustomerInfo): string | null {
-    for (const entitlementId of ENTITLEMENT_IDS) {
-      const entitlement = customerInfo.entitlements.active[entitlementId];
-      if (entitlement?.expirationDate) {
-        return entitlement.expirationDate;
-      }
+    const configuredExpirationDates = ENTITLEMENT_IDS.map(
+      (entitlementId) => customerInfo.entitlements.active[entitlementId]?.expirationDate
+    );
+    const configuredMatch = this.pickLatestIsoDate(configuredExpirationDates);
+    if (configuredMatch) return configuredMatch;
+
+    // Fallback for entitlement ID mismatches between build env and dashboard naming.
+    const activeEntitlementExpirationDates = Object.values(
+      customerInfo.entitlements.active || {}
+    ).map((entitlement) => entitlement?.expirationDate);
+    const activeEntitlementMatch = this.pickLatestIsoDate(
+      activeEntitlementExpirationDates
+    );
+    if (activeEntitlementMatch) return activeEntitlementMatch;
+
+    const activeSubscriptionExpirationDates = this.getActiveSubscriptionIds(
+      customerInfo
+    ).map((productId) => customerInfo.allExpirationDates?.[productId]);
+    const activeSubscriptionMatch = this.pickLatestIsoDate(
+      activeSubscriptionExpirationDates
+    );
+    if (activeSubscriptionMatch) return activeSubscriptionMatch;
+
+    if (customerInfo.latestExpirationDate) {
+      return customerInfo.latestExpirationDate;
     }
+
     return null;
   }
 
@@ -490,11 +584,48 @@ class RevenueCatService {
     return this.checkPremiumStatus(customerInfo);
   }
 
+  private logFallbackPremiumResolution(
+    reason: 'ACTIVE_ENTITLEMENT_FALLBACK' | 'ACTIVE_SUBSCRIPTION_FALLBACK',
+    customerInfo: CustomerInfo
+  ) {
+    const activeEntitlementIds = Object.keys(customerInfo.entitlements.active || {});
+    const activeSubscriptionIds = this.getActiveSubscriptionIds(customerInfo);
+    console.warn('[RevenueCat] Premium resolved via fallback path', {
+      reason,
+      configuredEntitlementIds: ENTITLEMENT_IDS,
+      activeEntitlementIds,
+      activeSubscriptionIds,
+    });
+  }
+
   private checkPremiumStatus(customerInfo: CustomerInfo): boolean {
     const activeEntitlementIds = Object.keys(customerInfo.entitlements.active || {});
-    return activeEntitlementIds.some((activeId) =>
-      ENTITLEMENT_IDS.some((expectedId) => expectedId.toLowerCase() === activeId.toLowerCase())
+    const normalizedConfiguredIds = this.getNormalizedConfiguredEntitlementIds();
+
+    const hasConfiguredEntitlement = activeEntitlementIds.some((activeId) =>
+      normalizedConfiguredIds.includes(activeId.toLowerCase())
     );
+    if (hasConfiguredEntitlement) return true;
+
+    // Assumption: any active entitlement means paid access for this app.
+    if (activeEntitlementIds.length > 0) {
+      this.logFallbackPremiumResolution(
+        'ACTIVE_ENTITLEMENT_FALLBACK',
+        customerInfo
+      );
+      return true;
+    }
+
+    const activeSubscriptionIds = this.getActiveSubscriptionIds(customerInfo);
+    if (activeSubscriptionIds.length > 0) {
+      this.logFallbackPremiumResolution(
+        'ACTIVE_SUBSCRIPTION_FALLBACK',
+        customerInfo
+      );
+      return true;
+    }
+
+    return false;
   }
 }
 

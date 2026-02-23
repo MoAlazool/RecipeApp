@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>EITO — Technical Documentation</title>
+    <meta
+      name="description"
+      content="Technical documentation for EITO: tech stack, architecture, and RevenueCat implementation."
+    />
+    <link rel="icon" type="image/png" href="./assets/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg-noise" aria-hidden="true"></div>
+    <div class="scroll-progress" aria-hidden="true">
+      <span id="scroll-progress-bar"></span>
+    </div>
+
+    <nav class="top-nav">
+      <a class="brand" href="#top">
+        <img src="./assets/icon.png" alt="EITO icon" />
+        <span>EITO</span>
+      </a>
+      <div class="nav-links">
+        <a href="#summary">Summary</a>
+        <a href="#stack">Stack</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#file-tree">Files</a>
+        <a href="#revenuecat">RevenueCat</a>
+        <a href="#features">Features</a>
+        <a href="#screens">Screens</a>
+      </div>
+      <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
+        <svg class="sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.106a.75.75 0 010 1.06l-1.591 1.59a.75.75 0 01-1.06-1.061l1.59-1.591a.75.75 0 011.062 0zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zM17.803 17.803a.75.75 0 01-1.06 0l-1.59-1.591a.75.75 0 111.06-1.06l1.591 1.59a.75.75 0 010 1.061zM12 18.75a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0v-2.25a.75.75 0 01.75-.75zM5.197 17.803a.75.75 0 010-1.06l1.59-1.591a.75.75 0 011.061 1.06l-1.59 1.591a.75.75 0 01-1.06 0zM3 12a.75.75 0 01.75-.75h2.25a.75.75 0 010 1.5H3.75A.75.75 0 013 12zM6.106 5.106a.75.75 0 011.06 0l1.591 1.59a.75.75 0 01-1.06 1.061L5.045 6.167a.75.75 0 010-1.06z"/></svg>
+        <svg class="moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 004.472-.69a.75.75 0 01.82.162a.75.75 0 01-.286.948A10.483 10.483 0 0118 16.5a10.5 10.5 0 01-10.5-10.5c0-1.31.25-2.568.72-3.734a.75.75 0 01.948-.286z" clip-rule="evenodd" /></svg>
+      </button>
+    </nav>
+
+    <aside class="scene-dock" aria-live="polite">
+      <span id="scene-dock-label">01 &bull; Summary</span>
+    </aside>
+
+    <!-- ─── HERO ─── -->
+    <header class="hero" id="top">
+      <div class="hero-content">
+        <div class="hero-icon">
+          <img src="./assets/icon.png" alt="EITO" />
+        </div>
+        <p class="kicker">Technical Documentation</p>
+        <h1>EITO <span class="gradient-text">Architecture</span> &amp; RevenueCat Integration</h1>
+        <p class="lead">
+          A feature-rich AI-powered recipe app with multi-platform video extraction, hands-free cooking mode,
+          Dynamic Island integration, real-time social features, and a hardened RevenueCat subscription
+          pipeline with 3-layer entitlement verification.
+        </p>
+        <div class="hero-chips">
+          <span class="chip">React Native</span>
+          <span class="chip">TypeScript</span>
+          <span class="chip">Expo Router</span>
+          <span class="chip">Firebase</span>
+          <span class="chip chip-accent">RevenueCat v8</span>
+          <span class="chip">Gemini AI</span>
+          <span class="chip">Zustand</span>
+          <span class="chip">Live Activity</span>
+          <span class="chip">Xcode / TestFlight</span>
+        </div>
+        <div class="hero-actions">
+          <a class="btn primary" href="#revenuecat">View RevenueCat Details</a>
+          <a class="btn ghost" href="#features">Explore Features</a>
+        </div>
+      </div>
+    </header>
+
+    <!-- ─── MAIN ─── -->
+    <main class="container">
+
+      <!-- 01 · Executive Summary -->
+      <section class="scene panel is-visible" id="summary" data-scene>
+        <div class="scene-atmo" aria-hidden="true">
+          <span class="orb orb-a" data-depth="0.06"></span>
+          <span class="orb orb-b" data-depth="-0.04"></span>
+        </div>
+        <div class="scene-head">
+          <p class="scene-kicker"><span class="scene-number">01</span> Scene</p>
+          <h2>Executive Summary</h2>
+        </div>
+        <p class="reveal-block">
+          EITO is a production-ready React Native recipe app that extracts recipes from
+          YouTube, TikTok, Instagram, websites, and physical cookbooks using Gemini AI.
+          It features hands-free cooking mode with iOS Dynamic Island, real-time social messaging,
+          and a metered freemium model monetized through RevenueCat. On every purchase or restore,
+          <code>is_premium</code> and <code>premium_expires_at</code> are synced into the Firebase
+          user profile for fast feature-gating, while RevenueCat remains the single source of truth
+          for billing and entitlement lifecycle.
+        </p>
+        <div class="highlight-grid reveal-block reveal-delay-1">
+          <article class="highlight-card">
+            <div class="highlight-dot" style="--dot-color: #f25a5a"></div>
+            <h3>RevenueCat v8</h3>
+            <p>Singleton <code>RevenueCatService</code> class with 4-step package resolution, fallback purchases, real-time listener, and readiness diagnostics.</p>
+          </article>
+          <article class="highlight-card">
+            <div class="highlight-dot" style="--dot-color: #f5820d"></div>
+            <h3>3-Layer Premium Sync</h3>
+            <p>RevenueCat &rarr; Firebase &rarr; Zustand. Every launch reconciles premium status bidirectionally. A <code>useUsageGate</code> hook double-checks RC before blocking any user.</p>
+          </article>
+          <article class="highlight-card">
+            <div class="highlight-dot" style="--dot-color: #6a7b34"></div>
+            <h3>Never False-Negative</h3>
+            <p>Multi-layer entitlement check: configured IDs &rarr; any active entitlement &rarr; active subscriptions. No paying customer is ever wrongly gated.</p>
+          </article>
+        </div>
+      </section>
+
+      <!-- 02 · Tech Stack -->
+      <section class="scene panel" id="stack" data-scene>
+        <div class="scene-atmo" aria-hidden="true">
+          <span class="orb orb-a" data-depth="0.05"></span>
+          <span class="orb orb-b" data-depth="-0.035"></span>
+        </div>
+        <div class="scene-head">
+          <p class="scene-kicker"><span class="scene-number">02</span> Scene</p>
+          <h2>Tech Stack</h2>
+        </div>
+        <div class="stack-grid reveal-block">
+          <article class="stack-card" style="--card-accent: #61dafb">
+            <h3>Mobile</h3>
+            <p class="stack-tech">React Native + TypeScript</p>
+            <p class="stack-note">File-based routing via Expo Router. Reanimated 3 for animations, Gesture Handler for swipe interactions.</p>
+          </article>
+          <article class="stack-card" style="--card-accent: #764abc">
+            <h3>State</h3>
+            <p class="stack-tech">Zustand (10 Stores)</p>
+            <p class="stack-note">Persisted slices for auth, usage, recipes, cooking, shopping, meal planning, messaging, cookbooks, preferences, and pro showcase.</p>
+          </article>
+          <article class="stack-card" style="--card-accent: #f5820d">
+            <h3>Backend</h3>
+            <p class="stack-tech">Firebase (Auth, Firestore, Storage)</p>
+            <p class="stack-note">User profiles, recipes, usage counters, real-time messaging, social graph, and media storage.</p>
+          </article>
+          <article class="stack-card" style="--card-accent: #f25a5a">
+            <h3>Payments</h3>
+            <p class="stack-tech">RevenueCat v8</p>
+            <p class="stack-note">Singleton service with hardened purchase pipeline, 4-step package resolution, real-time subscription listener, and trial eligibility checks.</p>
+          </article>
+          <article class="stack-card" style="--card-accent: #4285f4">
+            <h3>AI Engine</h3>
+            <p class="stack-tech">Google Gemini (Vision + Text)</p>
+            <p class="stack-note">Multi-modal recipe extraction from video transcripts, frames, descriptions, websites, and cookbook page images. AI chef chat for cooking guidance.</p>
+          </article>
+          <article class="stack-card" style="--card-accent: #34c759">
+            <h3>Live Activity</h3>
+            <p class="stack-tech">iOS Dynamic Island (Swift)</p>
+            <p class="stack-note">Native SwiftUI widget showing cooking step progress, active timers, and deep-link tap-to-resume from lock screen.</p>
+          </article>
+          <article class="stack-card" style="--card-accent: #5856d6">
+            <h3>Real-Time Chat</h3>
+            <p class="stack-tech">Firestore Subscriptions</p>
+            <p class="stack-note">1-on-1 and group messaging with recipe/meal-plan/shopping-list sharing, unread badges, and conversation muting.</p>
+          </article>
+          <article class="stack-card" style="--card-accent: #ff9500">
+            <h3>Notifications</h3>
+            <p class="stack-tech">Expo Notifications + Channels</p>
+            <p class="stack-note">Push notifications for messages, scheduled timer alerts with vibration patterns, and Android notification channels.</p>
+          </article>
+          <article class="stack-card" style="--card-accent: #6a7b34">
+            <h3>Build &amp; Release</h3>
+            <p class="stack-tech">Xcode / TestFlight</p>
+            <p class="stack-note">Native iOS builds with Live Activity extension, shipped and tested via TestFlight.</p>
+          </article>
+        </div>
+      </section>
+
+      <!-- 03 · System Architecture -->
+      <section class="scene panel" id="architecture" data-scene>
+        <div class="scene-atmo" aria-hidden="true">
+          <span class="orb orb-a" data-depth="0.065"></span>
+          <span class="orb orb-b" data-depth="-0.045"></span>
+        </div>
+        <div class="scene-head">
+          <p class="scene-kicker"><span class="scene-number">03</span> Scene</p>
+          <h2>System Architecture</h2>
+        </div>
+        <div class="architecture-flow reveal-block">
+          <article class="arch-node">
+            <span class="arch-label">Client</span>
+            <h3>React Native App</h3>
+            <p>10 Zustand stores, paywall, <code>useUsageGate</code> hook, 15+ service modules.</p>
+          </article>
+          <div class="arch-arrow" aria-hidden="true">
+            <svg viewBox="0 0 40 24" fill="none"><path d="M0 12h32m0 0l-8-7m8 7l-8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <article class="arch-node">
+            <span class="arch-label">Backend</span>
+            <h3>Firebase</h3>
+            <p>Auth identities, user profiles, usage limits, recipes, real-time messaging, and social data.</p>
+          </article>
+          <div class="arch-arrow" aria-hidden="true">
+            <svg viewBox="0 0 40 24" fill="none"><path d="M0 12h32m0 0l-8-7m8 7l-8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <article class="arch-node">
+            <span class="arch-label">Payments</span>
+            <h3>RevenueCat + StoreKit</h3>
+            <p>Offerings, purchases, restores, entitlement lifecycle, real-time subscription events.</p>
+          </article>
+        </div>
+        <div class="flow-line reveal-block reveal-delay-1">
+          <p>App launch &rarr; <code>revenueCatService.login(userId)</code> &rarr; bidirectional premium reconciliation (RC &harr; Firebase) &rarr; <code>usageStore.syncFromFirebase()</code> &rarr; <code>addPremiumStatusListener()</code> for real-time subscription changes.</p>
+        </div>
+
+        <div class="cards two reveal-block reveal-delay-2">
+          <article class="card">
+            <h3>3-Layer Premium Check</h3>
+            <p>Premium status is verified at three independent layers, ensuring no paying customer is ever wrongly gated:</p>
+            <ol>
+              <li><strong>Local (Zustand):</strong> <code>user.is_premium</code> in auth store &mdash; instant, used for UI rendering</li>
+              <li><strong>Remote (Firebase):</strong> <code>firebaseService.checkUsageLimits()</code> &mdash; authoritative for usage metering</li>
+              <li><strong>Source of Truth (RevenueCat):</strong> <code>revenueCatService.isPremium()</code> &mdash; real subscription state from App Store</li>
+            </ol>
+          </article>
+          <article class="card">
+            <h3>App-Launch Reconciliation</h3>
+            <p>On every app launch in <code>_layout.tsx</code>, premium status is reconciled bidirectionally:</p>
+            <ul>
+              <li><strong>RC premium &amp; Firebase not:</strong> update Firebase <code>is_premium: true</code> + <code>premium_expires_at</code></li>
+              <li><strong>RC not premium &amp; Firebase is:</strong> update Firebase <code>is_premium: false</code>, clear expiration</li>
+              <li>Auth store and usage store are re-synced after every reconciliation</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <!-- 03b · File Architecture -->
+      <section class="scene panel" id="file-tree" data-scene>
+        <div class="scene-atmo" aria-hidden="true">
+          <span class="orb orb-a" data-depth="0.05"></span>
+          <span class="orb orb-b" data-depth="-0.04"></span>
+        </div>
+        <div class="scene-head">
+          <p class="scene-kicker"><span class="scene-number">03b</span> Scene</p>
+          <h2>File Architecture</h2>
+        </div>
+        <p class="muted reveal-block">The project follows a modular architecture with clear separation of concerns.</p>
+
+        <div class="file-tree reveal-block reveal-delay-1">
+<pre class="tree-block"><code>RecipeApp/
+├── app/                          <span class="tree-comment"># Expo Router file-based routing</span>
+│   ├── _layout.tsx               <span class="tree-comment"># Root layout, auth guard, RC listener</span>
+│   ├── index.tsx                 <span class="tree-comment"># Entry redirect</span>
+│   ├── welcome.tsx               <span class="tree-comment"># Welcome / sign-in screen</span>
+│   ├── onboarding.tsx            <span class="tree-comment"># Onboarding flow</span>
+│   ├── paywall.tsx               <span class="tree-comment"># RevenueCat paywall</span>
+│   ├── subscription.tsx          <span class="tree-comment"># Subscription management</span>
+│   ├── (tabs)/                   <span class="tree-comment"># Bottom tab navigator</span>
+│   │   ├── _layout.tsx           <span class="tree-comment"># Tab bar config</span>
+│   │   ├── index.tsx             <span class="tree-comment"># Home (recipe feed)</span>
+│   │   ├── messages.tsx          <span class="tree-comment"># Messaging hub</span>
+│   │   ├── planner.tsx           <span class="tree-comment"># Meal planner</span>
+│   │   ├── shopping.tsx          <span class="tree-comment"># Shopping lists</span>
+│   │   └── profile.tsx           <span class="tree-comment"># User profile</span>
+│   ├── cooking/[id].tsx          <span class="tree-comment"># Hands-free cooking mode</span>
+│   ├── recipe/[id].tsx           <span class="tree-comment"># Recipe detail</span>
+│   ├── ai-chef-chat.tsx          <span class="tree-comment"># AI chef assistant</span>
+│   ├── fridge-scan.tsx           <span class="tree-comment"># Camera fridge scan</span>
+│   ├── fridge-review.tsx         <span class="tree-comment"># AI detection review</span>
+│   ├── cookbook-scan.tsx          <span class="tree-comment"># Cookbook page scanner</span>
+│   ├── cookbook-review.tsx        <span class="tree-comment"># Cookbook extraction review</span>
+│   ├── chat/                     <span class="tree-comment"># Chat screens (1-on-1, group)</span>
+│   ├── auth/                     <span class="tree-comment"># Auth screens (login, register)</span>
+│   └── ...                       <span class="tree-comment"># 40+ screens total</span>
+│
+├── stores/                       <span class="tree-comment"># Zustand state management (10 stores)</span>
+│   ├── authStore.ts              <span class="tree-comment"># Auth state, premium status, profile</span>
+│   ├── recipeStore.ts            <span class="tree-comment"># Recipe CRUD, favorites, search</span>
+│   ├── cookingStore.ts           <span class="tree-comment"># Active cooking session state</span>
+│   ├── shoppingStore.ts          <span class="tree-comment"># Shopping lists &amp; items</span>
+│   ├── mealPlanStore.ts          <span class="tree-comment"># Weekly meal plans</span>
+│   ├── messagingStore.ts         <span class="tree-comment"># Conversations, messages, unread</span>
+│   ├── usageStore.ts             <span class="tree-comment"># Free-tier usage limits &amp; gates</span>
+│   ├── cookbookStore.ts          <span class="tree-comment"># Cookbook collections</span>
+│   ├── preferencesStore.ts       <span class="tree-comment"># App preferences &amp; settings</span>
+│   └── proShowcaseStore.ts       <span class="tree-comment"># Premium celebration flow</span>
+│
+├── services/                     <span class="tree-comment"># Business logic &amp; API layer (15 services)</span>
+│   ├── revenueCat.service.ts     <span class="tree-comment"># Singleton RC class, purchases, sync</span>
+│   ├── firebase.service.ts       <span class="tree-comment"># Firestore CRUD, auth, storage</span>
+│   ├── ai.service.ts             <span class="tree-comment"># Gemini AI extraction &amp; chat</span>
+│   ├── messaging.service.ts      <span class="tree-comment"># Real-time chat &amp; group messaging</span>
+│   ├── social.service.ts         <span class="tree-comment"># Social graph, follows, blocks</span>
+│   ├── youtube.service.ts        <span class="tree-comment"># YouTube transcript extraction</span>
+│   ├── tiktok.service.ts         <span class="tree-comment"># TikTok video extraction</span>
+│   ├── instagram.service.ts      <span class="tree-comment"># Instagram post extraction</span>
+│   ├── liveActivity.ts           <span class="tree-comment"># iOS Dynamic Island bridge</span>
+│   ├── notifications.service.ts  <span class="tree-comment"># Push &amp; local notifications</span>
+│   ├── pantry.service.ts         <span class="tree-comment"># Fridge scan AI processing</span>
+│   ├── user.service.ts           <span class="tree-comment"># User profiles &amp; search</span>
+│   ├── mealPlanWidget.service.ts <span class="tree-comment"># Home Screen widget sync</span>
+│   └── savedRecipesWidget.service.ts
+│
+├── components/                   <span class="tree-comment"># Reusable UI components</span>
+│   ├── ui/                       <span class="tree-comment"># Shared UI (EmptyState, Loading, UsageLimitSheet)</span>
+│   ├── recipe/                   <span class="tree-comment"># RecipeCard, IngredientList, StepList</span>
+│   ├── cooking/                  <span class="tree-comment"># CookingProgress, CookingTimer</span>
+│   ├── shopping/                 <span class="tree-comment"># AddItemModal</span>
+│   ├── messaging/                <span class="tree-comment"># RecipeMessageCard</span>
+│   ├── planner/                  <span class="tree-comment"># Meal planner components</span>
+│   ├── navigation/               <span class="tree-comment"># Tab bar, headers</span>
+│   └── layout/                   <span class="tree-comment"># Layout wrappers</span>
+│
+├── hooks/                        <span class="tree-comment"># Custom React hooks</span>
+│   ├── useUsageGate.ts           <span class="tree-comment"># 3-layer premium check before gating</span>
+│   ├── useVoiceRecognition.ts    <span class="tree-comment"># Speech-to-text for cooking mode</span>
+│   ├── useTimer.ts               <span class="tree-comment"># Cooking step timers</span>
+│   └── useScreenLayout.ts        <span class="tree-comment"># Responsive layout helpers</span>
+│
+├── constants/                    <span class="tree-comment"># App-wide constants</span>
+│   ├── Theme.ts                  <span class="tree-comment"># Colors, typography, spacing</span>
+│   └── layout.ts                 <span class="tree-comment"># Layout breakpoints</span>
+│
+├── utils/                        <span class="tree-comment"># Utility functions</span>
+│   ├── types.ts                  <span class="tree-comment"># TypeScript interfaces &amp; types</span>
+│   ├── ingredientImages.ts       <span class="tree-comment"># AI ingredient image mapping</span>
+│   ├── imageCache.ts             <span class="tree-comment"># Image caching layer</span>
+│   └── speechRecognition.ts      <span class="tree-comment"># Voice command processing</span>
+│
+├── plugins/                      <span class="tree-comment"># Expo config plugins</span>
+│   ├── withLiveActivities.js     <span class="tree-comment"># Live Activity Xcode extension</span>
+│   └── live-activity-sources/    <span class="tree-comment"># SwiftUI widget source files</span>
+│
+├── ios/                          <span class="tree-comment"># Native iOS (Xcode project)</span>
+│   ├── LiveActivity/             <span class="tree-comment"># Dynamic Island SwiftUI widget</span>
+│   └── RecipeApp.xcodeproj/      <span class="tree-comment"># Xcode build config</span>
+│
+├── functions/                    <span class="tree-comment"># Firebase Cloud Functions</span>
+├── assets/                       <span class="tree-comment"># Images, fonts, animations</span>
+├── app.json                      <span class="tree-comment"># Expo config</span>
+├── eas.json                      <span class="tree-comment"># EAS Build profiles</span>
+├── tsconfig.json                 <span class="tree-comment"># TypeScript config</span>
+└── firebase.json                 <span class="tree-comment"># Firebase project config</span></code></pre>
+        </div>
+      </section>
+
+      <!-- 04 · RevenueCat Implementation -->
+      <section class="scene panel" id="revenuecat" data-scene>
+        <div class="scene-atmo" aria-hidden="true">
+          <span class="orb orb-a" data-depth="0.06"></span>
+          <span class="orb orb-b" data-depth="-0.05"></span>
+        </div>
+        <div class="scene-head">
+          <p class="scene-kicker"><span class="scene-number">04</span> Scene</p>
+          <h2>RevenueCat Implementation</h2>
+        </div>
+
+        <div class="rc-banner reveal-block">
+          <p>All RevenueCat logic lives in a singleton <code>RevenueCatService</code> class (<code>revenueCat.service.ts</code>). The paywall, subscription screen, auth store, root layout, and usage gate hook all consume it.</p>
+        </div>
+
+        <div class="cards two reveal-block reveal-delay-1">
+          <article class="card">
+            <h3>Env-Driven Configuration</h3>
+            <p>Every product ID and API key is read from environment variables at build time. No hardcoded IDs anywhere in the codebase:</p>
+            <ul>
+              <li><code>EXPO_PUBLIC_REVENUECAT_APPLE_KEY</code></li>
+              <li><code>EXPO_PUBLIC_REVENUECAT_IOS_MONTHLY_PRODUCT_ID</code></li>
+              <li><code>EXPO_PUBLIC_REVENUECAT_IOS_YEARLY_PRODUCT_ID</code></li>
+              <li><code>EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_IDS</code> (comma-separated, e.g. <code>pro,premium,EITO Pro</code>)</li>
+            </ul>
+            <p><code>getCurrentProductIds()</code> selects iOS or Android IDs based on <code>Platform.OS</code> at runtime.</p>
+          </article>
+          <article class="card">
+            <h3>4-Step Package Resolution</h3>
+            <p><code>resolvePackageForPlan(offering, plan)</code> walks through four fallback layers to always find a matching package:</p>
+            <ol>
+              <li>Match by <code>packageType</code> (<code>MONTHLY</code> / <code>ANNUAL</code>)</li>
+              <li>Match by RC default identifier (<code>$rc_monthly</code> / <code>$rc_annual</code>)</li>
+              <li>Match by exact configured product ID from env</li>
+              <li>Heuristic regex match on product identifier (<code>/month/i</code>, <code>/(year|annual)/i</code>)</li>
+            </ol>
+            <p>This same resolver is reused in both <strong>pricing display</strong> and <strong>purchase execution</strong>.</p>
+          </article>
+        </div>
+
+        <div class="cards two reveal-block reveal-delay-2">
+          <article class="card">
+            <h3>Purchase Pipeline</h3>
+            <p>From <code>handlePurchase()</code> in the paywall:</p>
+            <ol>
+              <li><code>revenueCatService.login(userId)</code> &mdash; identify the user</li>
+              <li>Try <code>purchasePackage(pkg)</code> from cached offering</li>
+              <li>If no package found, call <code>getFallbackProductForPlan()</code> &rarr; <code>Purchases.getProducts(ids, SUBSCRIPTION)</code></li>
+              <li>If fallback found, purchase via <code>purchaseStoreProduct(product)</code></li>
+              <li>If nothing works, run <code>getPurchaseReadiness(plan)</code> and show a <strong>stage-specific error</strong></li>
+            </ol>
+          </article>
+          <article class="card">
+            <h3>Firebase Sync on Purchase</h3>
+            <p>On successful purchase or restore, <code>unlockPremiumAccess()</code> runs:</p>
+            <ol>
+              <li><code>getExpirationDate(customerInfo)</code> &mdash; 4-level date resolution (configured entitlements &rarr; any active entitlement &rarr; active subscriptions &rarr; <code>latestExpirationDate</code>)</li>
+              <li>Write <code>is_premium: true</code> + <code>premium_expires_at</code> to Firebase profile</li>
+              <li>Trigger <code>proShowcase</code> celebration flow</li>
+              <li>Resync <code>usageStore</code> from Firebase to lift feature limits immediately</li>
+            </ol>
+          </article>
+        </div>
+
+        <div class="cards two reveal-block reveal-delay-2">
+          <article class="card">
+            <h3>Premium Status Check</h3>
+            <p><code>checkPremiumStatus(customerInfo)</code> uses a 3-layer entitlement check to never false-negative:</p>
+            <ol>
+              <li>Check configured entitlement IDs (case-insensitive match)</li>
+              <li>Fallback: any active entitlement in <code>customerInfo.entitlements.active</code></li>
+              <li>Fallback: any active subscription in <code>activeSubscriptions</code> or <code>subscriptionsByProductIdentifier</code></li>
+            </ol>
+            <p>Fallback resolutions are logged with <code>ACTIVE_ENTITLEMENT_FALLBACK</code> or <code>ACTIVE_SUBSCRIPTION_FALLBACK</code> for debugging.</p>
+          </article>
+          <article class="card">
+            <h3>Readiness Diagnostics</h3>
+            <p><code>getPurchaseReadiness(plan)</code> returns typed issues so the paywall shows the <strong>exact problem</strong> instead of a generic error:</p>
+            <ul>
+              <li><code>MISSING_API_KEY</code> &rarr; "RevenueCat API key is missing in this build"</li>
+              <li><code>NO_CURRENT_OFFERING</code> &rarr; "No active offering was returned"</li>
+              <li><code>NO_MATCHING_PACKAGE</code> &rarr; "No matching monthly/yearly package found"</li>
+              <li><code>NO_STORE_PRODUCTS</code> &rarr; "Product IDs not returned by App Store Connect"</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="cards two reveal-block reveal-delay-2">
+          <article class="card">
+            <h3>Usage Gate &mdash; RevenueCat Safety Net</h3>
+            <p>The <code>useUsageGate</code> hook is the last line of defense before blocking any free-tier user. When usage is exhausted:</p>
+            <ol>
+              <li>Check local <code>user.is_premium</code> &mdash; fast path for known premium users</li>
+              <li>Sync latest usage from Firebase</li>
+              <li>If still blocked: <strong>double-check RevenueCat directly</strong> via <code>isPremium()</code></li>
+              <li>If RC says premium: rescue the user, update Firebase + auth store, and allow access</li>
+              <li>Only then show <code>UsageLimitSheet</code> with usage details</li>
+            </ol>
+            <p>This catches edge cases like cold starts, share extensions, or RC sync delays &mdash; <strong>no paying customer is ever wrongly gated</strong>.</p>
+          </article>
+          <article class="card">
+            <h3>Real-Time Subscription Listener</h3>
+            <p><code>addPremiumStatusListener()</code> registers a <code>customerInfoUpdated</code> callback in the root layout that fires on every subscription state change:</p>
+            <ul>
+              <li>Checks <code>hasPremiumEntitlement(customerInfo)</code> on every event</li>
+              <li>Updates <code>is_premium</code> + <code>premium_expires_at</code> in Firebase</li>
+              <li>Updates auth store locally</li>
+              <li>Re-syncs usage store to reflect new limits immediately</li>
+              <li>Handles subscription renewals, expirations, and cancellations in real time</li>
+            </ul>
+            <p>Listener is cleaned up on sign-out via <code>removePremiumStatusListener()</code> + <code>logout()</code>.</p>
+          </article>
+        </div>
+
+        <article class="panel inner reveal-block reveal-delay-2">
+          <h3>Error Handling &amp; Resilience</h3>
+          <ul>
+            <li><strong>Retry empty offerings:</strong> call <code>syncAttributesAndOfferingsIfNeeded()</code>, then retry up to 2 times with incremental delay.</li>
+            <li><strong>Custom log handler:</strong> <code>Purchases.setLogHandler()</code> downgrades offerings config errors, purchase cancellations, and network errors to <code>console.warn</code> instead of <code>console.error</code>.</li>
+            <li><strong>User cancellation:</strong> caught and silently dismissed &mdash; no error alert shown.</li>
+            <li><strong>Network errors:</strong> detected via string matching and shown as "Connection Error" with retry option.</li>
+            <li><strong>Auth sign-out:</strong> <code>revenueCatService.removePremiumStatusListener()</code> and <code>logout()</code> are called before clearing all 10 stores.</li>
+            <li><strong>Paywall retry:</strong> offerings are loaded with up to 3 attempts (1.5s, 3s delays) before showing the paywall with static fallback pricing.</li>
+            <li><strong>Trial eligibility:</strong> <code>checkTrialEligibility()</code> defaults to <code>true</code> on error &mdash; optimistic, never blocks a potential subscriber.</li>
+            <li><strong>Expo Go detection:</strong> paywall detects the Expo Go environment (no IAP support) and shows a specific diagnostic alert.</li>
+          </ul>
+        </article>
+      </section>
+
+      <!-- 05 · Feature Highlights -->
+      <section class="scene panel" id="features" data-scene>
+        <div class="scene-atmo" aria-hidden="true">
+          <span class="orb orb-a" data-depth="0.055"></span>
+          <span class="orb orb-b" data-depth="-0.04"></span>
+        </div>
+        <div class="scene-head">
+          <p class="scene-kicker"><span class="scene-number">05</span> Scene</p>
+          <h2>Feature Highlights</h2>
+        </div>
+        <p class="muted reveal-block">The features that make EITO a production-quality app worth monetizing.</p>
+
+        <div class="cards two reveal-block reveal-delay-1">
+          <article class="card">
+            <h3>AI Multi-Platform Recipe Extraction</h3>
+            <p>Powered by Google Gemini (vision + text), EITO extracts structured recipes from 7 different sources using a 3-tier fallback strategy:</p>
+            <ol>
+              <li><strong>YouTube:</strong> transcript extraction &rarr; Gemini parses recipe from audio text</li>
+              <li><strong>TikTok / Instagram:</strong> description + hashtags &rarr; Gemini infers recipe</li>
+              <li><strong>Websites:</strong> scrape HTML + JSON-LD schema &rarr; Gemini structures the recipe</li>
+              <li><strong>Cookbook pages:</strong> camera capture &rarr; Gemini OCR extracts recipe from page images</li>
+              <li><strong>Fridge scan:</strong> camera detects ingredients &rarr; Gemini suggests 6 varied recipes</li>
+              <li><strong>AI Chef chat:</strong> conversational multi-turn AI cooking assistant</li>
+              <li><strong>Manual entry:</strong> user-created recipes with AI-assisted suggestions</li>
+            </ol>
+            <p>Every extraction produces structured JSON: title, ingredients (categorized), steps (with timings &amp; pro tips), and nutrition estimates (calories, protein, carbs, fat).</p>
+          </article>
+          <article class="card">
+            <h3>iOS Dynamic Island &amp; Live Activity</h3>
+            <p>A native SwiftUI widget built as an Xcode extension that surfaces cooking progress on the iOS lock screen and Dynamic Island:</p>
+            <ul>
+              <li><strong>Step progress:</strong> shows current step instruction and "STEP 3 OF 10" indicator</li>
+              <li><strong>Active timer:</strong> real-time countdown visible from lock screen</li>
+              <li><strong>Timer completion:</strong> green checkmark state when timer finishes</li>
+              <li><strong>Deep-link resume:</strong> tap Dynamic Island &rarr; opens cooking mode at the exact step with action via <code>recipeapp://cooking/:id?laAction=next&amp;laStep=3</code></li>
+              <li><strong>Nonce tracking:</strong> prevents duplicate actions from repeated taps</li>
+            </ul>
+            <p>Implemented with custom SwiftUI styling (gold progress bars, charcoal text) matching the app's luxury aesthetic.</p>
+          </article>
+        </div>
+
+        <div class="cards two reveal-block reveal-delay-2">
+          <article class="card">
+            <h3>Hands-Free Cooking Mode</h3>
+            <p>A full-screen immersive cooking experience in <code>cooking/[id].tsx</code>:</p>
+            <ul>
+              <li><strong>Step-by-step navigation:</strong> swipe gestures (left/right) or voice commands ("next step", "previous step")</li>
+              <li><strong>Multiple simultaneous timers:</strong> each step can have its own active timer with notification + vibration on completion</li>
+              <li><strong>Voice feedback:</strong> reads step instructions aloud for hands-free operation</li>
+              <li><strong>Ingredient scaling:</strong> adjust servings on the fly, all amounts recalculate</li>
+              <li><strong>Mini video player:</strong> embedded WebView for the source video alongside instructions</li>
+              <li><strong>Live Activity sync:</strong> updates Dynamic Island with every step change and timer event</li>
+              <li><strong>Screen awake:</strong> prevents screen from sleeping while cooking</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Real-Time Social &amp; Messaging</h3>
+            <p>A complete social layer built on Firestore real-time subscriptions:</p>
+            <ul>
+              <li><strong>1-on-1 messaging:</strong> direct conversations with any user</li>
+              <li><strong>Group chats:</strong> create groups with admin roles, member management, and custom avatars</li>
+              <li><strong>Rich message types:</strong> text, recipe cards (with thumbnail + cooking time), meal plans (day-by-day breakdown), shopping lists (items by category), and images</li>
+              <li><strong>Unread badges:</strong> real-time count tracking with local notification alerts</li>
+              <li><strong>Mute / block:</strong> per-conversation muting and user blocking</li>
+              <li><strong>Optimistic sending:</strong> messages appear instantly with rollback on failure</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="cards two reveal-block reveal-delay-2">
+          <article class="card">
+            <h3>Metered Freemium Model</h3>
+            <p>Free-tier users get weekly usage limits enforced through Firebase with RevenueCat as the premium unlock:</p>
+            <ul>
+              <li><strong>5 recipes / week</strong> &mdash; from any source (YouTube, TikTok, etc.)</li>
+              <li><strong>3 fridge scans / week</strong> &mdash; AI-powered ingredient detection</li>
+              <li><strong>20 AI chats / week</strong> &mdash; conversational AI chef assistant</li>
+            </ul>
+            <p>Premium users get unlimited access to all features. Usage counters use optimistic updates with rollback, double-tap prevention locks, and weekly auto-reset.</p>
+            <p>The <code>useUsageGate</code> hook checks local &rarr; Firebase &rarr; RevenueCat before ever blocking a user, ensuring zero false negatives.</p>
+          </article>
+          <article class="card">
+            <h3>Meal Planning &amp; Shopping</h3>
+            <p>Full weekly meal planning and shopping list management:</p>
+            <ul>
+              <li><strong>Meal planner:</strong> week/day view with 4 meal slots (breakfast, lunch, dinner, snack), nutrition tracking, copy/paste days</li>
+              <li><strong>Shopping lists:</strong> multiple lists with custom colors/icons, items grouped by category (produce, meat, dairy, pantry, etc.)</li>
+              <li><strong>Smart sorting:</strong> by category, name, checked status, recent, or recipe</li>
+              <li><strong>Sharing:</strong> send recipes, meal plans, or shopping lists directly to friends or group chats</li>
+              <li><strong>Home Screen widgets:</strong> native widgets syncing saved recipes and upcoming meals to the iOS Home Screen</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <!-- App Store Preview Banner -->
+      <section class="scene panel" style="text-align:center;">
+        <img src="./assets/app-store-preview.png" alt="EITO App Store preview – Cook Smarter, Faster" style="width:100%;max-width:1200px;border-radius:1rem;" />
+      </section>
+
+      <!-- 06 · App Screenshots -->
+      <section class="scene panel" id="screens" data-scene>
+        <div class="scene-atmo" aria-hidden="true">
+          <span class="orb orb-a" data-depth="0.05"></span>
+          <span class="orb orb-b" data-depth="-0.04"></span>
+        </div>
+        <div class="scene-head">
+          <p class="scene-kicker"><span class="scene-number">06</span> Scene</p>
+          <h2>App Screenshots</h2>
+        </div>
+
+        <p class="muted reveal-block"><strong>Onboarding &amp; Monetization</strong> &mdash; Welcome screen, paywall with RevenueCat pricing, and recipe discovery.</p>
+        <div class="gallery reveal-block reveal-delay-1">
+          <figure class="phone-frame">
+            <img src="./assets/screen-welcome.png" alt="Welcome screen with Apple, Google, and email sign-up" />
+            <figcaption>Welcome</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-paywall.png" alt="Paywall with annual and monthly plans" />
+            <figcaption>Paywall (RevenueCat)</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-home.png" alt="Home screen with recipes" />
+            <figcaption>Home</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-ai-extract.png" alt="AI extracting recipe from Instagram" />
+            <figcaption>AI Recipe Extraction</figcaption>
+          </figure>
+        </div>
+
+        <p class="muted reveal-block" style="margin-top: 1.6rem;"><strong>Discover &amp; Cook</strong> &mdash; From recipe detail to hands-free cooking mode.</p>
+        <div class="gallery reveal-block reveal-delay-1">
+          <figure class="phone-frame">
+            <img src="./assets/screen-recipe.png" alt="Recipe detail screen" />
+            <figcaption>Recipe Detail</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-cooking.png" alt="Cooking mode with voice commands" />
+            <figcaption>Cooking Mode</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-liveactivity.png" alt="Live Activity on lock screen with timer" />
+            <figcaption>Lock Screen Live Activity</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-dynamic-island.png" alt="Dynamic Island showing cooking progress" />
+            <figcaption>Dynamic Island</figcaption>
+          </figure>
+        </div>
+
+        <p class="muted reveal-block" style="margin-top: 1.6rem;"><strong>AI Fridge Scan</strong> &mdash; Scan your fridge, detect ingredients with AI, and get personalized recipe suggestions.</p>
+        <div class="gallery reveal-block reveal-delay-1">
+          <figure class="phone-frame">
+            <img src="./assets/screen-fridge-review.png" alt="AI fridge scan detecting 31 items with confidence scores" />
+            <figcaption>AI Detection (31 Items)</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-curated.png" alt="AI-curated recipe suggestions from fridge items" />
+            <figcaption>AI Curated Recipes</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-recent-scans.png" alt="Recent fridge scan history" />
+            <figcaption>Scan History</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-fridge.png" alt="Detected ingredients with images" />
+            <figcaption>Detected Ingredients</figcaption>
+          </figure>
+        </div>
+
+        <p class="muted reveal-block" style="margin-top: 1.6rem;"><strong>Plan &amp; Share</strong> &mdash; Meal planning, smart shopping lists, and social recipe sharing.</p>
+        <div class="gallery reveal-block reveal-delay-1">
+          <figure class="phone-frame">
+            <img src="./assets/screen-planner.png" alt="Meal planner day view" />
+            <figcaption>Meal Planner</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-grocery.png" alt="Grocery shopping list" />
+            <figcaption>Grocery List</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-messages.png" alt="Messages screen with conversations" />
+            <figcaption>Messages</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-social.png" alt="Group chat with recipe and meal plan sharing" />
+            <figcaption>Social Messaging</figcaption>
+          </figure>
+        </div>
+
+        <p class="muted reveal-block" style="margin-top: 1.6rem;"><strong>Share &amp; Grow</strong> &mdash; Auto-generated recipe cards with App Store Smart Banner for organic growth.</p>
+        <div class="gallery reveal-block reveal-delay-1">
+          <figure class="phone-frame">
+            <img src="./assets/screen-share-extension.jpg" alt="iOS share sheet showing EITO as a share target from Instagram" />
+            <figcaption>Share to EITO</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-share.png" alt="Share recipe creation to Instagram" />
+            <figcaption>Share Your Creation</figcaption>
+          </figure>
+          <figure class="phone-frame">
+            <img src="./assets/screen-ig-story.png" alt="Instagram story with recipe card and EITO app link" />
+            <figcaption>IG Story + App Link</figcaption>
+          </figure>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ─── FOOTER ─── -->
+    <footer class="footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <img src="./assets/icon.png" alt="EITO" />
+          <span>EITO</span>
+        </div>
+        <p>Built with React Native &middot; AI by Google Gemini &middot; Monetized via RevenueCat &middot; Shipped via Xcode / TestFlight</p>
+        <p class="footer-sub">Submission documentation &middot; February 2026</p>
+      </div>
+    </footer>
+    <script src="./scenes.js" defer></script>
+  </body>
+</html>

@@ -110,11 +110,17 @@ struct LiveActivityWidget: Widget {
 
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: LiveActivityAttributes.self) { context in
+      let presentation = LiveActivityPresentation(subtitle: context.state.subtitle)
+      let resumePath = liveActivityResumePath(
+        basePath: context.attributes.deepLinkUrl,
+        stepIndex: max(presentation.step - 1, 0)
+      )
+
       // Lock screen / notification center
       LiveActivityView(contentState: context.state, attributes: context.attributes)
         .activityBackgroundTint(Color.black)
         .activitySystemActionForegroundColor(.white)
-        .applyWidgetURL(from: context.attributes.deepLinkUrl)
+        .applyWidgetURL(from: resumePath)
 
     } dynamicIsland: { context in
       let presentation = LiveActivityPresentation(subtitle: context.state.subtitle)
@@ -124,6 +130,11 @@ struct LiveActivityWidget: Widget {
       let iconName = context.state.dynamicIslandImageName ?? context.state.imageName
       let timerDate = context.state.timerEndDateInMilliseconds ?? 0
       let isDone = context.state.isTimerDone == true || (timerDate > 0 && (timerDate / 1000) <= (Date().timeIntervalSince1970 + 1.2))
+      let compactStepCounterText = "\(presentation.step)/\(presentation.total)"
+      let resumePath = liveActivityResumePath(
+        basePath: context.attributes.deepLinkUrl,
+        stepIndex: max(presentation.step - 1, 0)
+      )
 
       return DynamicIsland {
         // ── Leading: compact step label ──
@@ -132,6 +143,7 @@ struct LiveActivityWidget: Widget {
             .font(.system(size: 13, weight: .bold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(.white.opacity(0.7))
+            .applyWidgetURL(from: resumePath)
         }
 
         // ── Trailing: brand (timer is shown large in the bottom region) ──
@@ -139,6 +151,7 @@ struct LiveActivityWidget: Widget {
           Text("EITO")
             .font(.system(size: 13, weight: .black, design: .serif))
             .foregroundStyle(accentColor)
+            .applyWidgetURL(from: resumePath)
         }
 
         // ── Bottom: all main content ──
@@ -201,7 +214,7 @@ struct LiveActivityWidget: Widget {
           }
           .padding(.top, 6)
           .padding(.bottom, 6)
-          .applyWidgetURL(from: context.attributes.deepLinkUrl)
+          .applyWidgetURL(from: resumePath)
         }
       } compactLeading: {
         // ── Compact leading: icon ──
@@ -212,7 +225,7 @@ struct LiveActivityWidget: Widget {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.green)
             } else {
-              Image(systemName: "timer")
+              Image(systemName: "clock.fill")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(accentColor)
             }
@@ -221,33 +234,46 @@ struct LiveActivityWidget: Widget {
           }
         }
         .frame(width: 22, height: 22)
+        .applyWidgetURL(from: resumePath)
       } compactTrailing: {
         // ── Compact trailing: timer or step ──
-        Group {
-          if timerDate > 0 {
-            if isDone {
-              Image(systemName: "checkmark")
-                .font(.system(size: 10, weight: .black))
-                .foregroundStyle(.green)
+        ZStack(alignment: .trailing) {
+          Text(compactStepCounterText)
+            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.clear)
+            .accessibilityHidden(true)
+
+          Group {
+            if timerDate > 0 {
+              if isDone {
+                Image(systemName: "checkmark")
+                  .font(.system(size: 10, weight: .black))
+                  .foregroundStyle(.green)
+              } else {
+                Text(timerInterval: Date.toTimerInterval(miliseconds: timerDate), countsDown: true)
+                  .font(.system(size: 12, weight: .bold, design: .rounded))
+                  .monospacedDigit()
+                  .minimumScaleFactor(0.6)
+                  .lineLimit(1)
+                  .foregroundStyle(accentColor)
+              }
             } else {
-              Text(timerInterval: Date.now...Date(timeIntervalSince1970: timerDate / 1000), countsDown: true)
+              Text(compactStepCounterText)
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(accentColor)
+                .foregroundStyle(.white.opacity(0.7))
             }
-          } else {
-            Text("\(presentation.step)/\(presentation.total)")
-              .font(.system(size: 12, weight: .bold, design: .rounded))
-              .monospacedDigit()
-              .foregroundStyle(.white.opacity(0.7))
           }
+          .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .fixedSize()
+        .fixedSize(horizontal: true, vertical: false)
         .frame(height: 22)
+        .applyWidgetURL(from: resumePath)
       } minimal: {
         // ── Minimal: small icon ──
         AppLogoView(imageName: iconName, size: 24)
-          .applyWidgetURL(from: context.attributes.deepLinkUrl)
+          .applyWidgetURL(from: resumePath)
       }
       .keylineTint(accentColor.opacity(0.3))
     }

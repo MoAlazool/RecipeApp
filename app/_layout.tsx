@@ -168,25 +168,34 @@ export default function RootLayout() {
               rcReadinessLoggedRef.current = true;
             }
 
-            const rcIsPremium = await revenueCatService.isPremium();
             const customerInfo = await revenueCatService.getCustomerInfo();
-            const expirationDate = customerInfo
-              ? revenueCatService.getExpirationDate(customerInfo)
-              : null;
+            if (!customerInfo) {
+              console.warn('[RevenueCat] Skipping premium reconciliation: customer info unavailable');
+              await useUsageStore.getState().syncFromFirebase();
+              return;
+            }
+
+            const rcIsPremium = revenueCatService.hasPremiumEntitlement(customerInfo);
+            const expirationDate = revenueCatService.getExpirationDate(customerInfo);
+            const currentUser = useAuthStore.getState().user;
+            if (!currentUser || currentUser.id !== user.id) {
+              await useUsageStore.getState().syncFromFirebase();
+              return;
+            }
 
             // Sync RC → Firebase: RC says premium but Firebase says no
-            if (rcIsPremium && !user.is_premium) {
+            if (rcIsPremium && !currentUser.is_premium) {
               const updates: Record<string, any> = { is_premium: true };
               if (expirationDate) updates.premium_expires_at = expirationDate;
-              await firebaseService.updateProfile(user.id, updates);
+              await firebaseService.updateProfile(currentUser.id, updates);
               useAuthStore.setState((state) => ({
                 user: state.user ? { ...state.user, ...updates } : null,
               }));
             }
             // Sync RC → Firebase: RC says NOT premium but Firebase says yes
-            if (!rcIsPremium && user.is_premium) {
+            if (!rcIsPremium && currentUser.is_premium) {
               const updates = { is_premium: false, premium_expires_at: null };
-              await firebaseService.updateProfile(user.id, updates);
+              await firebaseService.updateProfile(currentUser.id, updates);
               useAuthStore.setState((state) => ({
                 user: state.user ? { ...state.user, ...updates } : null,
               }));
@@ -243,7 +252,7 @@ export default function RootLayout() {
       unsubscribeFromConversations();
       if (removeRCListener) removeRCListener();
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.id]);
 
   // Fire local notification when a conversation's unread count increases
   useEffect(() => {
@@ -318,7 +327,7 @@ export default function RootLayout() {
         return;
       }
 
-      // URL format: recipeapp://cooking/<recipeId>?laAction=next|prev
+      // URL format: recipeapp://cooking/<recipeId>?laAction=next|prev|timer&laStep=<index>
       const cookingMatch = url.match(/cooking\/([^?/]+)/);
       if (!cookingMatch?.[1]) return;
 
@@ -327,10 +336,26 @@ export default function RootLayout() {
       const params = new URLSearchParams(rawQuery);
       const action = params.get('laAction');
       const validAction = action === 'next' || action === 'prev' || action === 'timer' ? action : null;
+      const laSource = params.get('laSource');
+      const laStepParam = params.get('laStep');
+      const parsedStep = laStepParam == null ? Number.NaN : Number.parseInt(laStepParam, 10);
+      const validStep = Number.isInteger(parsedStep) && parsedStep >= 0 ? parsedStep : null;
 
-      const query = validAction
-        ? `?laAction=${validAction}&laSource=liveActivity&laNonce=${Date.now()}`
-        : '';
+      const queryParams: string[] = [];
+      if (validAction) {
+        queryParams.push(`laAction=${validAction}`);
+      }
+      if (validStep != null) {
+        queryParams.push(`laStep=${validStep}`);
+      }
+      if (laSource === 'liveActivity' || validAction || validStep != null) {
+        queryParams.push('laSource=liveActivity');
+      }
+      if (validAction) {
+        queryParams.push(`laNonce=${Date.now()}`);
+      }
+
+      const query = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
       const target = `/cooking/${recipeId}${query}` as any;
 
       if (pathname?.startsWith(`/cooking/${recipeId}`)) {

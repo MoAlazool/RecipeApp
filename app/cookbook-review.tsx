@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -18,7 +18,6 @@ import { useRecipeStore } from '@/stores/recipeStore';
 import { useUsageStore } from '@/stores/usageStore';
 import { useAuthStore } from '@/stores/authStore';
 import { FREE_PLAN_LIMITS } from '@/utils/types';
-import { getRecipeImage } from '@/utils/recipePlaceholders';
 import { useUsageGate } from '@/hooks/useUsageGate';
 import UsageLimitSheet from '@/components/ui/UsageLimitSheet';
 import type { ExtractedRecipe } from '@/utils/types';
@@ -33,11 +32,14 @@ export default function CookbookReviewScreen() {
   const [extractedRecipe, setExtractedRecipe] = useState<ExtractedRecipe | null>(null);
   const [recipeImageUrl, setRecipeImageUrl] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(true);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const extractionRunIdRef = useRef(0);
 
   const pageUris: string[] = params.pages ? JSON.parse(params.pages) : [];
+  const pagePreviewImage = pageUris[0] || null;
 
   const groupBy = <T extends { group?: string }>(items: T[]): Map<string | null, T[]> => {
     const map = new Map<string | null, T[]>();
@@ -55,6 +57,9 @@ export default function CookbookReviewScreen() {
 
   useEffect(() => {
     gatedExtract();
+    return () => {
+      extractionRunIdRef.current += 1;
+    };
   }, []);
 
   const gatedExtract = async () => {
@@ -67,22 +72,36 @@ export default function CookbookReviewScreen() {
   };
 
   const extractRecipe = async () => {
+    const runId = ++extractionRunIdRef.current;
     setIsExtracting(true);
+    setIsGeneratingImage(false);
     setError(null);
+    setRecipeImageUrl(null);
     try {
       const recipe = await aiService.extractRecipeFromCookbookPages(pageUris);
-      try {
-        const base64 = await aiService.generateRecipeImage(recipe.title);
-        setRecipeImageUrl(`data:image/png;base64,${base64}`);
-      } catch {
-        const ingredientNames = recipe.ingredients?.map(i => i.name) || [];
-        const foodKeywords = (recipe as any).food_keywords as string[] | undefined;
-        setRecipeImageUrl(getRecipeImage(null, recipe.title, recipe.cuisine_type, ingredientNames, foodKeywords));
-      }
+      if (extractionRunIdRef.current !== runId) return;
       setExtractedRecipe(recipe);
+      setIsExtracting(false);
+
+      // Run AI image generation in background (non-blocking for UI).
+      setIsGeneratingImage(true);
+      aiService.generateRecipeImage(recipe.title)
+        .then((base64) => {
+          if (extractionRunIdRef.current !== runId) return;
+          setRecipeImageUrl(`data:image/png;base64,${base64}`);
+        })
+        .catch((imageErr) => {
+          console.warn('[CookbookReview] Background image generation failed', imageErr);
+        })
+        .finally(() => {
+          if (extractionRunIdRef.current !== runId) return;
+          setIsGeneratingImage(false);
+        });
     } catch (err: any) {
+      if (extractionRunIdRef.current !== runId) return;
       setError(err.message || 'Failed to extract recipe');
     } finally {
+      if (extractionRunIdRef.current !== runId) return;
       setIsExtracting(false);
     }
   };
@@ -94,7 +113,8 @@ export default function CookbookReviewScreen() {
     if (!extractedRecipe) return;
     setIsSaving(true);
     try {
-      await addRecipe(extractedRecipe, undefined, recipeImageUrl || undefined, 'cookbook_scan');
+      const imageForSave = recipeImageUrl?.startsWith('data:image') ? recipeImageUrl : undefined;
+      await addRecipe(extractedRecipe, undefined, imageForSave, 'cookbook_scan');
       await useUsageStore.getState().incrementUsage('recipe');
       setIsSaved(true);
       Alert.alert('Saved!', 'Recipe added to your collection', [
@@ -176,13 +196,19 @@ export default function CookbookReviewScreen() {
             showsVerticalScrollIndicator={false}
           >
             {/* Hero Image */}
-            {recipeImageUrl && (
+            {(recipeImageUrl || pagePreviewImage) && (
               <View style={styles.heroWrap}>
-                <Image source={{ uri: recipeImageUrl }} style={styles.heroImg} />
+                <Image source={{ uri: recipeImageUrl || pagePreviewImage || '' }} style={styles.heroImg} />
                 <LinearGradient
                   colors={['transparent', 'rgba(0,0,0,0.5)']}
                   style={styles.heroGradient}
                 />
+              </View>
+            )}
+            {isGeneratingImage && (
+              <View style={styles.imageGeneratingHint}>
+                <ActivityIndicator size="small" color="#D4AF37" />
+                <Text style={styles.imageGeneratingHintText}>Generating recipe image...</Text>
               </View>
             )}
 
@@ -556,6 +582,18 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     height: 80,
+  },
+  imageGeneratingHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: -8,
+    marginBottom: 14,
+  },
+  imageGeneratingHintText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 12,
+    color: '#8A8578',
   },
 
   // ── Recipe Header ──

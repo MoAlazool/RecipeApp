@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { firebaseService } from '@/services/firebase.service';
+import { revenueCatService } from '@/services/revenueCat.service';
 import { useRecipeStore } from './recipeStore';
 import { useShoppingStore } from './shoppingStore';
 import { useMessagingStore } from './messagingStore';
@@ -279,6 +280,10 @@ export const useAuthStore = create<AuthState>()(
 
       signOut: async () => {
         try {
+          // Ensure RevenueCat listener/identity is cleared before local teardown
+          revenueCatService.removePremiumStatusListener();
+          await revenueCatService.logout();
+
           await firebaseService.signOut();
 
           // Clear all app data
